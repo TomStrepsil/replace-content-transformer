@@ -78,12 +78,8 @@ jobs:
             fi
           done <<< "$MERGE_COMMITS"
           
-          # Parse current version from package.json or use latest tag
-          if [ -f "package.json" ]; then
-            CURRENT_VERSION=$(node -p "require('./package.json').version")
-          else
-            CURRENT_VERSION=${LATEST_TAG#v}
-          fi
+          # Parse current version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
           
           echo "Current version: $CURRENT_VERSION"
           
