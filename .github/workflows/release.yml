@@ -2,7 +2,7 @@ name: Release
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   release:
@@ -140,6 +140,10 @@ jobs:
 
       - name: Create and push tag
         run: |
+          # Delete the original tag if it exists (from the release creation)
+          git push --delete origin "${{ github.event.release.tag_name }}" || true
+          git tag -d "${{ github.event.release.tag_name }}" || true
+          
           # Create the tag pointing to the commit with updated files
           git tag -a "v${{ steps.npm_version.outputs.version }}" -m "Release version ${{ steps.npm_version.outputs.version }}"
           git push origin "v${{ steps.npm_version.outputs.version }}"
@@ -149,6 +153,9 @@ jobs:
         with:
           script: |
             const release = context.payload.release;
+            
+            // Wait a moment for the tag to be available
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
             // Update the release with the correct tag and details
             await github.rest.repos.updateRelease({
