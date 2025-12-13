@@ -50,3 +50,31 @@ jobs:
             exit 1
           fi
           echo "✓ CHANGELOG.md has entries under [Unreleased]"
+      
+      - name: Check for semver selection
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          echo "Checking PR description for semver selection..."
+          
+          # Check if at least one semver checkbox is selected
+          if echo "$PR_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
+            echo "✓ MAJOR version bump selected"
+            exit 0
+          elif echo "$PR_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
+            echo "✓ MINOR version bump selected"
+            exit 0
+          elif echo "$PR_BODY" | grep -q "\[x\] \*\*PATCH\*\*"; then
+            echo "✓ PATCH version bump selected"
+            exit 0
+          else
+            echo "❌ Error: No semver checkbox selected in PR description"
+            echo ""
+            echo "Please select one of the following in your PR description:"
+            echo "  - [x] **PATCH** - Bug fixes and minor changes (backwards compatible)"
+            echo "  - [x] **MINOR** - New features (backwards compatible)"
+            echo "  - [x] **MAJOR** - Breaking changes (not backwards compatible)"
+            echo ""
+            echo "This is required for automated version management during releases."
+            exit 1
+          fi

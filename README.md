@@ -80,8 +80,6 @@ Releases are automated based on semver selections in merged PRs:
 5. Edit and curate the release notes as needed
 6. Click "**Publish release**" when ready
 
-**Important**: Ensure all PRs have a semver checkbox selected (PATCH/MINOR/MAJOR) in their description before merging.
-
 **Note**: The release is created as a draft with all file updates already committed, allowing manual curation of release notes before publishing.
 
 ## Branch Protection
