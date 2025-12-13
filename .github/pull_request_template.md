@@ -2,18 +2,9 @@
 
 <!-- Provide a brief description of the changes in this PR -->
 
-## Type of Change
-
-<!-- Check the appropriate box(es) -->
-
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
-
 ## Semantic Version Impact
 
-<!-- Select ONE checkbox to indicate the semver impact of this change -->
+<!-- Select ONE checkbox to indicate the semver impact of this change. Learn more at https://semver.org/ -->
 
 - [ ] **PATCH** - Bug fixes and minor changes (backwards compatible)
 - [ ] **MINOR** - New features (backwards compatible)
