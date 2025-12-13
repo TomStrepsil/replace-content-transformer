@@ -18,18 +18,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Remove tag if release was deleted
+      - name: Remove tag if draft release was deleted
         run: |
           TAG_NAME="${{ github.event.release.tag_name }}"
+          WAS_DRAFT="${{ github.event.release.draft }}"
           
           echo "Release '${{ github.event.release.name }}' was deleted"
+          echo "Was draft: $WAS_DRAFT"
+          
+          # Only remove tags for draft releases
+          if [ "$WAS_DRAFT" != "true" ]; then
+            echo "This was a published release, not removing tag"
+            echo "Note: Published releases should keep their tags for history"
+            exit 0
+          fi
+          
           echo "Checking if tag '$TAG_NAME' should be removed..."
           
           # Check if the tag exists
           if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
             echo "Tag '$TAG_NAME' exists, removing it..."
-            git push origin --delete "$TAG_NAME"
-            echo "✓ Tag '$TAG_NAME' has been removed"
+            if git push origin --delete "$TAG_NAME" 2>&1; then
+              echo "✓ Tag '$TAG_NAME' has been removed"
+            else
+              echo "❌ Failed to remove tag '$TAG_NAME'"
+              echo "This could be due to permissions or network issues"
+              exit 1
+            fi
           else
             echo "Tag '$TAG_NAME' does not exist (already removed or never created)"
           fi
