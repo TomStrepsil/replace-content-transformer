@@ -38,12 +38,19 @@ jobs:
       - name: Determine version bump from merged PRs
         id: version
         run: |
-          # Get the latest tag, default to 0.0.0 if no tags exist
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Latest tag: $LATEST_TAG"
+          # Get the latest tag, default to v0.0.0 if no tags exist
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           
-          # Get all merged PRs since the last tag
-          MERGE_COMMITS=$(git log ${LATEST_TAG}..HEAD --merges --pretty=format:"%H %s" || git log HEAD --merges --pretty=format:"%H %s")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No tags found, starting from version 0.0.0"
+            LATEST_TAG="v0.0.0"
+            # Get all merge commits in the repository
+            MERGE_COMMITS=$(git log --merges --pretty=format:"%H %s")
+          else
+            echo "Latest tag: $LATEST_TAG"
+            # Get all merged PRs since the last tag
+            MERGE_COMMITS=$(git log ${LATEST_TAG}..HEAD --merges --pretty=format:"%H %s")
+          fi
           
           # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
           MAX_BUMP=1  # Default to patch if no explicit selection found
@@ -68,11 +75,6 @@ jobs:
               if [ $MAX_BUMP -lt 2 ]; then
                 MAX_BUMP=2
               fi
-            elif echo "$PR_BODY" | grep -q "\[x\] \*\*PATCH\*\*"; then
-              echo "Found PATCH bump in commit $COMMIT_HASH"
-              if [ $MAX_BUMP -lt 1 ]; then
-                MAX_BUMP=1
-              fi
             fi
           done <<< "$MERGE_COMMITS"
           
@@ -88,8 +90,11 @@ jobs:
           # Split version into parts
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
           
-          # Remove any non-numeric suffixes (like -beta, -alpha, etc.)
-          PATCH=$(echo $PATCH | grep -o '^[0-9]*')
+          # Remove any non-numeric suffixes (like -beta, -alpha, etc.) and ensure it's not empty
+          PATCH=$(echo $PATCH | grep -o '^[0-9]*' || echo "0")
+          if [ -z "$PATCH" ]; then
+            PATCH=0
+          fi
           
           # Apply version bump
           case $MAX_BUMP in
