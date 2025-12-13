@@ -77,11 +77,14 @@ Releases are automated based on semver selections in merged PRs:
    - Update CHANGELOG.md with the release date
    - Commit the changes
    - Create a git tag with the calculated version
-   - Create a GitHub release with all updates already included
+   - **Create a draft release** with auto-generated release notes
+6. Go to the **Releases** page to review the draft release
+7. Edit and curate the release notes as needed
+8. Click "**Publish release**" when ready
 
 **Important**: Ensure all PRs have a semver checkbox selected (PATCH/MINOR/MAJOR) in their description before merging.
 
-**Note**: The release is created with all file updates already committed, so no polling or post-creation updates are needed.
+**Note**: The release is created as a draft with all file updates already committed, allowing manual curation of release notes before publishing.
 
 ## Branch Protection
 
