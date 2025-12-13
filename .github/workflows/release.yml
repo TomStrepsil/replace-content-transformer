@@ -97,6 +97,7 @@ jobs:
           echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
 
       - name: Update version in package.json
+        id: npm_version
         run: |
           # Use npm version to automatically bump the version
           npm version ${{ steps.version.outputs.bump_type }} --no-git-tag-version
@@ -106,11 +107,11 @@ jobs:
           echo "New version: $NEW_VERSION"
           
           # Export for later steps
-          echo "version=$NEW_VERSION" >> $GITHUB_ENV
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Update CHANGELOG.md
         run: |
-          VERSION="${{ env.version }}"
+          VERSION="${{ steps.npm_version.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
           
           # Create a temporary file
@@ -133,23 +134,23 @@ jobs:
       - name: Commit changelog and version bump
         run: |
           git add CHANGELOG.md package.json package-lock.json
-          git commit -m "Release version ${{ env.version }}"
+          git commit -m "Release version ${{ steps.npm_version.outputs.version }}"
           git push
 
       - name: Create and push tag
         run: |
-          git tag -a "v${{ env.version }}" -m "Release version ${{ env.version }}"
-          git push origin "v${{ env.version }}"
+          git tag -a "v${{ steps.npm_version.outputs.version }}" -m "Release version ${{ steps.npm_version.outputs.version }}"
+          git push origin "v${{ steps.npm_version.outputs.version }}"
 
       - name: Create GitHub Release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ env.version }}
-          release_name: Release v${{ env.version }}
+          tag_name: v${{ steps.npm_version.outputs.version }}
+          release_name: Release v${{ steps.npm_version.outputs.version }}
           body: |
-            Release version ${{ env.version }} (${{ steps.version.outputs.bump_type }} bump)
+            Release version ${{ steps.npm_version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)
             
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
           draft: false
