@@ -1,8 +1,12 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "release" to confirm'
+        required: true
+        default: ''
 
 jobs:
   release:
@@ -11,6 +15,14 @@ jobs:
       contents: write
     
     steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "release" ]; then
+            echo "❌ Release not confirmed. Please type 'release' to confirm."
+            exit 1
+          fi
+          echo "✓ Release confirmed"
+      
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -142,50 +154,23 @@ jobs:
 
       - name: Create and push tag
         run: |
-          # Delete the original tag if it exists (from the release creation)
-          git push --delete origin "${{ github.event.release.tag_name }}" || true
-          git tag -d "${{ github.event.release.tag_name }}" || true
-          
           # Create the tag pointing to the commit with updated files
           git tag -a "v${{ steps.npm_version.outputs.version }}" -m "Release version ${{ steps.npm_version.outputs.version }}"
           git push origin "v${{ steps.npm_version.outputs.version }}"
       
-      - name: Update GitHub Release
+      - name: Create GitHub Release
         uses: actions/github-script@v7
         with:
           script: |
-            const release = context.payload.release;
             const tagName = 'v${{ steps.npm_version.outputs.version }}';
             
-            // Wait for tag to be available with retry logic
-            let tagExists = false;
-            for (let i = 0; i < 10; i++) {
-              try {
-                await github.rest.git.getRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: `tags/${tagName}`
-                });
-                tagExists = true;
-                break;
-              } catch (error) {
-                if (i < 9) {
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-              }
-            }
-            
-            if (!tagExists) {
-              throw new Error(`Tag ${tagName} not found after retries`);
-            }
-            
-            // Update the release with the correct tag and details
-            await github.rest.repos.updateRelease({
+            // Create the release with all updates already in place
+            await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              release_id: release.id,
               tag_name: tagName,
               name: `Release ${tagName}`,
               body: `Release version ${{ steps.npm_version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)\n\nSee [CHANGELOG.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CHANGELOG.md) for details.`,
-              draft: false
+              draft: false,
+              prerelease: false
             });
