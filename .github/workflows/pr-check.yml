@@ -36,7 +36,14 @@ jobs:
           fi
           
           # Check if there are actual changes under [Unreleased]
-          if ! awk '/## \[Unreleased\]/,/## \[/' CHANGELOG.md | grep -q "^### "; then
+          UNRELEASED_CONTENT=$(sed -n '/## \[Unreleased\]/,/^## \[/p' CHANGELOG.md)
+          if ! echo "$UNRELEASED_CONTENT" | grep -q "^### "; then
             echo "Error: Please add an entry under [Unreleased] in CHANGELOG.md"
+            echo "Expected format:"
+            echo "## [Unreleased]"
+            echo ""
+            echo "### Added"
+            echo "- Your change description"
             exit 1
           fi
+          echo "✓ CHANGELOG.md has entries under [Unreleased]"
