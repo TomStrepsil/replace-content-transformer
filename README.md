@@ -65,17 +65,19 @@ npm run test:watch
 
 Releases are automated based on semver selections in merged PRs:
 
-1. Go to Actions → Release workflow
-2. Click "Run workflow"
-3. The workflow will automatically:
+1. Go to the repository's **Releases** page
+2. Click "**Draft a new release**"
+3. Create a draft release (the tag name and version will be auto-determined)
+4. Click "**Publish release**"
+5. The release workflow will automatically:
    - Analyze all merged PRs since the last release
    - Determine the version bump based on the highest semver selection (MAJOR > MINOR > PATCH)
-   - Calculate the next version number
+   - Calculate the next version number using `npm version`
    - Update package.json version
    - Update CHANGELOG.md with the release date
    - Commit the changes
-   - Create a git tag
-   - Create a GitHub release
+   - Create a git tag with the calculated version
+   - Update the GitHub release with the correct version and details
 
 **Important**: Ensure all PRs have a semver checkbox selected (PATCH/MINOR/MAJOR) in their description before merging.
 

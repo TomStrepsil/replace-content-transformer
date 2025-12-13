@@ -1,7 +1,8 @@
 name: Release
 
 on:
-  workflow_dispatch:
+  release:
+    types: [created]
 
 jobs:
   release:
@@ -139,19 +140,23 @@ jobs:
 
       - name: Create and push tag
         run: |
+          # Create the tag pointing to the commit with updated files
           git tag -a "v${{ steps.npm_version.outputs.version }}" -m "Release version ${{ steps.npm_version.outputs.version }}"
           git push origin "v${{ steps.npm_version.outputs.version }}"
-
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Update GitHub Release
+        uses: actions/github-script@v7
         with:
-          tag_name: v${{ steps.npm_version.outputs.version }}
-          release_name: Release v${{ steps.npm_version.outputs.version }}
-          body: |
-            Release version ${{ steps.npm_version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)
+          script: |
+            const release = context.payload.release;
             
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-          draft: false
-          prerelease: false
+            // Update the release with the correct tag and details
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.id,
+              tag_name: 'v${{ steps.npm_version.outputs.version }}',
+              name: 'Release v${{ steps.npm_version.outputs.version }}',
+              body: `Release version ${{ steps.npm_version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)\n\nSee [CHANGELOG.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CHANGELOG.md) for details.`,
+              draft: false
+            });
