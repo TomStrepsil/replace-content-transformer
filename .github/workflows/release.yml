@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+      semver_type:
+        description: 'Semantic version type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update version in package.json
+        run: |
+          npm version ${{ github.event.inputs.version }} --no-git-tag-version
+
+      - name: Update CHANGELOG.md
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+          
+          # Create a temporary file
+          TEMP_FILE=$(mktemp)
+          
+          # Read the changelog and update it
+          awk -v version="$VERSION" -v date="$DATE" '
+          /## \[Unreleased\]/ {
+            print $0
+            print ""
+            print "## [" version "] - " date
+            next
+          }
+          { print }
+          ' CHANGELOG.md > "$TEMP_FILE"
+          
+          # Replace the original file
+          mv "$TEMP_FILE" CHANGELOG.md
+
+      - name: Commit changelog and version bump
+        run: |
+          git add CHANGELOG.md package.json package-lock.json
+          git commit -m "Release version ${{ github.event.inputs.version }}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          git tag -a "v${{ github.event.inputs.version }}" -m "Release version ${{ github.event.inputs.version }}"
+          git push origin "v${{ github.event.inputs.version }}"
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          release_name: Release v${{ github.event.inputs.version }}
+          body: |
+            Release version ${{ github.event.inputs.version }}
+            
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          draft: false
+          prerelease: false

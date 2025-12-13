@@ -1,0 +1,25 @@
+{
+  "name": "replace-content-transfomer",
+  "version": "1.0.0",
+  "description": "A WHATWG Transformer / Node stream.Transform for replacing content",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["transform", "stream", "replace", "content"],
+  "author": "",
+  "license": "ISC",
+  "files": [
+    "lib"
+  ],
+  "devDependencies": {
+    "@types/node": "^25.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
+  }
+}

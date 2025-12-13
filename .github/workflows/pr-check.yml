@@ -1,0 +1,42 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check for CHANGELOG entry
+        run: |
+          if ! grep -q "## \[Unreleased\]" CHANGELOG.md; then
+            echo "Error: CHANGELOG.md must have an [Unreleased] section"
+            exit 1
+          fi
+          
+          # Check if there are actual changes under [Unreleased]
+          if ! awk '/## \[Unreleased\]/,/## \[/' CHANGELOG.md | grep -q "^### "; then
+            echo "Error: Please add an entry under [Unreleased] in CHANGELOG.md"
+            exit 1
+          fi
