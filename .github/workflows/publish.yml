@@ -30,9 +30,9 @@ jobs:
       - name: Publish to NPM
         run: |
           if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
-            npm publish --tag next
+            npm publish --dry-run --tag next
           else
-            npm publish
+            npm publish --dry-run
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
