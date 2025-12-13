@@ -41,10 +41,11 @@ jobs:
           UNRELEASED_CONTENT=$(sed -n '/## \[Unreleased\]/,/^## \[/p' CHANGELOG.md)
           if ! echo "$UNRELEASED_CONTENT" | grep -q "^### "; then
             echo "Error: Please add an entry under [Unreleased] in CHANGELOG.md"
-            echo "Expected format:"
+            echo ""
+            echo "Expected format (see https://keepachangelog.com/en/1.1.0/):"
             echo "## [Unreleased]"
             echo ""
-            echo "### Added"
+            echo "### Added (or Changed, Deprecated, Removed, Fixed, Security)"
             echo "- Your change description"
             exit 1
           fi
