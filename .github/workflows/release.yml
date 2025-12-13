@@ -2,11 +2,6 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "release" to confirm'
-        required: true
-        default: ''
 
 jobs:
   release:
@@ -15,14 +10,6 @@ jobs:
       contents: write
     
     steps:
-      - name: Validate confirmation
-        run: |
-          if [ "${{ github.event.inputs.confirm }}" != "release" ]; then
-            echo "❌ Release not confirmed. Please type 'release' to confirm."
-            exit 1
-          fi
-          echo "✓ Release confirmed"
-      
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -31,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
