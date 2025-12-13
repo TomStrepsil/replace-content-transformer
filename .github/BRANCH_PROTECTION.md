@@ -57,3 +57,5 @@ After setting up branch protection:
 - The release workflow requires `write` permissions for contents, which is already configured in the workflow file
 - The PR template includes semver checkboxes to help with versioning decisions
 - All PRs must include an entry in the `[Unreleased]` section of CHANGELOG.md
+- **The release workflow automatically determines the version number** by analyzing semver selections from all merged PRs since the last release
+- Ensure all PRs have exactly one semver checkbox selected (PATCH, MINOR, or MAJOR) before merging

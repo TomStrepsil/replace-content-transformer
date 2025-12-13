@@ -63,17 +63,21 @@ npm run test:watch
 
 ## Release Process
 
-Releases are created via the GitHub Actions workflow:
+Releases are automated based on semver selections in merged PRs:
 
 1. Go to Actions → Release workflow
 2. Click "Run workflow"
-3. Enter the version number and select the semver type
-4. The workflow will:
+3. The workflow will automatically:
+   - Analyze all merged PRs since the last release
+   - Determine the version bump based on the highest semver selection (MAJOR > MINOR > PATCH)
+   - Calculate the next version number
    - Update package.json version
    - Update CHANGELOG.md with the release date
    - Commit the changes
    - Create a git tag
    - Create a GitHub release
+
+**Important**: Ensure all PRs have a semver checkbox selected (PATCH/MINOR/MAJOR) in their description before merging.
 
 ## Branch Protection
 

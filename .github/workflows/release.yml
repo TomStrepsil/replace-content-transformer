@@ -2,19 +2,6 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., 1.0.0)'
-        required: true
-        type: string
-      semver_type:
-        description: 'Semantic version type'
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
 
 jobs:
   release:
@@ -48,13 +35,95 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Determine version bump from merged PRs
+        id: version
+        run: |
+          # Get the latest tag, default to 0.0.0 if no tags exist
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # Get all merged PRs since the last tag
+          MERGE_COMMITS=$(git log ${LATEST_TAG}..HEAD --merges --pretty=format:"%H %s" || git log HEAD --merges --pretty=format:"%H %s")
+          
+          # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
+          MAX_BUMP=1  # Default to patch if no explicit selection found
+          
+          # Parse each merge commit to find semver selections
+          while IFS= read -r line; do
+            if [ -z "$line" ]; then
+              continue
+            fi
+            
+            COMMIT_HASH=$(echo "$line" | awk '{print $1}')
+            
+            # Get the PR body from the merge commit
+            PR_BODY=$(git log -1 --pretty=format:"%b" $COMMIT_HASH)
+            
+            # Check for semver selections in PR body (look for checked boxes)
+            if echo "$PR_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
+              echo "Found MAJOR bump in commit $COMMIT_HASH"
+              MAX_BUMP=3
+            elif echo "$PR_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
+              echo "Found MINOR bump in commit $COMMIT_HASH"
+              if [ $MAX_BUMP -lt 2 ]; then
+                MAX_BUMP=2
+              fi
+            elif echo "$PR_BODY" | grep -q "\[x\] \*\*PATCH\*\*"; then
+              echo "Found PATCH bump in commit $COMMIT_HASH"
+              if [ $MAX_BUMP -lt 1 ]; then
+                MAX_BUMP=1
+              fi
+            fi
+          done <<< "$MERGE_COMMITS"
+          
+          # Parse current version from package.json or use latest tag
+          if [ -f "package.json" ]; then
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+          else
+            CURRENT_VERSION=${LATEST_TAG#v}
+          fi
+          
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Split version into parts
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          
+          # Remove any non-numeric suffixes (like -beta, -alpha, etc.)
+          PATCH=$(echo $PATCH | grep -o '^[0-9]*')
+          
+          # Apply version bump
+          case $MAX_BUMP in
+            3)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              BUMP_TYPE="major"
+              ;;
+            2)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              BUMP_TYPE="minor"
+              ;;
+            1)
+              PATCH=$((PATCH + 1))
+              BUMP_TYPE="patch"
+              ;;
+          esac
+          
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION (${BUMP_TYPE} bump)"
+          
+          # Export for later steps
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+
       - name: Update version in package.json
         run: |
-          npm version ${{ github.event.inputs.version }} --no-git-tag-version
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
 
       - name: Update CHANGELOG.md
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
           
           # Create a temporary file
@@ -77,23 +146,23 @@ jobs:
       - name: Commit changelog and version bump
         run: |
           git add CHANGELOG.md package.json package-lock.json
-          git commit -m "Release version ${{ github.event.inputs.version }}"
+          git commit -m "Release version ${{ steps.version.outputs.version }}"
           git push
 
       - name: Create and push tag
         run: |
-          git tag -a "v${{ github.event.inputs.version }}" -m "Release version ${{ github.event.inputs.version }}"
-          git push origin "v${{ github.event.inputs.version }}"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Release version ${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Create GitHub Release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ github.event.inputs.version }}
-          release_name: Release v${{ github.event.inputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          release_name: Release v${{ steps.version.outputs.version }}
           body: |
-            Release version ${{ github.event.inputs.version }}
+            Release version ${{ steps.version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)
             
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
           draft: false
