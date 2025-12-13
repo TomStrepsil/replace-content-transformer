@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
@@ -58,16 +58,7 @@ jobs:
           echo "Checking PR description for semver selection..."
           
           # Check if at least one semver checkbox is selected
-          if echo "$PR_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
-            echo "✓ MAJOR version bump selected"
-            exit 0
-          elif echo "$PR_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
-            echo "✓ MINOR version bump selected"
-            exit 0
-          elif echo "$PR_BODY" | grep -q "\[x\] \*\*PATCH\*\*"; then
-            echo "✓ PATCH version bump selected"
-            exit 0
-          else
+          if ! echo "$PR_BODY" | grep -qE "\[x\] \*\*(MAJOR|MINOR|PATCH)\*\*"; then
             echo "❌ Error: No semver checkbox selected in PR description"
             echo ""
             echo "Please select one of the following in your PR description:"
@@ -78,3 +69,5 @@ jobs:
             echo "This is required for automated version management during releases."
             exit 1
           fi
+          
+          echo "✓ Semver checkbox selected"
