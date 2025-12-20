@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  changelog-and-semver-check:
+    name: CHANGELOG and Semver Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            docs/CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
+      - name: Check CHANGELOG for Unreleased entries
+        run: |
+          if ! grep -q "## \[Unreleased\]" docs/CHANGELOG.md; then
+            echo "Error: docs/CHANGELOG.md must have an [Unreleased] section"
+            exit 1
+          fi
+
+          # Fetch base branch for comparison
+          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
+          # Ensure a merge base exists
+          if ! git merge-base --is-ancestor origin/${{ github.base_ref }} HEAD; then
+            echo "Error: No merge base found between PR branch and base branch '${{ github.base_ref }}'. Try rebasing your branch on the latest ${{ github.base_ref }}."
+            exit 1
+          fi
+
+          # Get the diff for docs/CHANGELOG.md between PR and base
+          DIFF=$(git diff -U9999 origin/${{ github.base_ref }}..HEAD -- docs/CHANGELOG.md)
+
+          # Extract added lines under [Unreleased]
+          ADDED=$(echo "$DIFF" | awk '
+            BEGIN { unreleased=0 }
+            # Reset section state at each hunk header
+            /^@@/ { unreleased=0; next }
+            # Skip file header lines from diff metadata
+            /^\+\+\+/ { next }
+            /^---/ { next }
+            # When we see the Unreleased header as context or an added line, enter Unreleased section
+            /^[ +]## \[Unreleased\]/ { unreleased=1; next }
+            # When we see any other version section header (e.g., ## [1.2.3]), leave Unreleased section
+            /^[ +\-]## \[[0-9]/ { unreleased=0; next }
+            # Collect added lines that appear while we are in the Unreleased section
+            unreleased && /^\+/ { print substr($0,2) }
+          ')
+
+          # Check if any meaningful (non-whitespace) added lines exist under [Unreleased]
+          MEANINGFUL_ADDED=$(echo "$ADDED" | sed '/^[[:space:]]*$/d')
+          if [ -z "$MEANINGFUL_ADDED" ]; then
+            echo "❌ Error: This PR does not add any new entries under [Unreleased] in docs/CHANGELOG.md"
+            exit 1
+          fi
+
+          echo "✓ This PR adds new entries under [Unreleased] in docs/CHANGELOG.md"
+
+      - name: Fetch latest PR body
+        id: pr_body
+        run: |
+          gh pr view "$PR_URL" --json body -q ".body" > pr_body.txt
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check for semver selection
+        run: |
+          PR_BODY=$(cat pr_body.txt)
+          echo "Checking PR description for semver selection..."
+
+          # Count how many semver checkboxes are selected
+          SELECTED_COUNT=$(echo "$PR_BODY" | grep -cE "\[x\] \*\*(MAJOR|MINOR|PATCH)\*\*" || true)
+
+          if [ "$SELECTED_COUNT" -eq 0 ]; then
+            echo "❌ Error: No semver checkbox selected in PR description"
+            echo ""
+            echo "Please select exactly ONE of the following in your PR description:"
+            echo "  - [x] **PATCH** - Bug fixes and minor changes (backwards compatible)"
+            echo "  - [x] **MINOR** - New features (backwards compatible)"
+            echo "  - [x] **MAJOR** - Breaking changes (not backwards compatible)"
+            echo ""
+            echo "This is required for automated version management during releases."
+            exit 1
+          elif [ "$SELECTED_COUNT" -gt 1 ]; then
+            echo "❌ Error: Multiple semver checkboxes selected ($SELECTED_COUNT found)"
+            echo ""
+            echo "Please select exactly ONE semver checkbox in your PR description."
+            echo "Multiple selections create ambiguous version intent."
+            echo ""
+            echo "Current selections:"
+            echo "$PR_BODY" | grep -E "\[x\] \*\*(MAJOR|MINOR|PATCH)\*\*"
+            exit 1
+          fi
+
+          echo "✓ Exactly one semver checkbox selected"

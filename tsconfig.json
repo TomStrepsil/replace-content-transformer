@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "rewriteRelativeImportExtensions": true,
+    "target": "esnext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "declaration": true,
+    "outDir": "./lib",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ESNext"],
+    "types": ["@types/node", "vitest/globals", "bun", "deno"],
+  },
+  "include": ["src/**/*", "test/**/*", "test/benchmarks/**/*"],
+  "exclude": ["node_modules", "lib"]
+}

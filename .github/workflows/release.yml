@@ -1,0 +1,166 @@
+name: Create Draft Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine version bump from merged PRs
+        id: version
+        run: |
+          # Get the latest tag, default to v0.0.0 if no tags exist
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No tags found, starting from version 0.0.0"
+            LATEST_TAG="v0.0.0"
+            # Get all merge commits in the repository
+            MERGE_COMMITS=$(git log --merges --pretty=format:"%H %s")
+          else
+            echo "Latest tag: $LATEST_TAG"
+            # Get all merged PRs since the last tag
+            MERGE_COMMITS=$(git log ${LATEST_TAG}..HEAD --merges --pretty=format:"%H %s")
+          fi
+
+          # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
+          MAX_BUMP=1  # Default to patch if no explicit selection found
+
+          # Parse each merge commit to find semver selections
+          while IFS= read -r line; do
+            if [ -z "$line" ]; then
+              continue
+            fi
+            
+            COMMIT_HASH=$(echo "$line" | awk '{print $1}')
+            
+            # Get the PR body from the merge commit
+            PR_BODY=$(git log -1 --pretty=format:"%b" $COMMIT_HASH)
+            
+            # Check for semver selections in PR body (look for checked boxes)
+            if echo "$PR_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
+              echo "Found MAJOR bump in commit $COMMIT_HASH"
+              MAX_BUMP=3
+            elif echo "$PR_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
+              echo "Found MINOR bump in commit $COMMIT_HASH"
+              if [ $MAX_BUMP -lt 2 ]; then
+                MAX_BUMP=2
+              fi
+            fi
+          done <<< "$MERGE_COMMITS"
+
+          # Determine bump type
+          case $MAX_BUMP in
+            3)
+              BUMP_TYPE="major"
+              ;;
+            2)
+              BUMP_TYPE="minor"
+              ;;
+            1)
+              BUMP_TYPE="patch"
+              ;;
+          esac
+
+          echo "Bump type: $BUMP_TYPE"
+
+          # Export for later steps
+          echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Update version in package.json
+        id: npm_version
+        run: |
+          # Use npm version to automatically bump the version
+          npm version ${{ steps.version.outputs.bump_type }} --no-git-tag-version
+
+          # Read the new version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+
+          # Export for later steps
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update CHANGELOG.md
+        run: |
+          VERSION="${{ steps.npm_version.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+
+          # Create a temporary file
+          TEMP_FILE=$(mktemp)
+
+          # Read the changelog and update it
+          awk -v version="$VERSION" -v date="$DATE" '
+          /## \[Unreleased\]/ {
+            print $0
+            print ""
+            print "## [" version "] - " date
+            next
+          }
+          { print }
+          ' CHANGELOG.md > "$TEMP_FILE"
+
+          # Replace the original file
+          mv "$TEMP_FILE" CHANGELOG.md
+
+      - name: Commit changelog and version bump
+        run: |
+          git add CHANGELOG.md package.json
+          # Add package-lock.json if it exists
+          git add package-lock.json 2>/dev/null || true
+          git commit -m "Release version ${{ steps.npm_version.outputs.version }}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          # Create the tag pointing to the commit with updated files
+          git tag -a "v${{ steps.npm_version.outputs.version }}" -m "Release version ${{ steps.npm_version.outputs.version }}"
+          git push origin "v${{ steps.npm_version.outputs.version }}"
+
+      - name: Create Draft GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tagName = 'v${{ steps.npm_version.outputs.version }}';
+
+            // Create a draft release with auto-generated notes for manual curation
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tagName,
+              name: `Release ${tagName}`,
+              body: `Release version ${{ steps.npm_version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)\n\nSee [CHANGELOG.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CHANGELOG.md) for details.`,
+              draft: true,
+              prerelease: false,
+              generate_release_notes: true
+            });
+
+            console.log(`Draft release created: ${release.data.html_url}`);
+            console.log('Please review and publish the release manually from the GitHub UI.');

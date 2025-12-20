@@ -1,0 +1,6 @@
+node_modules
+lib/
+coverage/
+test-results/
+bench-results.json
+*.tsbuildinfo

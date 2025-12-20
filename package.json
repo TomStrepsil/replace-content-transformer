@@ -1,0 +1,82 @@
+{
+  "name": "replace-content-transformer",
+  "version": "0.1.0",
+  "description": "A dependency-free WHATWG Transformer / Node Transform that rewrites whilst streaming, respecting chunk boundaries",
+  "license": "ISC",
+  "author": {
+    "name": "Tom Pereira",
+    "url": "https://github.com/TomStrepsil"
+  },
+  "type": "module",
+  "exports": {
+    "./web": {
+      "types": "./lib/adapters/web/index.d.ts",
+      "deno": "./lib/adapters/web/index.js",
+      "bun": "./lib/adapters/web/index.js",
+      "browser": "./lib/adapters/web/index.js",
+      "import": "./lib/adapters/web/index.js",
+      "default": "./lib/adapters/web/index.js"
+    },
+    "./node": {
+      "types": "./lib/adapters/node/index.d.ts",
+      "node": "./lib/adapters/node/index.js",
+      "default": "./lib/adapters/node/index.js"
+    },
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "workspaces": [
+    "test/benchmarks"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18",
+    "bun": ">=1.0.0",
+    "deno": ">=1.40.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24"
+    },
+    "packageManager": {
+      "name": "npm"
+    }
+  },
+  "scripts": {
+    "prepublishOnly": "npm run build",
+    "build": "rimraf lib &&  tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:ci": "vitest run --coverage",
+    "test:watch": "vitest",
+    "bench": "npm run bench:node -w test/benchmarks",
+    "bench:runtimes": "npm run bench:runtimes -w test/benchmarks",
+    "bench:algorithms": "npm run bench:algorithms -w test/benchmarks",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix"
+  },
+  "dependencies": {
+    "regex-partial-match": "^0.1.9"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/bun": "^1.3.0",
+    "@types/deno": "^2.5.0",
+    "@types/node": "^24.9.2",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.44.1",
+    "eslint": "^9.39.0",
+    "eslint-plugin-vitest-globals": "^1.5.0",
+    "globals": "^16.5.0",
+    "msw": "^2.11.6",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

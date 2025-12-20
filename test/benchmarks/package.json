@@ -1,0 +1,21 @@
+{
+  "name": "benchmarks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Benchmark tooling and harnesses for replace-content-transformer",
+  "scripts": {
+    "bench": "node --experimental-strip-types runtime/benchmarks.ts",
+    "bench:bun": "bun run runtime/benchmarks.ts",
+    "bench:deno": "deno run --allow-read --allow-write --allow-env --allow-sys runtime/benchmarks.ts",
+    "bench:node": "node --experimental-strip-types runtime/benchmarks.ts",
+    "bench:runtimes": "./runtime/bench-all.sh",
+    "bench:algorithms": "node --experimental-strip-types algorithm/comparison.bench.ts",
+    "bench:algorithms:json": "./algorithm/run.sh",
+    "bench:algorithms:json:succinct": "./algorithm/run-succinct.sh",
+    "bench:algorithms:visualise": "node --experimental-strip-types algorithm/visualise-results.ts"
+  },
+  "devDependencies": {
+    "mitata": "^1.0.10"
+  }
+}
