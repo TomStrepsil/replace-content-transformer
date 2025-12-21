@@ -176,12 +176,12 @@ import { fileURLToPath } from "node:url";
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
-    replacement: async (anchorTag: string) =>
+    replacement: async (imgTag: string) =>
       `<img src="data:image/png;base64,${(
         await fs.readFile(
           path.join(
             path.dirname(fileURLToPath(import.meta.url)),
-            anchorTag.match(/\/\/(.+?)"/)[1]
+            imgTag.match(/\/\/(.+?)"/)[1]
           )
         )
       ).toString("base64")}">`
