@@ -20,6 +20,7 @@
     "./node": {
       "types": "./lib/adapters/node/index.d.ts",
       "node": "./lib/adapters/node/index.js",
+      "import": "./lib/adapters/node/index.js",
       "default": "./lib/adapters/node/index.js"
     },
     ".": {
@@ -62,7 +63,7 @@
     "lint:fix": "eslint src test --fix"
   },
   "dependencies": {
-    "regex-partial-match": "^0.1.9"
+    "regex-partial-match": "^0.1.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
