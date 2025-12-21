@@ -52,25 +52,25 @@ jobs:
           if [ -z "$LATEST_TAG" ]; then
             echo "No tags found, starting from version 0.0.0"
             LATEST_TAG="v0.0.0"
-            # Get all merge commits in the repository
-            MERGE_COMMITS=$(git log --merges --pretty=format:"%H %s")
+            # Get all commits in the repository
+            COMMITS=$(git log --oneline)
           else
             echo "Latest tag: $LATEST_TAG"
-            # Get all merged PRs since the last tag
-            MERGE_COMMITS=$(git log ${LATEST_TAG}..HEAD --merges --pretty=format:"%H %s")
+            # Get all commits since the last tag
+            COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline)
           fi
 
-          # Check if there are any merge commits to process
-          if [ -z "$MERGE_COMMITS" ]; then
-            echo "❌ Error: No merge commits found since $LATEST_TAG"
-            echo "No PRs have been merged since the last release."
+          # Check if there are any commits to process
+          if [ -z "$COMMITS" ]; then
+            echo "❌ Error: No commits found since $LATEST_TAG"
+            echo "No changes have been made since the last release."
             exit 1
           fi
 
           # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
           MAX_BUMP=1  # Default to patch if no explicit selection found
 
-          # Parse each merge commit to find semver selections
+          # Parse each commit to find semver selections
           while IFS= read -r line; do
             if [ -z "$line" ]; then
               continue
@@ -78,20 +78,19 @@ jobs:
             
             COMMIT_HASH=$(echo "$line" | awk '{print $1}')
             
-            # Get the PR body from the merge commit
-            PR_BODY=$(git log -1 --pretty=format:"%b" $COMMIT_HASH)
+            COMMIT_BODY=$(git log -1 --pretty=format:"%b" $COMMIT_HASH)
             
-            # Check for semver selections in PR body (look for checked boxes)
-            if echo "$PR_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
+            # Check for semver selections in commit body (look for checked boxes)
+            if echo "$COMMIT_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
               echo "Found MAJOR bump in commit $COMMIT_HASH"
               MAX_BUMP=3
-            elif echo "$PR_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
+            elif echo "$COMMIT_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
               echo "Found MINOR bump in commit $COMMIT_HASH"
               if [ $MAX_BUMP -lt 2 ]; then
                 MAX_BUMP=2
               fi
             fi
-          done <<< "$MERGE_COMMITS"
+          done <<< "$COMMITS"
 
           # Determine bump type
           case $MAX_BUMP in
