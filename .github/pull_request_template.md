@@ -6,6 +6,10 @@ resolves #_ISSUE_ID_
 
 <!-- Brief summary of PR purpose and code changes. -->
 
+## Scout rule
+
+<!-- Any code cleaning performed (see https://biratkirat.medium.com/step-8-the-boy-scout-rule-robert-c-martin-uncle-bob-9ac839778385), unrelated to the issue (optional) -->
+
 ## Semantic Version Impact
 
 <!-- Select ONE checkbox to indicate the semver impact of this change. Learn more at https://semver.org/ -->
