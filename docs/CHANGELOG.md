@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Removed "CI" badge from [`README.md`](../README.md), this repository does not have post-merge CI on `main`
+- Updated `pull_request_template.md` to reference issues
 
 ### Added
 
