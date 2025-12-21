@@ -125,7 +125,7 @@ jobs:
 
           # Read the changelog and update it
           awk -v version="$VERSION" -v date="$DATE" '
-          BEGIN { found_unreleased = 0 }
+          BEGIN { found_unreleased = 0; seen_content = 0 }
 
           /## \[Unreleased\]/ {
             found_unreleased = 1
