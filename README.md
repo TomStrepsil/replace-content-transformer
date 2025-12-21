@@ -177,7 +177,7 @@ const transformer = new AsyncReplaceContentTransformer(
   new AsyncFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
     replacement: async (anchorTag: string) =>
-      `<a href="data:image/png;base64,${(
+      `<img src="data:image/png;base64,${(
         await fs.readFile(
           path.join(
             path.dirname(fileURLToPath(import.meta.url)),
