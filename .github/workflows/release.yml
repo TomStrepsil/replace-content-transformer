@@ -53,11 +53,11 @@ jobs:
             echo "No tags found, starting from version 0.0.0"
             LATEST_TAG="v0.0.0"
             # Get all commits in the repository
-            COMMITS=$(git log --pretty=format:"%H %s")
+            COMMITS=$(git log --oneline)
           else
             echo "Latest tag: $LATEST_TAG"
             # Get all commits since the last tag
-            COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%H %s")
+            COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline)
           fi
 
           # Check if there are any commits to process
