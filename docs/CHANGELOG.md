@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Removed "CI" badge from [`README.md`](../README.md), this repository does not have post-merge CI on `main`
+- Updated `pull_request_template.md` to reference issues, added "scout rule"
+
+### Added
+
+- Issue templates
+- "CodeQL" badge for [`README.md`](../README.md)
+
 ## [0.1.0] - 2025-12-20
 
 ### Added

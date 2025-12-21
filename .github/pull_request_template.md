@@ -1,6 +1,14 @@
-## Description
+## Issue
 
-<!-- Provide a brief description of the changes in this PR -->
+resolves #_ISSUE_ID_
+
+## Details
+
+<!-- Brief summary of PR purpose and code changes. -->
+
+## Scout rule
+
+<!-- Any code cleaning performed (see https://biratkirat.medium.com/step-8-the-boy-scout-rule-robert-c-martin-uncle-bob-9ac839778385), unrelated to the issue (optional) -->
 
 ## Semantic Version Impact
 
@@ -12,12 +20,8 @@
 
 ## Checklist
 
-- [ ] I have added an entry to the `[Unreleased]` section in CHANGELOG.md
+- [ ] I have added an entry to the `[Unreleased]` section in [`CHANGELOG.md`](../docs/CHANGELOG.md)
 - [ ] My code follows the style guidelines of this project
 - [ ] I have performed a self-review of my own code
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
-
-## Related Issues
-
-<!-- Link any related issues here using #issue_number -->
