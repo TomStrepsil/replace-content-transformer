@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `CHANGELOG.md` update in release pipeline
 - Used a GitHub app for `CHANGELOG.md` updates in release pipeline
 - Ensured squash merges are recognised when determining semver etc.
+- Ensured publishes aren't "dry run"
 
 ### Added
 
