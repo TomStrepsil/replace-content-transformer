@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `import` to conditional exports, following [conditional exports advice](https://nodejs.org/api/packages.html#conditional-exports)
 - Fixed `CHANGELOG.md` update in release pipeline
 - Used a GitHub app for `CHANGELOG.md` updates in release pipeline
+- Ensured squash merges are recognised when determining semver etc
 
 ### Added
 
