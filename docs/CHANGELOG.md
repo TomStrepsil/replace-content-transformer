@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Ensured publishes aren't "dry run"
+
 ## [0.1.1] - 2025-12-21
 
 ### Fixed
@@ -17,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `CHANGELOG.md` update in release pipeline
 - Used a GitHub app for `CHANGELOG.md` updates in release pipeline
 - Ensured squash merges are recognised when determining semver etc.
-- Ensured publishes aren't "dry run"
 
 ### Added
 
