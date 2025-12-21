@@ -62,7 +62,7 @@ jobs:
 
           # Check if there are any merge commits to process
           if [ -z "$MERGE_COMMITS" ]; then
-            echo "❌ Error: : No merge commits found since $LATEST_TAG"
+            echo "❌ Error: No merge commits found since $LATEST_TAG"
             echo "No PRs have been merged since the last release."
             exit 1
           fi
