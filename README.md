@@ -146,7 +146,9 @@ const transformer = new ReplaceContentTransformer(
 > The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src//search-strategies/regex/README.md#limitations).
 
 ```typescript
-// Update deprecated CSS class names
+// `class="anything old-button"` becomes `class="anything new-button"`
+// `class="old-button something else"` becomes `class="new-button something else"`
+// `class="cold-button"` remains `class="cold-button"`
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(
@@ -166,24 +168,31 @@ Replace with asynchronous content. Ensures each async replacement completes befo
 
 ```typescript
 import { AsyncFunctionReplacementProcessor } from "replace-content-transformer";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// `<a href="file://image.png" />` becomes "<a href="data:image/png;base64,... />"
+// `<img src="file://image.png">` becomes "<img src="data:image/png;base64,...>"
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncFunctionReplacementProcessor({
-    searchStrategy: searchStrategyFactory(["<a", 'href="file://', '.png" />']),
+    searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
     replacement: async (anchorTag: string) =>
       `<a href="data:image/png;base64,${(
-        await fs.readFile(anchorTag.match(/\/\/(.+?)"/)[1])
-      ).toString("base64")}`
+        await fs.readFile(
+          path.join(
+            path.dirname(fileURLToPath(import.meta.url)),
+            anchorTag.match(/\/\/(.+?)"/)[1]
+          )
+        )
+      ).toString("base64")}">`
   })
 );
 ```
 
-Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses, if using a `Promise<string>` generic-typed version, due to the WHATWG Streams API's native support for enqueueing any JavaScript value, including promises, which will be awaited by downstream consumers.
+Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses, due to the WHATWG Streams API's native support for enqueueing any JavaScript value, including promises, which will be awaited by downstream consumers.
 
 > [!WARNING]
-> This subverts [back-pressure control](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure), and may conflict with a desired [highWaterMark](https://developer.mozilla.org/en-US/docs/Web/API/ByteLengthQueuingStrategy/highWaterMark); the replacement function
-> can't slow down production based on consumer speed. However, it allows for early discovery in the input stream.
+> This subverts [back-pressure control](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure), and may conflict with a desired [highWaterMark](https://developer.mozilla.org/en-US/docs/Web/API/CountQueuingStrategy/highWaterMark); the replacement function can't slow down production based on consumer speed. However, it allows for early discovery in the input stream.
 
 ```typescript
 const transformer = new ReplaceContentTransformer<Promise<string>>(
@@ -201,12 +210,12 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
 ```
 
 > [!NOTE]
-> If concurrency needs control, consider a replacement function that limits in-flight promises via promise-pooling:
+> If promise-concurrency needs control, consider a replacement function that limits in-flight promises via pooling:
 
 ```typescript
 const maxConcurrent = 5;
 const active = new Set();
-const replacement = async (match) => {
+const replacement = async (match: string) => {
   if (active.size >= maxConcurrent) {
     await Promise.race(active);
   }
@@ -243,7 +252,7 @@ Interpolate [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/
 ```typescript
 import { AsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
 
-// `<div><esi:include src="https://example.com/foo" /></div>` fills the <div> with content fetched from https://example.com/foo
+// `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
@@ -316,7 +325,7 @@ const transformer = new AsyncReplaceContentTransformer(
 
 This will ensure the transform is ["pass through"](https://en.wikipedia.org/wiki/Identity_transform) once the abort is signalled.
 
-For cancellation external to the replacement function, can consider sharing the abort signal with `fetch`:
+For `fetch` uses cases, with cancellation external to the replacement function, consider sharing the abort signal:
 
 ```ts
 const abortController = new AbortController();
@@ -334,8 +343,7 @@ const transformer = new AsyncReplaceContentTransformer(
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          // needs to be an async iterable to satisfy the AsyncIterableFunctionReplacementProcessor.
-          // awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers
+          // needs to be an async iterable to satisfy the AsyncIterableFunctionReplacementProcessor. (Awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
           return (async function* () {
             yield "<!-- cancelled -->";
           })();
@@ -470,7 +478,11 @@ Processors accept chunks from the `Transformer` (web) / `stream.Transform` (node
     chunk,
     this.searchState
   )) {
-    yield result.match ? /* some replacement form (static, functional, iterator, async...) */ : result.content;
+    if (result.match) {
+      yield /* some replacement form (static, functional, iterator, async...) */
+    } else {
+      return result.content
+    }
   }
 }
 // common to all processors
@@ -566,7 +578,7 @@ npm run build
 
 All tests run across multiple runtimes (Node.js, Bun, Deno) in CI. See [Benchmarks](./test/benchmarks/README.md) for performance analysis.
 
-## 🌐 Browser Compatibility
+## 🌐 Compatibility
 
 This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and is compatible with multiple JavaScript runtimes:
 
@@ -585,8 +597,6 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
   - Vercel Edge Functions
   - Akamai EdgeWorkers
   - Fastly Compute
-
-Available runtimes are continuously tested in CI.
 
 ## 📜 License
 

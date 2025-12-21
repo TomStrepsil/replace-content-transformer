@@ -11,11 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed "CI" badge from [`README.md`](../README.md), this repository does not have post-merge CI on `main`
 - Updated `pull_request_template.md` to reference issues, added "scout rule"
+- Added `import` to conditional exports, following [conditional exports advice](https://nodejs.org/api/packages.html#conditional-exports)
 
 ### Added
 
 - Issue templates
 - "CodeQL" badge for [`README.md`](../README.md)
+
+### Changed
+
+- Updated to latest `regex-partial-match`
 
 ## [0.1.0] - 2025-12-20
 
