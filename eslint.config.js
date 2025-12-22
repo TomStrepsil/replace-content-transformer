@@ -5,6 +5,9 @@ import vitestGlobals from "eslint-plugin-vitest-globals";
 import globals from "globals";
 
 export default [
+  {
+    ignores: ["lib/**", "node_modules/**"]
+  },
   eslint.configs.recommended,
   {
     files: ["**/*.ts"],
@@ -17,8 +20,7 @@ export default [
       },
       globals: {
         ...globals.node,
-        ...globals.es2022,
-        BufferEncoding: "readonly"
+        ...globals.es2022
       }
     },
     plugins: {
