@@ -82,7 +82,7 @@
   },
   "lint-staged": {
     "*.{ts,js}": [
-      "npm run lint:fix"
+      "eslint --fix"
     ]
   },
   "publishConfig": {
