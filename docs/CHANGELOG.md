@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed `dry-run` flag from publish workflow to enable actual package publishing
 - Added `test:ci` to the ci workflow, rather than `test`
-- Removed needless guard in the `LoopIndexOfAnchoredSearchStrategy`, logic is tautologous
+- Removed needless guard in the `LoopedIndexOfAnchoredSearchStrategy`, logic is tautologous
 
 ## [0.1.1] - 2025-12-21
 
