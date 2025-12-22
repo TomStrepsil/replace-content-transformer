@@ -45,7 +45,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        run: npm run test:ci
 
   changelog-and-semver-check:
     name: CHANGELOG and Semver Check

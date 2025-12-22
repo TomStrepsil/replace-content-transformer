@@ -76,11 +76,9 @@ export class LoopedIndexOfAnchoredSearchStrategy
               }
             }
 
-            if (position < length) {
-              const content = haystack.slice(position);
-              position = length;
-              yield { content, match: false };
-            }
+            const content = haystack.slice(position);
+            position = length;
+            yield { content, match: false };
           }
           return;
         }
