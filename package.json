@@ -1,6 +1,6 @@
 {
   "name": "replace-content-transformer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A dependency-free WHATWG Transformer / Node Transform that rewrites whilst streaming, respecting chunk boundaries",
   "license": "ISC",
   "author": {

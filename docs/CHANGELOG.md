@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-12-22
+
 ### Fixed
 
 - Removed `dry-run` flag from publish workflow to enable actual package publishing
