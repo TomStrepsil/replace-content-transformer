@@ -2,11 +2,30 @@
   "name": "replace-content-transformer",
   "version": "0.1.2",
   "description": "A dependency-free WHATWG Transformer / Node Transform that rewrites whilst streaming, respecting chunk boundaries",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24"
+    },
+    "packageManager": {
+      "name": "npm"
+    }
+  },
+  "keywords": [
+    "stream",
+    "streaming",
+    "transformer",
+    "replacement"
+  ],
   "license": "ISC",
   "author": {
     "name": "Tom Pereira",
     "url": "https://github.com/TomStrepsil"
   },
+  "bugs": {
+    "url": "https://github.com/TomStrepsil/replace-content-transformer/issues"
+  },
+  "homepage": "https://github.com/TomStrepsil/replace-content-transformer#readme",
   "type": "module",
   "exports": {
     "./web": {
@@ -32,6 +51,10 @@
   "files": [
     "lib"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TomStrepsil/replace-content-transformer.git"
+  },
   "workspaces": [
     "test/benchmarks"
   ],
@@ -40,15 +63,6 @@
     "node": ">=18",
     "bun": ">=1.0.0",
     "deno": ">=1.40.0"
-  },
-  "devEngines": {
-    "runtime": {
-      "name": "node",
-      "version": ">=24"
-    },
-    "packageManager": {
-      "name": "npm"
-    }
   },
   "scripts": {
     "prepublishOnly": "npm run build",
@@ -59,8 +73,20 @@
     "bench": "npm run bench:node -w test/benchmarks",
     "bench:runtimes": "npm run bench:runtimes -w test/benchmarks",
     "bench:algorithms": "npm run bench:algorithms -w test/benchmarks",
-    "lint": "eslint src test",
-    "lint:fix": "eslint src test --fix"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix"
+    ]
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "regex-partial-match": "^0.1.13"
@@ -76,8 +102,10 @@
     "eslint": "^9.39.0",
     "eslint-plugin-vitest-globals": "^1.5.0",
     "globals": "^16.5.0",
+    "lint-staged": "^15.2.11",
     "msw": "^2.11.6",
     "rimraf": "^6.0.1",
+    "simple-git-hooks": "^2.12.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }

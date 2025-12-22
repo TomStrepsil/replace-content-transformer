@@ -17,8 +17,7 @@ export default [
       },
       globals: {
         ...globals.node,
-        ...globals.es2022,
-        BufferEncoding: "readonly"
+        ...globals.es2022
       }
     },
     plugins: {
