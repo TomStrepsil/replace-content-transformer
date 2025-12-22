@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- various `package.json` fixes
+- Added missing `package.json` metadata fields (`keywords`, `bugs`, `homepage`, `repository`) and configured pre-commit linting hooks
 
 ## [0.1.2] - 2025-12-22
 
