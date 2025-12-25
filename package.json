@@ -66,7 +66,7 @@
   },
   "scripts": {
     "prepublishOnly": "npm run build",
-    "build": "rimraf lib &&  tsc -p tsconfig.build.json",
+    "build": "rimraf lib && tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:ci": "vitest run --coverage",
     "test:watch": "vitest",
@@ -89,7 +89,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "regex-partial-match": "^0.1.13"
+    "regex-partial-match": "^0.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

@@ -268,13 +268,91 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicode character classes",
+        name: "handles patterns with unicode character class escapes",
         pattern: /\p{Script=Hiragana}+/u,
         chunks: ["Say こんにちは to everyone"],
         expected: [
           { content: "Say ", match: false },
           { content: "こんにちは", match: true },
           { content: " to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet character classes",
+        pattern: /[\p{Script=Hiragana}]+/v,
+        chunks: ["Say こんにちは to everyone"],
+        expected: [
+          { content: "Say ", match: false },
+          { content: "こんにちは", match: true },
+          { content: " to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet inverse character classes",
+        pattern: /[\p{Script=Hiragana}]+/v,
+        chunks: ["Say konnichiwa to everyone"],
+        expected: [{ content: "Say konnichiwa to everyone", match: false }]
+      },
+      {
+        name: "handles patterns with unicodeSet character classes with intersections",
+        pattern: /[\p{Script=Hiragana}&&\p{Alphabetic}]+/v,
+        chunks: ["Say こんにちは to everyone"],
+        expected: [
+          { content: "Say ", match: false },
+          { content: "こんにちは", match: true },
+          { content: " to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with complement unicodeSet character classes with intersections",
+        pattern: /[\P{Script=Hiragana}&&\P{Alphabetic}]+/v,
+        chunks: ["Say こんにちは123 to everyone"],
+        expected: [
+          { content: "Say", match: false },
+          { content: " ", match: true },
+          { content: "こんにちは", match: false },
+          { content: "123 ", match: true },
+          { content: "to", match: false },
+          { content: " ", match: true },
+          { content: "everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet union character classes",
+        pattern: /[\p{Script=Hiragana}\p{Alphabetic}]+/v,
+        chunks: ["Say こんにちは to everyone"],
+        expected: [
+          { content: "Say", match: true },
+          { content: " ", match: false },
+          { content: "こんにちは", match: true },
+          { content: " ", match: false },
+          { content: "to", match: true },
+          { content: " ", match: false },
+          { content: "everyone", match: true }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet union character classes, negated",
+        pattern: /[^\p{Script=Hiragana}\p{Alphabetic}]+/v,
+        chunks: ["Say こんにちは to everyone"],
+        expected: [
+          { content: "Say", match: false },
+          { content: " ", match: true },
+          { content: "こんにちは", match: false },
+          { content: " ", match: true },
+          { content: "to", match: false },
+          { content: " ", match: true },
+          { content: "everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet character classes with subtraction",
+        pattern: /[\p{Script=Hiragana}--[ちは]]+/v,
+        chunks: ["Say こんにちは to everyone"],
+        expected: [
+          { content: "Say ", match: false },
+          { content: "こんに", match: true },
+          { content: "ちは to everyone", match: false }
         ]
       },
       {
@@ -661,7 +739,7 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with match groups, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with character classes, across chunks (with caveat that multiple matches may occur)",
         pattern: /[A-Z]+/,
         chunks: ["find PAT", "TERN here"],
         expected: [
@@ -683,7 +761,7 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicode character classes, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicode character class escapes, across chunks (with caveat that multiple matches may occur)",
         pattern: /\p{Script=Hiragana}+/u,
         chunks: ["Say こんに", "ちは to everyone"],
         expected: [
