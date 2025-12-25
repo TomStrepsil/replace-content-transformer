@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Release pipeline updated to properly support semver selection in PR bodies
+- Release pipeline updated to properly support semver selection in PR bodies, and updated ci pipeline to support valid casings, to match
 - Updated stylesheet transclusion examples in `README.md` for proper typing and realistic replacement
 
 ## [0.1.3] - 2025-12-22
