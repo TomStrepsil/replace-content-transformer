@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support for [`unicodeSets`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/unicodeSets) in the regex search strategy, via upgrade to [Version 0.2.0 of `regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.2.0)
+- Link to codeql runs on `main` from the `README.md`
+
+### Fixed
+
+- Release pipeline updated to properly support semver selection in PR bodies
+- Updated stylesheet transclusion examples in `README.md` for proper typing and realistic replacement
+
 ## [0.1.3] - 2025-12-22
 
 ### Added
