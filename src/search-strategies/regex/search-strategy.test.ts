@@ -288,7 +288,7 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicodeSet inverse character classes",
+        name: "handles patterns with unicodeSet character classes (inverse scenario)",
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say konnichiwa to everyone"],
         expected: [{ content: "Say konnichiwa to everyone", match: false }]
@@ -783,7 +783,7 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicodeSet inverse character classes, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicodeSet character classes (inverse scenario), across chunks (with caveat that multiple matches may occur)",
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say konn", "ichiwa to everyone"],
         expected: [
