@@ -5,7 +5,7 @@
 A <a href="https://streams.spec.whatwg.org/#transformer-api">WHATWG Transformer</a> / Node <a href="https://nodejs.org/api/stream.html#class-streamtransform">stream.Transform</a> for replacing content.
 </p>
 <p align="center">
-   <img src="https://github.com/TomStrepsil/replace-content-transformer/workflows/CodeQL/badge.svg" alt="CodeQL security analysis status" />
+   <a href="https://github.com/TomStrepsil/replace-content-transformer/actions/workflows/github-code-scanning/codeql?query=branch%3Amain"><img src="https://github.com/TomStrepsil/replace-content-transformer/workflows/CodeQL/badge.svg" alt="CodeQL security analysis status" /></a>
    <a href="http://makeapullrequest.com"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs are welcome" /></a>
    <a href="https://github.com/TomStrepsil/replace-content-transformer/issues/"><img src="https://img.shields.io/github/issues/TomStrepsil/replace-content-transformer" alt="replace content transformer issues" /></a>
    <a href="https://github.com/TomStrepsil/replace-content-transformer/discussions/"><img src="https://img.shields.io/github/discussions/TomStrepsil/replace-content-transformer" alt="replace content transformer discussions" /></a>
@@ -195,15 +195,22 @@ Can alternatively use the non-async `FunctionReplacementProcessor` to process `P
 > This subverts [back-pressure control](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure), and may conflict with a desired [highWaterMark](https://developer.mozilla.org/en-US/docs/Web/API/CountQueuingStrategy/highWaterMark); the replacement function can't slow down production based on consumer speed. However, it allows for early discovery in the input stream.
 
 ```typescript
+// `<link href="https://example.com/css" rel="stylesheet" />` becomes `<style>{content of sheet}</style>`
 const transformer = new ReplaceContentTransformer<Promise<string>>(
   new FunctionReplacementProcessor<Promise<string>>({
-    searchStrategy: searchStrategyFactory(["<a", 'href="https://', '.png" />']),
+    searchStrategy: searchStrategyFactory([
+      "<link",
+      'href="',
+      '.css"',
+      'rel="stylesheet"',
+      "/>"
+    ]),
     replacement: async (match: string): Promise<string> => {
       const {
         groups: { url }
-      } = /src="(?<url>[^"]+)"/.exec(match)!;
+      } = /href="(?<url>[^"]+)"/.exec(match)!;
       const res = await fetch(url);
-      return await res.text();
+      return `<style>${await res.text()}</style>`;
     }
   })
 );
@@ -214,18 +221,18 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
 
 ```typescript
 const maxConcurrent = 5;
-const active = new Set();
-const replacement = async (match: string) => {
+const active = new Set<Promise<string>>();
+const replacement = async (match: string): Promise<string> => {
   if (active.size >= maxConcurrent) {
     await Promise.race(active);
   }
   const [, url] = /href="([^"]+)"/.exec(match)!;
-  const promise = fetch(url).then((resolved) => {
+  const promise = fetch(url).then((response) => {
     active.delete(promise);
-    return resolved;
+    return response.text();
   });
   active.add(promise);
-  return promise;
+  return `<style>${await promise}</style>`;
 };
 ```
 

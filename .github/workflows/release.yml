@@ -45,6 +45,8 @@ jobs:
 
       - name: Determine version bump from merged PRs
         id: version
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           # Get the latest tag, default to v0.0.0 if no tags exist
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
@@ -68,7 +70,7 @@ jobs:
           fi
 
           # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
-          MAX_BUMP=1  # Default to patch if no explicit selection found
+          MAX_BUMP=0  # Must be explicitly set by PR checkbox
 
           # Parse each commit to find semver selections
           while IFS= read -r line; do
@@ -77,18 +79,49 @@ jobs:
             fi
             
             COMMIT_HASH=$(echo "$line" | awk '{print $1}')
+            COMMIT_MESSAGE=${line#* }
             
-            COMMIT_BODY=$(git log -1 --pretty=format:"%b" $COMMIT_HASH)
+            # Extract PR number from squash merge format: "Title (#123)"
+            PR_NUMBER=$(echo "$COMMIT_MESSAGE" | grep -oE '\(#[0-9]+\)$' | grep -oE '[0-9]+')
             
-            # Check for semver selections in commit body (look for checked boxes)
-            if echo "$COMMIT_BODY" | grep -q "\[x\] \*\*MAJOR\*\*"; then
-              echo "Found MAJOR bump in commit $COMMIT_HASH"
+            if [ -z "$PR_NUMBER" ]; then
+              echo "❌ Error: No PR number found in commit $COMMIT_HASH"
+              echo "Commit message: $COMMIT_MESSAGE"
+              echo "All commits must be from merged PRs with format 'Title (#123)'"
+              exit 1
+            fi
+            
+            echo "Checking PR #$PR_NUMBER for commit $COMMIT_HASH"
+            
+            # Fetch PR body using GitHub CLI
+            GH_OUTPUT=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>&1)
+            GH_EXIT_CODE=$?
+            if [ $GH_EXIT_CODE -ne 0 ] || [ -z "$GH_OUTPUT" ]; then
+              echo "❌ Error: Could not fetch PR body for #$PR_NUMBER"
+              echo "gh CLI error output:"
+              echo "$GH_OUTPUT"
+              exit 1
+            fi
+            
+            # Check for semver selections in PR body (look for checked boxes)
+            PR_BODY="$GH_OUTPUT"
+            if echo "$PR_BODY" | grep -q "\[[xX]\] \*\*MAJOR\*\*"; then
+              echo "Found MAJOR bump in PR #$PR_NUMBER"
               MAX_BUMP=3
-            elif echo "$COMMIT_BODY" | grep -q "\[x\] \*\*MINOR\*\*"; then
-              echo "Found MINOR bump in commit $COMMIT_HASH"
+            elif echo "$PR_BODY" | grep -q "\[[xX]\] \*\*MINOR\*\*"; then
+              echo "Found MINOR bump in PR #$PR_NUMBER"
               if [ $MAX_BUMP -lt 2 ]; then
                 MAX_BUMP=2
               fi
+            elif echo "$PR_BODY" | grep -q "\[[xX]\] \*\*PATCH\*\*"; then
+              echo "Found PATCH bump in PR #$PR_NUMBER"
+              if [ $MAX_BUMP -lt 1 ]; then
+                MAX_BUMP=1
+              fi
+            else
+              echo "❌ Error: No version bump checkbox selected in PR #$PR_NUMBER"
+              echo "Please select MAJOR, MINOR, or PATCH in the PR description"
+              exit 1
             fi
           done <<< "$COMMITS"
 

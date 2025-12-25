@@ -117,7 +117,7 @@ jobs:
           echo "Checking PR description for semver selection..."
 
           # Count how many semver checkboxes are selected
-          SELECTED_COUNT=$(echo "$PR_BODY" | grep -cE "\[x\] \*\*(MAJOR|MINOR|PATCH)\*\*" || true)
+          SELECTED_COUNT=$(echo "$PR_BODY" | grep -cE "\[[xX]\] \*\*(MAJOR|MINOR|PATCH)\*\*" || true)
 
           if [ "$SELECTED_COUNT" -eq 0 ]; then
             echo "❌ Error: No semver checkbox selected in PR description"
@@ -136,7 +136,7 @@ jobs:
             echo "Multiple selections create ambiguous version intent."
             echo ""
             echo "Current selections:"
-            echo "$PR_BODY" | grep -E "\[x\] \*\*(MAJOR|MINOR|PATCH)\*\*"
+            echo "$PR_BODY" | grep -E "\[[xX]\] \*\*(MAJOR|MINOR|PATCH)\*\*"
             exit 1
           fi
 
