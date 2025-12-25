@@ -750,7 +750,7 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with Unicode characters and emojis, across chunks",
+        name: "handles patterns with unicode characters and emojis, across chunks",
         pattern: /(こんにちは|👋)/,
         chunks: ["Say こん", "にちは to everyone ", "👋"],
         expected: [
@@ -769,6 +769,94 @@ describe("RegexSearchStrategy", () => {
           { content: "こんに", match: true },
           { content: "ちは", match: true },
           { content: " to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet character classes, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[\p{Script=Hiragana}]+/v,
+        chunks: ["Say こん", "にちは to everyone"],
+        expected: [
+          { content: "Say ", match: false },
+          { content: "こん", match: true },
+          { content: "にちは", match: true },
+          { content: " to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet inverse character classes, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[\p{Script=Hiragana}]+/v,
+        chunks: ["Say konn", "ichiwa to everyone"],
+        expected: [
+          { content: "Say konn", match: false },
+          { content: "ichiwa to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet character classes with intersections, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[\p{Script=Hiragana}&&\p{Alphabetic}]+/v,
+        chunks: ["Say こんに", "ちは to everyone"],
+        expected: [
+          { content: "Say ", match: false },
+          { content: "こんに", match: true },
+          { content: "ちは", match: true },
+          { content: " to everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with complement unicodeSet character classes with intersections, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[\P{Script=Hiragana}&&\P{Alphabetic}]+/v,
+        chunks: ["Say こんに", "ちは12", "3 to everyone"],
+        expected: [
+          { content: "Say", match: false },
+          { content: " ", match: true },
+          { content: "こんに", match: false },
+          { content: "ちは", match: false },
+          { content: "12", match: true },
+          { content: "3 ", match: true },
+          { content: "to", match: false },
+          { content: " ", match: true },
+          { content: "everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet union character classes, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[\p{Script=Hiragana}\p{Alphabetic}]+/v,
+        chunks: ["Say こん", "にちは to everyone"],
+        expected: [
+          { content: "Say", match: true },
+          { content: " ", match: false },
+          { content: "こん", match: true },
+          { content: "にちは", match: true },
+          { content: " ", match: false },
+          { content: "to", match: true },
+          { content: " ", match: false },
+          { content: "everyone", match: true }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet union character classes, negated, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[^\p{Script=Hiragana}\p{Alphabetic}]+/v,
+        chunks: ["Say こんに", "ちは to everyone"],
+        expected: [
+          { content: "Say", match: false },
+          { content: " ", match: true },
+          { content: "こんに", match: false },
+          { content: "ちは", match: false },
+          { content: " ", match: true },
+          { content: "to", match: false },
+          { content: " ", match: true },
+          { content: "everyone", match: false }
+        ]
+      },
+      {
+        name: "handles patterns with unicodeSet character classes with subtraction, across chunks (with caveat that multiple matches may occur)",
+        pattern: /[\p{Script=Hiragana}--[ちは]]+/v,
+        chunks: ["Say こん", "にちは to everyone"],
+        expected: [
+          { content: "Say ", match: false },
+          { content: "こん", match: true },
+          { content: "に", match: true },
+          { content: "ちは to everyone", match: false }
         ]
       },
       {
