@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-01-23
+
 ### Changed
 
 - **BREAKING:** `RegexSearchStrategy` replacement functions now receive `RegExpExecArray` instead of `string`. This enables direct access to capture groups (`match[1]`, `match.groups`), but existing code using string methods like `match.toUpperCase()` must change to `match[0].toUpperCase()`
