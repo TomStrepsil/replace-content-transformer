@@ -103,15 +103,15 @@ export class AsyncIterableFunctionReplacementProcessor<
   }
 
   async *processChunk(chunk: string): AsyncGenerator<string, void, undefined> {
-    for (const result of this.searchStrategy.processChunk(
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!result.isMatch) {
-        yield result.content;
+      if (!isMatch) {
+        yield content;
         continue;
       }
-      yield* await this.replacementFn(result.content, this.matchIndex++);
+      yield* await this.replacementFn(content, this.matchIndex++);
     }
   }
 }

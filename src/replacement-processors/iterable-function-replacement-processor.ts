@@ -81,15 +81,15 @@ export class IterableFunctionReplacementProcessor<
   }
 
   *processChunk(chunk: string): Generator<string, void, undefined> {
-    for (const result of this.searchStrategy.processChunk(
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!result.isMatch) {
-        yield result.content;
+      if (!isMatch) {
+        yield content;
         continue;
       }
-      yield* this.replacementFn(result.content, this.matchIndex++);
+      yield* this.replacementFn(content, this.matchIndex++);
     }
   }
 }

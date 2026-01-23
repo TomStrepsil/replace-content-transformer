@@ -57,11 +57,11 @@ export class StaticReplacementProcessor<
   }
 
   *processChunk(chunk: string): Generator<string, void, undefined> {
-    for (const result of this.searchStrategy.processChunk(
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      yield result.isMatch ? this.replacement : result.content;
+      yield isMatch ? this.replacement : content;
     }
   }
 }

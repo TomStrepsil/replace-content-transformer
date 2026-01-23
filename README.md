@@ -483,14 +483,14 @@ Processors accept chunks from the `Transformer` (web) / `stream.Transform` (node
 ```typescript
 // sync or async, dependent on asynchronicity of the replacement needed
 *processChunk(chunk: string): Generator<string, void, undefined> {
-  for (const result of this.searchStrategy.processChunk(
+  for (const { isMatch, content } of this.searchStrategy.processChunk(
     chunk,
     this.searchState
   )) {
-    if (result.isMatch) {
+    if (isMatch) {
       yield /* some replacement form (static, functional, iterator, async...) */
     } else {
-      yield result.content;
+      yield content;
     }
   }
 }
