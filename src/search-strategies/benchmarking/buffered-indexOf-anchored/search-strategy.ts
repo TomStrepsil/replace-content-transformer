@@ -87,9 +87,9 @@ export class BufferedIndexOfAnchoredSearchStrategy
           if (state.currentNeedleIndex === 0) {
             const yieldUntil = length - (currentNeedle.length - 1);
             if (yieldUntil > position) {
-              const content = haystack.slice(position, yieldUntil);
+              const nonMatch = haystack.slice(position, yieldUntil);
               position = yieldUntil;
-              yield { content, match: false };
+              yield { isMatch: false, content: nonMatch };
             }
           }
           return;
@@ -97,9 +97,9 @@ export class BufferedIndexOfAnchoredSearchStrategy
 
         if (state.currentNeedleIndex === 0) {
           if (index > position) {
-            const content = haystack.slice(position, index);
+            const nonMatch = haystack.slice(position, index);
             position = index;
-            yield { content, match: false };
+            yield { isMatch: false, content: nonMatch };
           }
           matchStartPosition = index;
         }
@@ -109,8 +109,8 @@ export class BufferedIndexOfAnchoredSearchStrategy
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
           yield {
-            content: haystack.slice(matchStartPosition, position),
-            match: true
+            isMatch: true,
+            content: haystack.slice(matchStartPosition, position)
           };
         }
       }

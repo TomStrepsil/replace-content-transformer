@@ -5,19 +5,6 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.ts";
 
-/**
- * Extended match result that includes all RegExp match information.
- * @internal
- */
-interface RegExpSuccessfulMatchResult extends MatchResult, RegExpExecArray {
-  match: true;
-}
-
-/**
- * Union type for regex match results.
- * @internal
- */
-type RegExpMatchResult = MatchResult | RegExpSuccessfulMatchResult;
 
 /**
  * A search strategy for finding patterns using regular expressions.
@@ -45,7 +32,7 @@ type RegExpMatchResult = MatchResult | RegExpSuccessfulMatchResult;
 
 export class RegexSearchStrategy
   extends StringBufferStrategyBase
-  implements SearchStrategy<StringBufferState>
+  implements SearchStrategy<StringBufferState, RegExpExecArray>
 {
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: RegExp;
@@ -60,7 +47,7 @@ export class RegexSearchStrategy
   *processChunk(
     haystack: string,
     state: StringBufferState
-  ): Generator<RegExpMatchResult, void, undefined> {
+  ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
@@ -75,13 +62,13 @@ export class RegexSearchStrategy
             state.buffer = remainingHaystack.slice(partialMatch.index);
             if (partialMatch.index > 0) {
               yield {
-                content: remainingHaystack.slice(0, partialMatch.index),
-                match: false
+                isMatch: false,
+                content: remainingHaystack.slice(0, partialMatch.index)
               };
             }
           } else {
             state.buffer = "";
-            yield { content: remainingHaystack, match: false };
+            yield { isMatch: false, content: remainingHaystack };
           }
           return;
         }
@@ -89,20 +76,13 @@ export class RegexSearchStrategy
         state.buffer = "";
         if (completeMatch.index) {
           const matchStart = position + completeMatch.index;
-          const content = haystack.slice(position, matchStart);
+          const nonMatch = haystack.slice(position, matchStart);
           position = matchStart;
-          yield {
-            content,
-            match: false
-          };
+          yield { isMatch: false, content: nonMatch };
         }
 
-        const result = completeMatch as RegExpSuccessfulMatchResult;
-        result.content = completeMatch[0];
-        result.match = true;
-
-        position += result.content.length;
-        yield result;
+        position += completeMatch[0].length;
+        yield { isMatch: true, content: completeMatch };
       }
     } finally {
       if (position < length) {

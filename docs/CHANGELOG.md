@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** `RegexSearchStrategy` replacement functions now receive `RegExpExecArray` instead of `string`. This enables direct access to capture groups (`match[1]`, `match.groups`), but existing code using string methods like `match.toUpperCase()` must change to `match[0].toUpperCase()`
+- `MatchResult` type refactored to a discriminated union with boolean discriminant: `{ isMatch: false; content: string } | { isMatch: true; content: T }`. This is a breaking change for custom `SearchStrategy` implementations or direct `processChunk()` consumers. Use `if (result.isMatch)` to check for matches and access the typed content via `result.content`
+- `SearchStrategy` interface now accepts a second type parameter for match type: `SearchStrategy<TState, TMatch = string>`
+- Replacement processors now use `<TState, TMatch>` type parameters directly for improved type inference
+
+### Added
+
+- Exported `StringAnchorSearchState` type alias for typed processor declarations
+
+### Fixed
+
+- Added explicit `read` permission to the `ci.yml` GitHub actions workflow
+- Various `README.md` typos
+
 ## [0.2.0] - 2025-12-25
 
 ### Added

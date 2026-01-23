@@ -9,7 +9,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
 
     const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]);
 
-    const processor = new FunctionReplacementProcessor<Promise<string>>({
+    const processor = new FunctionReplacementProcessor({
       searchStrategy,
       replacement: async (match: string, index: number): Promise<string> => {
         await vi.waitFor(() => Promise.resolve(), { timeout: 10 });
@@ -17,7 +17,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
       }
     });
 
-    const transformer = new ReplaceContentTransformer<Promise<string>>(
+    const transformer = new ReplaceContentTransformer(
       processor
     );
 
@@ -71,7 +71,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
     });
 
     let callCount = 0;
-    const processor = new FunctionReplacementProcessor<Promise<string>>({
+    const processor = new FunctionReplacementProcessor({
       searchStrategy,
       replacement: (): Promise<string> => {
         callCount++;
@@ -79,7 +79,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
       }
     });
 
-    const transformer = new ReplaceContentTransformer<Promise<string>>(
+    const transformer = new ReplaceContentTransformer(
       processor
     );
 

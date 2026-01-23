@@ -6,9 +6,9 @@ import { inspect } from "node:util";
 describe("AsyncFunctionReplacementProcessor", () => {
   it("calls async replacement function with matched content and index", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "MATCH", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "MATCH" },
+      { isMatch: false, content: " world" }
     );
 
     const asyncReplacementFn = vi.fn().mockResolvedValue("ASYNC_RESULT");
@@ -29,9 +29,9 @@ describe("AsyncFunctionReplacementProcessor", () => {
 
   it("increments match index for subsequent async matches", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "MATCH", match: true },
-      { content: " and ", match: false },
-      { content: "MATCH", match: true }
+      { isMatch: true, content: "MATCH" },
+      { isMatch: false, content: " and " },
+      { isMatch: true, content: "MATCH" }
     );
 
     const asyncReplacementFn = vi.fn().mockResolvedValue("ASYNC");
@@ -53,9 +53,9 @@ describe("AsyncFunctionReplacementProcessor", () => {
 
   it("handles string replacement with async processor", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
 
     const processor = new AsyncFunctionReplacementProcessor({
@@ -78,10 +78,10 @@ describe("AsyncFunctionReplacementProcessor", () => {
       processChunk: vi.fn().mockImplementation(function* () {
         callCount++;
         if (callCount === 1) {
-          yield { content: "text ", match: false };
+          yield { isMatch: false, content: "text " };
         } else {
-          yield { content: "OLD", match: true };
-          yield { content: " end", match: false };
+          yield { isMatch: true, content: "OLD" };
+          yield { isMatch: false, content: " end" };
         }
       }),
       flush: vi.fn().mockReturnValue("")
@@ -114,9 +114,9 @@ describe("AsyncFunctionReplacementProcessor", () => {
     });
 
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "OLD", match: true },
-      { content: " and ", match: false },
-      { content: "OLD", match: true }
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " and " },
+      { isMatch: true, content: "OLD" }
     );
 
     const processor = new AsyncFunctionReplacementProcessor({
@@ -144,8 +144,8 @@ describe("AsyncFunctionReplacementProcessor", () => {
 describe("flush", () => {
   it("returns buffered content when called", async () => {
     const mockStrategy = mockSearchStrategyFactory({
-      content: "text ",
-      match: false
+      isMatch: false,
+      content: "text "
     });
     mockStrategy.flush.mockReturnValue("OL");
 

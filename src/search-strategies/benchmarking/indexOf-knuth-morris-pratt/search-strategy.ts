@@ -41,9 +41,9 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
           state.needleIndex = (state.needleIndex + length) % this.needle.length;
 
           if (state.needleIndex === 0) {
-            const content = state.buffer;
+            const match = state.buffer;
             state.buffer = "";
-            yield { content, match: true };
+            yield { isMatch: true, content: match };
           }
         } else {
           haystack = state.buffer + haystack;
@@ -55,29 +55,29 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
         if (matchPos === -1) {
           const partialLength = this.KMP.getLengthOfSuffixMatch(haystack);
           if (partialLength) {
-            const content = haystack.slice(0, -partialLength);
-            if (content) {
-              yield { content, match: false };
+            const nonMatch = haystack.slice(0, -partialLength);
+            if (nonMatch) {
+              yield { isMatch: false, content: nonMatch };
             }
             state.buffer = haystack.slice(-partialLength);
             state.needleIndex = partialLength;
           } else {
-            yield { content: haystack, match: false };
+            yield { isMatch: false, content: haystack };
           }
           haystack = "";
           return;
         }
 
-        const content = haystack.slice(0, matchPos);
-        if (content) {
-          yield { content, match: false };
+        const nonMatch = haystack.slice(0, matchPos);
+        if (nonMatch) {
+          yield { isMatch: false, content: nonMatch };
         }
 
         haystack = haystack.slice(matchPos + this.needle.length);
         state.buffer = "";
         yield {
-          content: this.needle,
-          match: true
+          isMatch: true,
+          content: this.needle
         };
       }
     } finally {

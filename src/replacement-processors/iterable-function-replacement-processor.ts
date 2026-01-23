@@ -1,14 +1,28 @@
-import { ReplacementProcessorBase } from "./replacement-processor.base.ts";
-import { type FunctionReplacementProcessorOptions } from "./function-replacement-processor.ts";
+import {
+  ReplacementProcessorBase,
+  type ReplacementProcessorOptions
+} from "./replacement-processor.base.ts";
 import { type SyncProcessor } from "./types.ts";
 
 /**
  * Configuration options for {@link IterableFunctionReplacementProcessor}.
  *
- * @typeParam T - The search state type used by the search strategy
+ * @typeParam TState - The search strategy's state type
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
-type IterableFunctionReplacementProcessorOptions<T> =
-  FunctionReplacementProcessorOptions<Iterable<string>, T>;
+export type IterableFunctionReplacementProcessorOptions<
+  TState,
+  TMatch = string
+> = ReplacementProcessorOptions<TState, TMatch> & {
+  /**
+   * Function called for each match that returns an iterable of replacement strings.
+   *
+   * @param match - The matched content (type inferred from search strategy)
+   * @param index - Zero-based index of this match
+   * @returns An iterable of replacement strings
+   */
+  replacement: (match: TMatch, index: number) => Iterable<string>;
+};
 
 /**
  * A replacement processor that uses a function returning an iterable to generate replacement values.
@@ -23,7 +37,8 @@ type IterableFunctionReplacementProcessorOptions<T> =
  * - Generate replacement content lazily using a generator function
  * - Expand matches into structured text output
  *
- * @typeParam T - The search state type used by the search strategy
+ * @typeParam TState - The search strategy's state type
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  *
  * @example Replace with multiple strings
  * ```typescript
@@ -50,27 +65,27 @@ type IterableFunctionReplacementProcessorOptions<T> =
  * });
  * ```
  */
-export class IterableFunctionReplacementProcessor<T>
-  extends ReplacementProcessorBase<T>
-  implements SyncProcessor
-{
-  private readonly replacementFn: IterableFunctionReplacementProcessorOptions<T>["replacement"];
+export class IterableFunctionReplacementProcessor<
+  TState,
+  TMatch = string
+> extends ReplacementProcessorBase<TState, TMatch> implements SyncProcessor {
+  private readonly replacementFn: (match: TMatch, index: number) => Iterable<string>;
   private matchIndex: number = 0;
 
   constructor({
     searchStrategy,
     replacement
-  }: IterableFunctionReplacementProcessorOptions<T>) {
+  }: IterableFunctionReplacementProcessorOptions<TState, TMatch>) {
     super({ searchStrategy });
     this.replacementFn = replacement;
   }
 
   *processChunk(chunk: string): Generator<string, void, undefined> {
-    for (const { match, content } of this.searchStrategy.processChunk(
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!match) {
+      if (!isMatch) {
         yield content;
         continue;
       }

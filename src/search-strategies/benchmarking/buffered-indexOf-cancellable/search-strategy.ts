@@ -27,22 +27,22 @@ export class BufferedIndexOfCancellableSearchStrategy
         if (index === -1) {
           const endPortion = 1 - this.needle.length;
           state.buffer = candidate.slice(endPortion);
-          const content = candidate.slice(0, endPortion);
+          const nonMatch = candidate.slice(0, endPortion);
           candidate = "";
-          if (content) {
-            yield { content, match: false };
+          if (nonMatch) {
+            yield { isMatch: false, content: nonMatch };
           }
           return;
         }
 
         if (index > 0) {
-          yield { content: candidate.slice(0, index), match: false };
+          yield { isMatch: false, content: candidate.slice(0, index) };
         }
 
-        const content = candidate.slice(index, index + this.needle.length);
+        const match = candidate.slice(index, index + this.needle.length);
         candidate = candidate.slice(index + this.needle.length);
         state.buffer = "";
-        yield { content, match: true };
+        yield { isMatch: true, content: match };
       }
     } finally {
       if (candidate) {

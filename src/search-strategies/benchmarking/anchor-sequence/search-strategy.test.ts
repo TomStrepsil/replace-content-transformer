@@ -16,28 +16,28 @@ describe("AnchorSequenceSearchStrategy", () => {
         name: "returns null when start delimiter not found",
         delimiters: ["{{", "}}"],
         haystack: "No delimiters here",
-        expectedResults: [{ content: "No delimiters here", match: false }],
+        expectedResults: [{ isMatch: false, content: "No delimiters here" }],
         expectedFlush: ""
       },
       {
         name: "returns incomplete match when end delimiter missing",
         delimiters: ["{{", "}}"],
         haystack: "Start {{incomplete",
-        expectedResults: [{ content: "Start ", match: false }],
+        expectedResults: [{ isMatch: false, content: "Start " }],
         expectedFlush: "{{incomplete"
       },
       {
         name: "returns incomplete match for partial start delimiter at end",
         delimiters: ["{{", "}}"],
         haystack: "text {",
-        expectedResults: [{ content: "text ", match: false }],
+        expectedResults: [{ isMatch: false, content: "text " }],
         expectedFlush: "{"
       },
       {
         name: "handles cross-boundary pattern (opening delimiter split)",
         delimiters: ["{{", "}}"],
         haystack: "Start {{na",
-        expectedResults: [{ content: "Start ", match: false }],
+        expectedResults: [{ isMatch: false, content: "Start " }],
         expectedFlush: "{{na"
       },
       {
@@ -52,7 +52,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         haystack: "text { single brace } more",
         expectedResults: [
-          { content: "text { single brace } more", match: false }
+          { isMatch: false, content: "text { single brace } more" }
         ],
         expectedFlush: ""
       },
@@ -67,14 +67,14 @@ describe("AnchorSequenceSearchStrategy", () => {
         name: "partial start delimiter with longer pattern",
         delimiters: ["BEGIN", "END"],
         haystack: "text BEG",
-        expectedResults: [{ content: "text ", match: false }],
+        expectedResults: [{ isMatch: false, content: "text " }],
         expectedFlush: "BEG"
       },
       {
         name: "no partial match when end doesn't match any delimiter prefix",
         delimiters: ["{{", "}}"],
         haystack: "text xyz",
-        expectedResults: [{ content: "text xyz", match: false }],
+        expectedResults: [{ isMatch: false, content: "text xyz" }],
         expectedFlush: ""
       }
     ];
@@ -113,9 +113,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "Hello {{name}} world" }],
         expectedResults: [
-          { content: "Hello ", match: false },
-          { content: "{{name}}", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "{{name}}" },
+          { isMatch: false, content: " world" }
         ],
         expectedFlush: ""
       },
@@ -124,8 +124,8 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{value}} text" }],
         expectedResults: [
-          { content: "{{value}}", match: true },
-          { content: " text", match: false }
+          { isMatch: true, content: "{{value}}" },
+          { isMatch: false, content: " text" }
         ],
         expectedFlush: ""
       },
@@ -134,8 +134,8 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "text {{value}}" }],
         expectedResults: [
-          { content: "text ", match: false },
-          { content: "{{value}}", match: true }
+          { isMatch: false, content: "text " },
+          { isMatch: true, content: "{{value}}" }
         ],
         expectedFlush: ""
       },
@@ -144,9 +144,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{first}} and {{second}}" }],
         expectedResults: [
-          { content: "{{first}}", match: true },
-          { content: " and ", match: false },
-          { content: "{{second}}", match: true }
+          { isMatch: true, content: "{{first}}" },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: "{{second}}" }
         ],
         expectedFlush: ""
       },
@@ -155,9 +155,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "text {{}} more" }],
         expectedResults: [
-          { content: "text ", match: false },
-          { content: "{{}}", match: true },
-          { content: " more", match: false }
+          { isMatch: false, content: "text " },
+          { isMatch: true, content: "{{}}" },
+          { isMatch: false, content: " more" }
         ],
         expectedFlush: ""
       },
@@ -166,8 +166,8 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ['<img src="', '" alt="', '">'],
         calls: [{ haystack: '<img src="/photo.jpg" alt="sunset"> text' }],
         expectedResults: [
-          { content: '<img src="/photo.jpg" alt="sunset">', match: true },
-          { content: " text", match: false }
+          { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">' },
+          { isMatch: false, content: " text" }
         ],
         expectedFlush: ""
       },
@@ -176,9 +176,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["[", "]"],
         calls: [{ haystack: "text [value] more" }],
         expectedResults: [
-          { content: "text ", match: false },
-          { content: "[value]", match: true },
-          { content: " more", match: false }
+          { isMatch: false, content: "text " },
+          { isMatch: true, content: "[value]" },
+          { isMatch: false, content: " more" }
         ],
         expectedFlush: ""
       },
@@ -188,8 +188,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         calls: [{ haystack: "{{this is a very long string with many words}}" }],
         expectedResults: [
           {
-            content: "{{this is a very long string with many words}}",
-            match: true
+            isMatch: true, content: "{{this is a very long string with many words}}"
           }
         ],
         expectedFlush: ""
@@ -199,9 +198,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{first}}" }, { haystack: " and {{second}}" }],
         expectedResults: [
-          { content: "{{first}}", match: true },
-          { content: " and ", match: false },
-          { content: "{{second}}", match: true }
+          { isMatch: true, content: "{{first}}" },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: "{{second}}" }
         ],
         expectedFlush: ""
       }
@@ -244,14 +243,14 @@ describe("AnchorSequenceSearchStrategy", () => {
         name: "start delimiter split across two chunks: '{' + '{name}}'",
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{" }, { haystack: "{name}}" }],
-        expectedResults: [{ content: "{{name}}", match: true }],
+        expectedResults: [{ isMatch: true, content: "{{name}}" }],
         expectedFlush: ""
       },
       {
         name: "end delimiter split across two chunks: '{{name}' + '}'",
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{name}" }, { haystack: "}" }],
-        expectedResults: [{ content: "{{name}}", match: true }],
+        expectedResults: [{ isMatch: true, content: "{{name}}" }],
         expectedFlush: ""
       },
       {
@@ -262,7 +261,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           { haystack: '" alt="sunset">' }
         ],
         expectedResults: [
-          { content: '<img src="/photo.jpg" alt="sunset">', match: true }
+          { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">' }
         ],
         expectedFlush: ""
       },
@@ -277,7 +276,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           { haystack: "}" },
           { haystack: "}" }
         ],
-        expectedResults: [{ content: "{{name}}", match: true }],
+        expectedResults: [{ isMatch: true, content: "{{name}}" }],
         expectedFlush: ""
       },
       {
@@ -285,9 +284,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{name}}" }, { haystack: " {{value}}" }],
         expectedResults: [
-          { content: "{{name}}", match: true },
-          { content: " ", match: false },
-          { content: "{{value}}", match: true }
+          { isMatch: true, content: "{{name}}" },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: "{{value}}" }
         ],
         expectedFlush: ""
       },
@@ -296,8 +295,8 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "text " }, { haystack: "{{name}}" }],
         expectedResults: [
-          { content: "text ", match: false },
-          { content: "{{name}}", match: true }
+          { isMatch: false, content: "text " },
+          { isMatch: true, content: "{{name}}" }
         ],
         expectedFlush: ""
       },
@@ -309,7 +308,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           { haystack: "IN content E" },
           { haystack: "ND" }
         ],
-        expectedResults: [{ content: "BEGIN content END", match: true }],
+        expectedResults: [{ isMatch: true, content: "BEGIN content END" }],
         expectedFlush: ""
       },
       {
@@ -317,10 +316,10 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{first}} and {{se" }, { haystack: "cond}} end" }],
         expectedResults: [
-          { content: "{{first}}", match: true },
-          { content: " and ", match: false },
-          { content: "{{second}}", match: true },
-          { content: " end", match: false }
+          { isMatch: true, content: "{{first}}" },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: "{{second}}" },
+          { isMatch: false, content: " end" }
         ],
         expectedFlush: ""
       }
@@ -366,15 +365,15 @@ describe("AnchorSequenceSearchStrategy", () => {
       );
       for (const match of iterator) {
         results.push(match);
-        if (match.match) {
+        if (match.isMatch) {
           break;
         }
       }
       const flushed = strategy.flush(state);
 
       expect(results).toEqual([
-        { content: "First ", match: false },
-        { content: "{{OLD}}", match: true }
+        { isMatch: false, content: "First " },
+        { isMatch: true, content: "{{OLD}}" }
       ]);
       expect(flushed).toEqual(" and second {{OLD}}");
     });

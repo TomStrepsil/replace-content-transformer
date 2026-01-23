@@ -302,7 +302,7 @@ This strategy implements `SearchStrategy<TState>` with `finally` block for cance
   state: LoopedIndexOfSearchState
 ): Generator<MatchResult, void, undefined> {
   try {
-    yield { content: "...", match: false };
+    yield { isMatch: false, content: "..." };
   } finally {
     // Executes when iteration stops (break, return, completion)
     state.buffer = /* preserve remaining content */;
@@ -342,7 +342,7 @@ const iterator = strategy.processChunk(
 );
 
 for (const result of iterator) {
-  if (result.match) {
+  if (result.isMatch) {
     // Stop after first match - triggers finally block
     break;
   }

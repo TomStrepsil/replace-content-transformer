@@ -1,10 +1,15 @@
 /**
- * Result of processing content - either a match or literal content
+ * Result of processing content - either a match or literal content.
+ *
+ * Uses boolean discrimination with typed content:
+ * - `{ isMatch: false, content: string }` - Literal content to yield as-is
+ * - `{ isMatch: true, content: T }` - Match value passed to replacement function
+ *
+ * @typeParam T - The type of value returned for matches (default: string)
  */
-export interface MatchResult {
-  content: string;
-  match: boolean;
-}
+export type MatchResult<T = string> =
+  | { isMatch: false; content: string }
+  | { isMatch: true; content: T };
 
 /**
  * Search strategy for finding patterns in streaming content.
@@ -12,8 +17,9 @@ export interface MatchResult {
  * Strategies are stateless and reusable across multiple streams, hence state is owned by the consuming processor.
  *
  * @template TState - The type of state this strategy requires (use void for stateless strategies)
+ * @template TMatch - The type of match returned by the strategy (default: string)
  */
-export interface SearchStrategy<TState> {
+export interface SearchStrategy<TState, TMatch = string> {
   /**
    * Create initial state for this strategy.
    * Called once per stream processor instance.
@@ -25,12 +31,12 @@ export interface SearchStrategy<TState> {
    *
    * @param haystack - New content to process
    * @param state - Mutable state object to track search progress
-   * @yields MatchResult - Content chunks ready for output
+   * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch }`
    */
   processChunk(
     haystack: string,
     state: TState
-  ): Generator<MatchResult, void, undefined>;
+  ): Generator<MatchResult<TMatch>, void, undefined>;
 
   /**
    * Flush any partial match content buffered in state.

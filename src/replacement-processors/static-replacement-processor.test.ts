@@ -7,8 +7,8 @@ describe("StaticReplacementProcessor", () => {
 
   it("yields input directly when search strategy finds no match", () => {
     const mockStrategy = mockSearchStrategyFactory({
-      content: "test output",
-      match: false
+      isMatch: false,
+      content: "test output"
     });
 
     const processor = new StaticReplacementProcessor({
@@ -27,9 +27,9 @@ describe("StaticReplacementProcessor", () => {
 
   it("yields content before match and replacement when complete match found", () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
 
     const processor = new StaticReplacementProcessor({
@@ -48,11 +48,11 @@ describe("StaticReplacementProcessor", () => {
 
   it("handles multiple replacements in single chunk", () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
 
     const processor = new StaticReplacementProcessor({
@@ -71,8 +71,8 @@ describe("StaticReplacementProcessor", () => {
 
   it("buffers incomplete match at chunk boundary", () => {
     const mockStrategy = mockSearchStrategyFactory({
-      content: "Hello wor",
-      match: false
+      isMatch: false,
+      content: "Hello wor"
     });
     mockStrategy.flush.mockReturnValue("ld");
 
@@ -94,8 +94,8 @@ describe("StaticReplacementProcessor", () => {
 
   it("handles replacement at start of chunk", () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello", match: true },
-      { content: " world", match: false }
+      { isMatch: true, content: "Hello" },
+      { isMatch: false, content: " world" }
     );
 
     const processor = new StaticReplacementProcessor({
@@ -115,8 +115,8 @@ describe("StaticReplacementProcessor", () => {
   describe("flush", () => {
     it("returns buffered content", () => {
       const mockStrategy = mockSearchStrategyFactory({
-        content: "test ",
-        match: false
+        isMatch: false,
+        content: "test "
       });
       mockStrategy.flush.mockReturnValue("input");
 

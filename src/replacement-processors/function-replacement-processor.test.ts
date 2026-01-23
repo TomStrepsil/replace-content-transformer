@@ -6,8 +6,8 @@ describe("FunctionReplacementProcessor", () => {
   describe("processChunk", () => {
     it("yields input directly when search strategy finds no match", () => {
       const mockStrategy = mockSearchStrategyFactory({
-        content: "test input",
-        match: false
+        isMatch: false,
+        content: "test input"
       });
 
       const processor = new FunctionReplacementProcessor({
@@ -26,9 +26,9 @@ describe("FunctionReplacementProcessor", () => {
 
     it("yields content before match and replacement when complete match found", () => {
       const mockStrategy = mockSearchStrategyFactory(
-        { content: "Hello ", match: false },
-        { content: "OLD", match: true },
-        { content: " world", match: false }
+        { isMatch: false, content: "Hello " },
+        { isMatch: true, content: "OLD" },
+        { isMatch: false, content: " world" }
       );
 
       const processor = new FunctionReplacementProcessor({
@@ -50,8 +50,8 @@ describe("FunctionReplacementProcessor", () => {
 
     it("buffers incomplete match and yields nothing", () => {
       const mockStrategy = mockSearchStrategyFactory({
-        content: "text ",
-        match: false
+        isMatch: false,
+        content: "text "
       });
 
       const processor = new FunctionReplacementProcessor({
@@ -81,12 +81,12 @@ describe("FunctionReplacementProcessor", () => {
           callCount++;
           if (callCount === 1) {
             // First chunk: yield non-match content before buffered partial
-            yield { content: "text ", match: false };
+            yield { isMatch: false, content: "text " };
             // "OL" is buffered (not yielded)
           } else if (callCount === 2) {
             // Second chunk completes the match
-            yield { content: "OLD", match: true };
-            yield { content: " end", match: false };
+            yield { isMatch: true, content: "OLD" };
+            yield { isMatch: false, content: " end" };
           }
         }),
         flush: vi.fn().mockReturnValue("")
@@ -112,9 +112,9 @@ describe("FunctionReplacementProcessor", () => {
 
     it("calls replacement function with matched content and index", () => {
       const mockStrategy = mockSearchStrategyFactory(
-        { content: "Hello ", match: false },
-        { content: "MATCH", match: true },
-        { content: " world", match: false }
+        { isMatch: false, content: "Hello " },
+        { isMatch: true, content: "MATCH" },
+        { isMatch: false, content: " world" }
       );
 
       const replacementFn = vi.fn().mockReturnValue("RESULT");
@@ -140,9 +140,9 @@ describe("FunctionReplacementProcessor", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           callCount++;
           if (callCount === 1) {
-            yield { content: "MATCH", match: true };
+            yield { isMatch: true, content: "MATCH" };
           } else if (callCount === 2) {
-            yield { content: "MATCH", match: true };
+            yield { isMatch: true, content: "MATCH" };
           }
         }),
         flush: vi.fn().mockReturnValue("")
@@ -170,9 +170,9 @@ describe("FunctionReplacementProcessor", () => {
 
     it("continues processing after match to find subsequent matches", () => {
       const mockStrategy = mockSearchStrategyFactory(
-        { content: "OLD", match: true },
-        { content: " and ", match: false },
-        { content: "OLD", match: true }
+        { isMatch: true, content: "OLD" },
+        { isMatch: false, content: " and " },
+        { isMatch: true, content: "OLD" }
       );
 
       const processor = new FunctionReplacementProcessor({
@@ -197,12 +197,12 @@ describe("FunctionReplacementProcessor", () => {
       });
 
       const mockStrategy = mockSearchStrategyFactory(
-        { content: "OLD", match: true },
-        { content: " and ", match: false },
-        { content: "OLD", match: true }
+        { isMatch: true, content: "OLD" },
+        { isMatch: false, content: " and " },
+        { isMatch: true, content: "OLD" }
       );
 
-      const processor = new FunctionReplacementProcessor<Promise<string>>({
+      const processor = new FunctionReplacementProcessor({
         searchStrategy: mockStrategy,
         replacement: asyncReplacementFn
       });
@@ -225,8 +225,8 @@ describe("FunctionReplacementProcessor", () => {
   describe("flush", () => {
     it("returns buffered content when called", () => {
       const mockStrategy = mockSearchStrategyFactory({
-        content: "text ",
-        match: false
+        isMatch: false,
+        content: "text "
       });
       mockStrategy.flush = vi.fn().mockReturnValue("OL");
 
@@ -246,8 +246,8 @@ describe("FunctionReplacementProcessor", () => {
 
     it("returns empty string when no buffered content", () => {
       const mockStrategy = mockSearchStrategyFactory({
-        content: "test",
-        match: false
+        isMatch: false,
+        content: "test"
       });
       mockStrategy.flush = vi.fn().mockReturnValue("");
 

@@ -1,14 +1,28 @@
-import { ReplacementProcessorBase } from "./replacement-processor.base.ts";
-import { type FunctionReplacementProcessorOptions } from "./function-replacement-processor.ts";
+import {
+  ReplacementProcessorBase,
+  type ReplacementProcessorOptions
+} from "./replacement-processor.base.ts";
 import { type AsyncProcessor } from "./types.ts";
 
 /**
  * Configuration options for {@link AsyncFunctionReplacementProcessor}.
  * 
- * @typeParam T - The search state type used by the search strategy
+ * @typeParam TState - The search strategy's state type
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
-type AsyncFunctionReplacementProcessorOptions<T> =
-  FunctionReplacementProcessorOptions<Promise<string>, T>;
+export type AsyncFunctionReplacementProcessorOptions<
+  TState,
+  TMatch = string
+> = ReplacementProcessorOptions<TState, TMatch> & {
+  /**
+   * Async function called for each match to generate the replacement content.
+   * 
+   * @param match - The matched content
+   * @param index - Zero-based index of this match
+   * @returns Promise resolving to the replacement string
+   */
+  replacement: (match: TMatch, index: number) => Promise<string>;
+};
 
 /**
  * A replacement processor that uses an async function to generate replacement values.
@@ -22,14 +36,15 @@ type AsyncFunctionReplacementProcessorOptions<T> =
  * - When replacements must be processed in strict sequential order
  * - For simpler async patterns without needing early discovery
  * 
- * **Comparison with FunctionReplacementProcessor<Promise<string>>**:
+ * **Comparison with FunctionReplacementProcessor with async replacement**:
  * - `AsyncFunctionReplacementProcessor`: Awaits each replacement sequentially (serial execution)
- * - `FunctionReplacementProcessor<Promise<string>>`: Calls all functions immediately (parallel execution)
+ * - `FunctionReplacementProcessor` with async: Calls all functions immediately (parallel execution)
  * 
  * The sequential behavior ensures matches are replaced in order and works with Node.js streams,
  * but may be slower than the parallel Promise pattern available in WHATWG Streams.
  * 
- * @typeParam T - The search state type used by the search strategy
+ * @typeParam TState - The search strategy's state type
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  * 
  * @example Node.js async replacements
  * ```typescript
@@ -49,27 +64,27 @@ type AsyncFunctionReplacementProcessorOptions<T> =
  * pipeline(Readable.from(['User: {{user}}']), transform, process.stdout);
  * ```
  */
-export class AsyncFunctionReplacementProcessor<T>
-  extends ReplacementProcessorBase<T>
-  implements AsyncProcessor
-{
-  private readonly replacementFn: AsyncFunctionReplacementProcessorOptions<T>["replacement"];
+export class AsyncFunctionReplacementProcessor<
+  TState,
+  TMatch = string
+> extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
+  private readonly replacementFn: (match: TMatch, index: number) => Promise<string>;
   private matchIndex: number = 0;
 
   constructor({
     searchStrategy,
     replacement
-  }: AsyncFunctionReplacementProcessorOptions<T>) {
+  }: AsyncFunctionReplacementProcessorOptions<TState, TMatch>) {
     super({ searchStrategy });
     this.replacementFn = replacement;
   }
 
   async *processChunk(chunk: string): AsyncGenerator<string, void, undefined> {
-    for (const { match, content } of this.searchStrategy.processChunk(
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!match) {
+      if (!isMatch) {
         yield content;
         continue;
       }

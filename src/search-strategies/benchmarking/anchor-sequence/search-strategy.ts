@@ -7,19 +7,27 @@ export interface AnchorSequenceSearchState<TState> extends StringBufferState {
   strategyStates: TState[];
 }
 
+// Helper to extract match content as string
+function extractMatchContent<TMatch>(match: TMatch): string {
+  if (Array.isArray(match)) {
+    return match[0]; // RegExpExecArray
+  }
+  return String(match);
+}
+
 /**
  * Search strategy for delimiter token patterns.
  * Matches content between sequential delimiter tokens, e.g., ["{{", "}}"] matches "{{name}}"
  * Supports multi-token patterns like ['<img src="', '" alt="', '">']
  * State is externally owned to allow strategy reuse across multiple streams.
  */
-export class AnchorSequenceSearchStrategy<TState>
+export class AnchorSequenceSearchStrategy<TState, TMatch = string>
   extends StringBufferStrategyBase
-  implements SearchStrategy<AnchorSequenceSearchState<TState>>
+  implements SearchStrategy<AnchorSequenceSearchState<TState>, string>
 {
-  private readonly subStrategies: SearchStrategy<TState>[];
+  private readonly subStrategies: SearchStrategy<TState, TMatch>[];
 
-  constructor(subStrategies: SearchStrategy<TState>[]) {
+  constructor(subStrategies: SearchStrategy<TState, TMatch>[]) {
     super();
     this.subStrategies = subStrategies;
   }
@@ -48,8 +56,8 @@ export class AnchorSequenceSearchStrategy<TState>
           haystack,
           subStrategyState
         )) {
-          if (matchResult.match) {
-            matched = matchResult.content;
+          if (matchResult.isMatch) {
+            matched = extractMatchContent(matchResult.content);
             break;
           }
           if (isMidMatch) {
@@ -71,9 +79,9 @@ export class AnchorSequenceSearchStrategy<TState>
           (state.currentNeedleIndex + 1) % this.subStrategies.length;
         isMidMatch = state.currentNeedleIndex !== 0;
         if (!isMidMatch) {
-          const content = state.buffer;
+          const match = state.buffer;
           state.buffer = "";
-          yield { content, match: true };
+          yield { isMatch: true, content: match };
         }
       }
     } finally {

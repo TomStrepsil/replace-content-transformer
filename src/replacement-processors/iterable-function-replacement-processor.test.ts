@@ -7,9 +7,9 @@ describe("IterableFunctionReplacementProcessor", () => {
 
   it("yields iterable content chunk-by-chunk without buffering", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
     const iterableChunks = ["chunk1", "chunk2", "chunk3"];
 
@@ -35,9 +35,9 @@ describe("IterableFunctionReplacementProcessor", () => {
 
   it("handles multiple matches with different iterable replacements", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "OLD", match: true },
-      { content: " and ", match: false },
-      { content: "OLD", match: true }
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " and " },
+      { isMatch: true, content: "OLD" }
     );
 
     const iterable1Chunks = ["A1", "A2"];
@@ -64,9 +64,9 @@ describe("IterableFunctionReplacementProcessor", () => {
 
   it("handles empty iterable replacement", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
 
     const emptyIterable: string[] = [];
@@ -85,13 +85,7 @@ describe("IterableFunctionReplacementProcessor", () => {
   });
 
   it("handles iterable replacement with match context and index", async () => {
-    const mockStrategy = {
-      createState: vi.fn().mockReturnValue({}),
-      processChunk: vi.fn().mockImplementation(function* () {
-        yield { content: "MATCH", match: true };
-      }),
-      flush: vi.fn().mockReturnValue("")
-    };
+    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH" });
 
     const iterableFactory = (matchedContent: string, index: number) => {
       return [`[${matchedContent}:${index}]`];
@@ -123,10 +117,10 @@ describe("IterableFunctionReplacementProcessor", () => {
       processChunk: vi.fn().mockImplementation(function* () {
         callCount++;
         if (callCount === 1) {
-          yield { content: "text ", match: false };
+          yield { isMatch: false, content: "text " };
         } else {
-          yield { content: "OLD", match: true };
-          yield { content: " end", match: false };
+          yield { isMatch: true, content: "OLD" };
+          yield { isMatch: false, content: " end" };
         }
       }),
       flush: vi.fn().mockReturnValue("")
@@ -158,8 +152,8 @@ describe("IterableFunctionReplacementProcessor", () => {
   describe("flush", () => {
   it("returns buffered content when called", async () => {
     const mockStrategy = mockSearchStrategyFactory({
-      content: "text ",
-      match: false
+      isMatch: false,
+      content: "text "
     });
     mockStrategy.flush.mockReturnValue("OL");
 

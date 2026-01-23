@@ -127,7 +127,7 @@ This variant implements `SearchStrategy<TState>` with `finally` block for cancel
   state: BufferedIndexOfCancellableState
 ): Generator<MatchResult, void, undefined> {
   try {
-    yield { content: "...", match: false };
+    yield { isMatch: false, content: "..." };
   } finally {
     // Executes when iteration stops (break, return, completion)
     state.buffer = /* preserve remaining content */;
@@ -160,7 +160,7 @@ const generator = strategy.processChunk(
 );
 
 for (const result of generator) {
-  if (result.match) {
+  if (result.isMatch) {
     // Stop after first match - triggers finally block
     break;
   }

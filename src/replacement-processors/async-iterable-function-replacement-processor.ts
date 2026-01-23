@@ -1,14 +1,28 @@
-import { ReplacementProcessorBase } from "./replacement-processor.base.ts";
-import { type FunctionReplacementProcessorOptions } from "./function-replacement-processor.ts";
+import {
+  ReplacementProcessorBase,
+  type ReplacementProcessorOptions
+} from "./replacement-processor.base.ts";
 import { type AsyncProcessor } from "./types.ts";
 
 /**
  * Configuration options for {@link AsyncIterableFunctionReplacementProcessor}.
  * 
- * @typeParam T - The search state type used by the search strategy
+ * @typeParam TState - The search strategy's state type
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
-type AsyncIterableFunctionReplacementProcessorOptions<T> =
-  FunctionReplacementProcessorOptions<Promise<AsyncIterable<string>>, T>;
+export type AsyncIterableFunctionReplacementProcessorOptions<
+  TState,
+  TMatch = string
+> = ReplacementProcessorOptions<TState, TMatch> & {
+  /**
+   * Async function called for each match that returns an async iterable of replacement strings.
+   * 
+   * @param match - The matched content (type inferred from search strategy)
+   * @param index - Zero-based index of this match
+   * @returns Promise resolving to an async iterable of replacement strings
+   */
+  replacement: (match: TMatch, index: number) => Promise<AsyncIterable<string>>;
+};
 
 /**
  * A replacement processor that uses an async function returning an async iterable.
@@ -24,7 +38,8 @@ type AsyncIterableFunctionReplacementProcessorOptions<T> =
  * - Lazy generation of replacement content with async dependencies
  * - Node.js streams requiring multi-value async replacements
  * 
- * @typeParam T - The search state type used by the search strategy
+ * @typeParam TState - The search strategy's state type
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  * 
  * @example Streaming replacement from async source
  * ```typescript
@@ -72,27 +87,27 @@ type AsyncIterableFunctionReplacementProcessorOptions<T> =
  * });
  * ```
  */
-export class AsyncIterableFunctionReplacementProcessor<T>
-  extends ReplacementProcessorBase<T>
-  implements AsyncProcessor
-{
-  private readonly replacementFn: AsyncIterableFunctionReplacementProcessorOptions<T>["replacement"];
+export class AsyncIterableFunctionReplacementProcessor<
+  TState,
+  TMatch = string
+> extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
+  private readonly replacementFn: (match: TMatch, index: number) => Promise<AsyncIterable<string>>;
   private matchIndex: number = 0;
 
   constructor({
     searchStrategy,
     replacement
-  }: AsyncIterableFunctionReplacementProcessorOptions<T>) {
+  }: AsyncIterableFunctionReplacementProcessorOptions<TState, TMatch>) {
     super({ searchStrategy });
     this.replacementFn = replacement;
   }
 
   async *processChunk(chunk: string): AsyncGenerator<string, void, undefined> {
-    for (const { match, content } of this.searchStrategy.processChunk(
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!match) {
+      if (!isMatch) {
         yield content;
         continue;
       }

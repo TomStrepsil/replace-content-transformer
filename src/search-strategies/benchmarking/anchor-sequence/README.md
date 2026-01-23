@@ -42,7 +42,7 @@ Cancellable strategies use `finally` blocks to preserve state when iteration sto
 
 ```typescript
 for (const result of subStrategy.processChunk(chunk, state)) {
-  if (result.match) {
+  if (result.isMatch) {
     // Found the needle! Exit iteration (triggers finally block)
     const matched = result.content;
     break; // or return - both trigger finally block
