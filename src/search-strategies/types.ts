@@ -16,8 +16,8 @@ export type MatchResult<T = string> =
  *
  * Strategies are stateless and reusable across multiple streams, hence state is owned by the consuming processor.
  *
- * @template T - The type of state this strategy requires (use void for stateless strategies)
- * @template U - The type of match returned by the strategy (default: string)
+ * @template TState - The type of state this strategy requires (use void for stateless strategies)
+ * @template TMatch - The type of match returned by the strategy (default: string)
  */
 export interface SearchStrategy<TState, TMatch = string> {
   /**
