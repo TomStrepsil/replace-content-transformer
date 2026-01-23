@@ -26,7 +26,7 @@ export const RegexHarness = {
     new ReplaceContentTransformer(
       new FunctionReplacementProcessor({
         searchStrategy: strategy,
-        replacement
+        replacement: (match, index) => replacement(match[0], index)
       })
     )
 };

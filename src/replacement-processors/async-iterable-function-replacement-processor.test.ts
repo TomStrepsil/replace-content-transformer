@@ -5,9 +5,9 @@ import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-func
 describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("yields stream content chunk-by-chunk without buffering", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
 
     const streamChunks = ["chunk1", "chunk2", "chunk3"];
@@ -41,9 +41,9 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
 
   it("handles multiple matches with different stream replacements", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "OLD", match: true },
-      { content: " and ", match: false },
-      { content: "OLD", match: true }
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " and " },
+      { isMatch: true, content: "OLD" }
     );
 
     const stream1Chunks = ["A1", "A2"];
@@ -77,9 +77,9 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
 
   it("handles empty stream replacement", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { content: "Hello ", match: false },
-      { content: "OLD", match: true },
-      { content: " world", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD" },
+      { isMatch: false, content: " world" }
     );
 
     const emptyStream = new ReadableStream({
@@ -102,13 +102,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   });
 
   it("handles stream replacement with match context and index", async () => {
-    const mockStrategy = {
-      createState: vi.fn().mockReturnValue({}),
-      processChunk: vi.fn().mockImplementation(function* () {
-        yield { content: "MATCH", match: true };
-      }),
-      flush: vi.fn().mockReturnValue("")
-    };
+    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH" });
 
     const streamFactory = async (matchedContent: string, index: number) => {
       return new ReadableStream({
@@ -142,10 +136,10 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
       processChunk: vi.fn().mockImplementation(function* () {
         callCount++;
         if (callCount === 1) {
-          yield { content: "text ", match: false };
+          yield { isMatch: false, content: "text " };
         } else {
-          yield { content: "OLD", match: true };
-          yield { content: " end", match: false };
+          yield { isMatch: true, content: "OLD" };
+          yield { isMatch: false, content: " end" };
         }
       }),
       flush: vi.fn().mockReturnValue("")
@@ -183,8 +177,8 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
 describe("flush", () => {
   it("returns buffered content when called", async () => {
     const mockStrategy = mockSearchStrategyFactory({
-      content: "text ",
-      match: false
+      isMatch: false,
+      content: "text "
     });
     mockStrategy.flush.mockReturnValue("OL");
 

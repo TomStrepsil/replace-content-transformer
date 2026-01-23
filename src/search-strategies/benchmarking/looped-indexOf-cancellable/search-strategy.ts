@@ -37,9 +37,9 @@ export class LoopedIndexOfCancellableSearchStrategy
           state.needleIndex = (state.needleIndex + length) % this.needle.length;
 
           if (state.needleIndex === 0) {
-            const content = state.buffer;
+            const match = state.buffer;
             state.buffer = "";
-            yield { content, match: true };
+            yield { isMatch: true, content: match };
           }
         } else {
           haystack = state.buffer + haystack;
@@ -49,36 +49,36 @@ export class LoopedIndexOfCancellableSearchStrategy
       while (haystack) {
         const matchPos = haystack.indexOf(this.needle);
         if (matchPos === -1) {
-          const content = haystack;
+          const nonMatch = haystack;
           haystack = "";
           for (
             let partialLength = this.needle.length - 1;
             partialLength >= 1;
             partialLength--
           ) {
-            const haystackSuffix = content.slice(-partialLength);
+            const haystackSuffix = nonMatch.slice(-partialLength);
             const needlePrefix = this.needle.slice(0, partialLength);
             if (haystackSuffix === needlePrefix) {
               yield {
-                content: content.slice(0, -partialLength),
-                match: false
+                isMatch: false,
+                content: nonMatch.slice(0, -partialLength)
               };
-              state.buffer = content.slice(-partialLength);
+              state.buffer = nonMatch.slice(-partialLength);
               state.needleIndex = partialLength;
               return;
             }
           }
-          yield { content, match: false };
+          yield { isMatch: false, content: nonMatch };
 
           return;
         }
 
-        yield { content: haystack.slice(0, matchPos), match: false };
+        yield { isMatch: false, content: haystack.slice(0, matchPos) };
         haystack = haystack.slice(matchPos + this.needle.length);
         state.buffer = "";
         yield {
-          content: this.needle,
-          match: true
+          isMatch: true,
+          content: this.needle
         };
       }
     } finally {

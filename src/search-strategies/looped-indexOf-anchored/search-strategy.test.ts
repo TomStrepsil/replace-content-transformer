@@ -10,9 +10,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const flushed = strategy.flush(state);
 
     expect(results).toEqual([
-      { content: "before ", match: false },
-      { content: "{{", match: true },
-      { content: " after", match: false }
+      { isMatch: false, content: "before " },
+      { isMatch: true, content: "{{" },
+      { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
   });
@@ -25,9 +25,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const flushed = strategy.flush(state);
 
     expect(results).toEqual([
-      { content: "before ", match: false },
-      { content: "{{name}}", match: true },
-      { content: " after", match: false }
+      { isMatch: false, content: "before " },
+      { isMatch: true, content: "{{name}}" },
+      { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
   });
@@ -39,13 +39,13 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("before {", state),
       ...strategy.processChunk("{name}}", state),
-      { content: strategy.flush(state), match: false }
+      { isMatch: false, content: strategy.flush(state) }
     ];
 
     expect(results).toEqual([
-      { content: "before ", match: false },
-      { content: "{{name}}", match: true },
-      { content: "", match: false }
+      { isMatch: false, content: "before " },
+      { isMatch: true, content: "{{name}}" },
+      { isMatch: false, content: "" }
     ]);
   });
 
@@ -60,9 +60,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const flushed = strategy.flush(state);
 
     expect(results).toEqual([
-      { content: "before ", match: false },
-      { content: "{{name}}", match: true },
-      { content: " after", match: false }
+      { isMatch: false, content: "before " },
+      { isMatch: true, content: "{{name}}" },
+      { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
   });
@@ -74,13 +74,13 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("no matches here", state),
       ...strategy.processChunk("or here either", state),
-      { content: strategy.flush(state), match: false }
+      { isMatch: false, content: strategy.flush(state) }
     ];
 
     expect(results).toEqual([
-      { content: "no matches here", match: false },
-      { content: "or here either", match: false },
-      { content: "", match: false }
+      { isMatch: false, content: "no matches here" },
+      { isMatch: false, content: "or here either" },
+      { isMatch: false, content: "" }
     ]);
   });
 
@@ -91,11 +91,11 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     // Process first chunk - ends with 'a', not '{', so no buffering
     const results1 = [...strategy.processChunk("chunk ends with a", state)];
     expect(state.buffer).toBe("");
-    expect(results1).toEqual([{ content: "chunk ends with a", match: false }]);
+    expect(results1).toEqual([{ isMatch: false, content: "chunk ends with a" }]);
 
     // Process second chunk - no buffered content to prepend
     const results2 = [...strategy.processChunk("another chunk", state)];
-    expect(results2).toEqual([{ content: "another chunk", match: false }]);
+    expect(results2).toEqual([{ isMatch: false, content: "another chunk" }]);
   });
 
   it("should buffer when partial match detected", () => {
@@ -105,11 +105,11 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     // Process chunk ending with partial match
     const results1 = [...strategy.processChunk("text ends with {", state)];
     expect(state.buffer).toBe("{");
-    expect(results1).toEqual([{ content: "text ends with ", match: false }]);
+    expect(results1).toEqual([{ isMatch: false, content: "text ends with " }]);
 
     // Complete the match
     const results2 = [...strategy.processChunk("{name}}", state)];
-    expect(results2).toEqual([{ content: "{{name}}", match: true }]);
+    expect(results2).toEqual([{ isMatch: true, content: "{{name}}" }]);
   });
 
   it("should handle false starts", () => {
@@ -119,14 +119,14 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("text {", state),
       ...strategy.processChunk("x {{match}}", state),
-      { content: strategy.flush(state), match: false }
+      { isMatch: false, content: strategy.flush(state) }
     ];
 
     expect(results).toEqual([
-      { content: "text ", match: false },
-      { content: "{x ", match: false },
-      { content: "{{match}}", match: true },
-      { content: "", match: false }
+      { isMatch: false, content: "text " },
+      { isMatch: false, content: "{x " },
+      { isMatch: true, content: "{{match}}" },
+      { isMatch: false, content: "" }
     ]);
   });
 
@@ -136,14 +136,14 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     const results = [
       ...strategy.processChunk("{{first}}{{second}}{{third}}", state),
-      { content: strategy.flush(state), match: false }
+      { isMatch: false, content: strategy.flush(state) }
     ];
 
     expect(results).toEqual([
-      { content: "{{first}}", match: true },
-      { content: "{{second}}", match: true },
-      { content: "{{third}}", match: true },
-      { content: "", match: false }
+      { isMatch: true, content: "{{first}}" },
+      { isMatch: true, content: "{{second}}" },
+      { isMatch: true, content: "{{third}}" },
+      { isMatch: false, content: "" }
     ]);
   });
 
@@ -162,9 +162,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const flushed = strategy.flush(state);
 
     expect(results).toEqual([
-      { content: "before ", match: false },
-      { content: "<{{name}}>", match: true },
-      { content: " after", match: false }
+      { isMatch: false, content: "before " },
+      { isMatch: true, content: "<{{name}}>" },
+      { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
   });
@@ -175,13 +175,17 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     const results = [
       ...strategy.processChunk("{{incomplete", state),
-      { content: strategy.flush(state), match: false }
+      { isMatch: false, content: strategy.flush(state) }
     ];
 
-    expect(results).toEqual([{ content: "{{incomplete", match: false }]);
+    expect(results).toEqual([{ isMatch: false, content: "{{incomplete" }]);
   });
 
   describe("cancellation scenarios", () => {
+    // Helper to extract the string value from a MatchResult
+    const getValue = (result: { isMatch: false, content: string } | { isMatch: true, content: string }): string =>
+      result.content;
+
     it("flushes buffer when cancelling with no matches and no partial match", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
@@ -190,7 +194,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       let generator = strategy.processChunk("Text with no match", state);
       const result = generator.next();
-      outputs.push(result.value!.content);
+      outputs.push(getValue(result.value!));
 
       // Generator returns after yielding because no partial match found
       expect(result.done).toBe(false);
@@ -209,7 +213,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       let generator = strategy.processChunk("Text ends with {", state);
       const result = generator.next();
-      outputs.push(result.value!.content);
+      outputs.push(getValue(result.value!));
 
       // Generator returns after yielding and setting buffer to "{"
       expect(result.done).toBe(false);
@@ -226,7 +230,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       let generator = strategy.processChunk("Text {{ something", state);
       const result = generator.next(); // Yields "Text "
-      expect(result.value?.content).toBe("Text ");
+      expect(getValue(result.value!)).toBe("Text ");
       expect(result.done).toBe(false);
 
       // Check if there's another yield before returning
@@ -314,7 +318,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       // Let generator complete naturally
       const generator = strategy.processChunk("text", state);
       const result = generator.next();
-      expect(result.value?.content).toBe("text");
+      expect(getValue(result.value!)).toBe("text");
       expect(result.done).toBe(false);
 
       // No more yields, generator is done

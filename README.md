@@ -216,7 +216,7 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
 );
 ```
 
-> [!NOTE]
+> [!TIP]
 > If promise-concurrency needs control, consider a replacement function that limits in-flight promises via pooling:
 
 ```typescript
@@ -419,21 +419,23 @@ It has separated concerns:
 Pluggable strategies implement the `SearchStrategy` interface:
 
 ```typescript
-interface MatchResult {
-  content: string;
-  match: boolean;
-}
-interface SearchStrategy<TState> {
+type MatchResult<T = string> =
+  | { isMatch: false; content: string }
+  | { isMatch: true; content: T };
+
+interface SearchStrategy<TState, TMatch = string> {
   createState(): TState;
   processChunk(
     haystack: string,
     state: TState
-  ): Generator<MatchResult, void, undefined>;
+  ): Generator<MatchResult<TMatch>, void, undefined>;
   flush(state: TState): string;
 }
 ```
 
 The `TState` type is specific to the strategy, managed by the consuming processor / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
+
+The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
 
 The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
 
@@ -485,10 +487,10 @@ Processors accept chunks from the `Transformer` (web) / `stream.Transform` (node
     chunk,
     this.searchState
   )) {
-    if (result.match) {
+    if (result.isMatch) {
       yield /* some replacement form (static, functional, iterator, async...) */
     } else {
-      return result.content
+      yield result.content;
     }
   }
 }

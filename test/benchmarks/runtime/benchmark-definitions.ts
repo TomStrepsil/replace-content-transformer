@@ -20,7 +20,7 @@ export interface BenchmarkDefinition {
   setup: () => {
     processor:
       | StaticReplacementProcessor<SearchState>
-      | FunctionReplacementProcessor
+      | FunctionReplacementProcessor<SearchState>
       | AsyncFunctionReplacementProcessor<SearchState>
       | AsyncIterableFunctionReplacementProcessor<SearchState>;
     input: string[];

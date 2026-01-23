@@ -1,14 +1,22 @@
 import type { SearchStrategy } from "../search-strategies/types";
 
-export type ReplacementProcessorOptions<T> = {
-  searchStrategy: SearchStrategy<T>;
+/**
+ * Base options for all replacement processors.
+ * Uses separate generics for state and match to preserve type information.
+ */
+export type ReplacementProcessorOptions<TState, TMatch> = {
+  searchStrategy: SearchStrategy<TState, TMatch>;
 };
 
-export abstract class ReplacementProcessorBase<T> {
-  protected readonly searchStrategy: SearchStrategy<T>;
-  protected searchState: T;
+/**
+ * Base class for replacement processors.
+ * Uses separate generics for state and match to avoid type casts.
+ */
+export abstract class ReplacementProcessorBase<TState, TMatch> {
+  protected readonly searchStrategy: SearchStrategy<TState, TMatch>;
+  protected searchState: TState;
 
-  constructor({ searchStrategy }: ReplacementProcessorOptions<T>) {
+  constructor({ searchStrategy }: ReplacementProcessorOptions<TState, TMatch>) {
     this.searchStrategy = searchStrategy;
     this.searchState = searchStrategy.createState();
   }

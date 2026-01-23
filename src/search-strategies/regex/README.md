@@ -15,7 +15,7 @@ This has been chosen for simplicity and performance, with libraries such as [`in
 To enable optimistic/early yielding, certain regular expression features are unsupported. e.g. [lookbehinds](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion), negative [lookaheads](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion) and [backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference). See [Limitations](#limitations) for full explanation.
 
 > [!WARNING]
-> The strategy returns an object of type [`RegExpExecArray`](https://github.com/microsoft/TypeScript/blob/5026c6675cbbfd493011616639595084f899d513/src/lib/es5.d.ts#L960) (a result of calling `RegExp.prototype.exec`) extended to conform to the [`MatchResult` interface](../../../README.md#search-strategies), rather than a new object being created, for performance reasons. It hence includes all the properties of `RegExpExecArray`, including [`index`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#index) and [`input`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#input), which make little sense in a streaming scenario, and should be disregarded when used in a replacement function.
+> The strategy yields `{ isMatch: true, content: RegExpExecArray }` for matches (rather than `{ isMatch: true, content: string }`), where the `RegExpExecArray` is the result of calling `RegExp.prototype.exec`. This provides access to capture groups via `match.content[1]`, `match.content[2]`, etc., and named groups via `match.content.groups`. The array also includes [`index`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#index) and [`input`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#input) properties, which make little sense in a streaming scenario and should be disregarded.
 
 ## How It Works
 
@@ -24,13 +24,15 @@ To enable optimistic/early yielding, certain regular expression features are uns
 The strategy maintains two regex patterns:
 
 ```typescript
+import createPartialMatchRegex from "regex-partial-match";
+
 class RegexSearchStrategy {
   private readonly completeMatchRegex: RegExp; // Original pattern
   private readonly partialMatchRegex: RegExp; // Transformed for partial detection
 
   constructor(needle: RegExp) {
     this.completeMatchRegex = needle;
-    this.partialMatchRegex = toPartialMatch(needle); // Transform!
+    this.partialMatchRegex = createPartialMatchRegex(needle); // Transform!
   }
 }
 ```
@@ -217,7 +219,7 @@ Problem: A chunk ending `\ud83d` and another starting `\ude04` will produce two 
 In this example. the named group "foo" will be returned with these individual bytes / code points as matches, rather than the intended single match of `😄`.
 
 > [!TIP]
-> It's intended that the transform is used with a [`TextDecoderStream`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoderStream) to ensure multi-byte characters do not span chunks.
+> It's intended that the transform is used on [well-formed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/isWellFormed) strings, hence a [`TextDecoderStream`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoderStream) should be used to ensure multi-byte characters do not span chunks.
 
 ### ⚠️ Unbounded Quantifiers
 

@@ -30,8 +30,8 @@ This variant implements the standard `SearchStrategy<TState>` interface:
   chunk: string,
   state: BufferedIndexOfCanonicalGeneratorState
 ): Generator<MatchResult, void, undefined> {
-  yield { content: "...", match: false };
-  yield { content: "...", match: true };
+  yield { isMatch: false, content: "..." };
+  yield { isMatch: true, content: "..." };
 }
 ```
 

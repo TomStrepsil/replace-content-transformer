@@ -15,9 +15,9 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     );
 
     expect(results).toEqual([
-      { content: "Hello ", match: false },
-      { content: "{{name}}", match: true },
-      { content: " worl", match: false }
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "{{name}}" },
+      { isMatch: false, content: " worl" }
     ]);
     expect(strategy.flush(state)).toEqual("d");
   });
@@ -32,10 +32,10 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const results = Array.from(strategy.processChunk("Hello {{na", state));
     const results2 = Array.from(strategy.processChunk("me}} world", state));
 
-    expect(results).toEqual([{ content: "Hello ", match: false }]);
+    expect(results).toEqual([{ isMatch: false, content: "Hello " }]);
     expect(results2).toEqual([
-      { content: "{{name}}", match: true },
-      { content: " worl", match: false }
+      { isMatch: true, content: "{{name}}" },
+      { isMatch: false, content: " worl" }
     ]);
     expect(strategy.flush(state)).toEqual("d");
   });
@@ -70,7 +70,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
       strategy.processChunk('<img src="/photo.jpg" alt="sunset"> text', state)
     );
     expect(results).toEqual([
-      { content: '<img src="/photo.jpg" alt="sunset">', match: true }
+      { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">' }
     ]);
     expect(strategy.flush(state)).toEqual(" text");
   });
@@ -100,8 +100,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const r1 = Array.from(strategy.processChunk("Hello {", state));
     const r2 = Array.from(strategy.processChunk("{name}}", state));
 
-    expect(r1).toEqual([{ content: "Hello ", match: false }]);
-    expect(r2).toEqual([{ content: "{{name}}", match: true }]);
+    expect(r1).toEqual([{ isMatch: false, content: "Hello " }]);
+    expect(r2).toEqual([{ isMatch: true, content: "{{name}}" }]);
   });
 
   it("closing delimiter split across chunks", () => {
@@ -116,8 +116,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
 
     expect(r1).toEqual([]);
     expect(r2).toEqual([
-      { content: "{{name}}", match: true },
-      { content: " worl", match: false }
+      { isMatch: true, content: "{{name}}" },
+      { isMatch: false, content: " worl" }
     ]);
     expect(strategy.flush(state)).toEqual("d");
   });
@@ -138,8 +138,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(r2).toEqual([]);
     expect(r3).toEqual([]);
     expect(r4).toEqual([
-      { content: "{{hello}}", match: true },
-      { content: " ther", match: false }
+      { isMatch: true, content: "{{hello}}" },
+      { isMatch: false, content: " ther" }
     ]);
     expect(strategy.flush(state)).toEqual("e");
   });
@@ -158,7 +158,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     // The "{" is buffered by BufferedIndexOfCancellableSearchStrategy, then " " breaks it
     // BufferedIndexOfCancellableSearchStrategy outputs the whole thing as one non-match
     expect(r1).toEqual([]);
-    expect(r2).toEqual([{ content: "{ {hi}", match: false }]);
+    expect(r2).toEqual([{ isMatch: false, content: "{ {hi}" }]);
     expect(strategy.flush(state)).toEqual("}");
   });
 
@@ -174,8 +174,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
 
     expect(r1).toEqual([]);
     expect(r2).toEqual([
-      { content: "{x ", match: false },
-      { content: "{{name}}", match: true }
+      { isMatch: false, content: "{x " },
+      { isMatch: true, content: "{{name}}" }
     ]);
   });
 
@@ -193,9 +193,9 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     );
 
     expect(results).toEqual([
-      { content: "{{first}}", match: true },
-      { content: " ", match: false },
-      { content: "{{second}}", match: true }
+      { isMatch: true, content: "{{first}}" },
+      { isMatch: false, content: " " },
+      { isMatch: true, content: "{{second}}" }
     ]);
   });
 
@@ -209,8 +209,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const r1 = Array.from(strategy.processChunk("{{first}}", state));
     const r2 = Array.from(strategy.processChunk("{{second}}", state));
 
-    expect(r1).toEqual([{ content: "{{first}}", match: true }]);
-    expect(r2).toEqual([{ content: "{{second}}", match: true }]);
+    expect(r1).toEqual([{ isMatch: true, content: "{{first}}" }]);
+    expect(r2).toEqual([{ isMatch: true, content: "{{second}}" }]);
   });
 
   it("sequence completes and next begins in same chunk", () => {
@@ -223,8 +223,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const r1 = Array.from(strategy.processChunk("{{first}}", state));
     const r2 = Array.from(strategy.processChunk(" {{partial", state));
 
-    expect(r1).toEqual([{ content: "{{first}}", match: true }]);
-    expect(r2).toEqual([{ content: " ", match: false }]);
+    expect(r1).toEqual([{ isMatch: true, content: "{{first}}" }]);
+    expect(r2).toEqual([{ isMatch: false, content: " " }]);
 
     const r3 = strategy.flush(state);
     expect(r3).toEqual("{{partial");
@@ -241,9 +241,9 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const r2 = Array.from(strategy.processChunk(" {", state));
     const r3 = Array.from(strategy.processChunk("{b}}", state));
 
-    expect(r1).toEqual([{ content: "{{a}}", match: true }]);
-    expect(r2).toEqual([{ content: " ", match: false }]);
-    expect(r3).toEqual([{ content: "{{b}}", match: true }]);
+    expect(r1).toEqual([{ isMatch: true, content: "{{a}}" }]);
+    expect(r2).toEqual([{ isMatch: false, content: " " }]);
+    expect(r3).toEqual([{ isMatch: true, content: "{{b}}" }]);
   });
 
   // ===== Edge Cases =====
@@ -257,7 +257,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
 
     const results = Array.from(strategy.processChunk("{{}}", state));
 
-    expect(results).toEqual([{ content: "{{}}", match: true }]);
+    expect(results).toEqual([{ isMatch: true, content: "{{}}" }]);
   });
 
   it("consecutive sequences with no content between", () => {
@@ -270,8 +270,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const results = Array.from(strategy.processChunk("{{a}}{{b}}", state));
 
     expect(results).toEqual([
-      { content: "{{a}}", match: true },
-      { content: "{{b}}", match: true }
+      { isMatch: true, content: "{{a}}" },
+      { isMatch: true, content: "{{b}}" }
     ]);
   });
 
@@ -287,7 +287,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
 
     expect(r1).toEqual([]);
     // The first "{{" matches, then accumulates "incomplete {{complete", then finds "}}" - valid match!
-    expect(r2).toEqual([{ content: "{{incomplete {{complete}}", match: true }]);
+    expect(r2).toEqual([{ isMatch: true, content: "{{incomplete {{complete}}" }]);
   });
 
   it("nested-looking but sequential delimiters", () => {
@@ -302,8 +302,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
 
     // Should match "{{{{stuff}}" as first sequence, then "}}" is non-match
     expect(results).toEqual([
-      { content: "{{{{stuff}}", match: true },
-      { content: "}", match: false }
+      { isMatch: true, content: "{{{{stuff}}" },
+      { isMatch: false, content: "}" }
     ]);
     expect(strategy.flush(state)).toEqual("}");
   });
@@ -325,7 +325,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(r2).toEqual([]);
     expect(r3).toEqual([]);
     expect(r4).toEqual([
-      { content: '<img src="/photo.jpg" alt="sunset">', match: true }
+      { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">' }
     ]);
     expect(strategy.flush(state)).toEqual(" text");
   });
@@ -346,8 +346,8 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     );
 
     expect(results).toEqual([
-      { content: '<img src="a.jpg" alt="first">', match: true },
-      { content: '<img src="b.jpg" alt="second">', match: true }
+      { isMatch: true, content: '<img src="a.jpg" alt="first">' },
+      { isMatch: true, content: '<img src="b.jpg" alt="second">' }
     ]);
   });
 
@@ -366,7 +366,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(r1).toEqual([]);
     expect(r2).toEqual([]);
     expect(r3).toEqual([]);
-    expect(r4).toEqual([{ content: "{{part1part2part3part4}}", match: true }]);
+    expect(r4).toEqual([{ isMatch: true, content: "{{part1part2part3part4}}" }]);
   });
 
   it("delimiter appears in content between delimiters", () => {
@@ -382,7 +382,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     );
 
     expect(results).toEqual([
-      { content: "{{content with {{ inside}}", match: true }
+      { isMatch: true, content: "{{content with {{ inside}}" }
     ]);
   });
 
@@ -397,9 +397,9 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const r2 = Array.from(strategy.processChunk("dd", state));
     const r3 = Array.from(strategy.processChunk("le] after", state));
 
-    expect(r1).toEqual([{ content: "before ", match: false }]);
+    expect(r1).toEqual([{ isMatch: false, content: "before " }]);
     expect(r2).toEqual([]);
-    expect(r3).toEqual([{ content: "[middle]", match: true }]);
+    expect(r3).toEqual([{ isMatch: true, content: "[middle]" }]);
     expect(strategy.flush(state)).toEqual(" after");
   });
 });

@@ -9,15 +9,15 @@ describe("IndexOfKnuthMorrisPratt", () => {
         name: "finds pattern when haystack equals pattern",
         pattern: "OLD",
         chunks: ["OLD"],
-        expected: [{ content: "OLD", match: true }]
+        expected: [{ isMatch: true, content: "OLD" }]
       },
       {
         name: "finds pattern at start of chunk",
         pattern: "OLD",
         chunks: ["OLDtext"],
         expected: [
-          { content: "OLD", match: true },
-          { content: "text", match: false }
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: "text" }
         ]
       },
       {
@@ -25,8 +25,8 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["textOLD"],
         expected: [
-          { content: "text", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "text" },
+          { isMatch: true, content: "OLD" }
         ]
       },
       {
@@ -34,9 +34,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Hello OLD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -44,11 +44,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Replace OLD and OLD content"],
         expected: [
-          { content: "Replace ", match: false },
-          { content: "OLD", match: true },
-          { content: " and ", match: false },
-          { content: "OLD", match: true },
-          { content: " content", match: false }
+          { isMatch: false, content: "Replace " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " content" }
         ]
       },
       {
@@ -56,8 +56,8 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["OLDOLD"],
         expected: [
-          { content: "OLD", match: true },
-          { content: "OLD", match: true }
+          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD" }
         ]
       },
       {
@@ -65,9 +65,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "X",
         chunks: ["test X test"],
         expected: [
-          { content: "test ", match: false },
-          { content: "X", match: true },
-          { content: " test", match: false }
+          { isMatch: false, content: "test " },
+          { isMatch: true, content: "X" },
+          { isMatch: false, content: " test" }
         ]
       },
       {
@@ -75,9 +75,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "THE COMPLEX PATTERN",
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: "THE COMPLEX PATTERN" },
+          { isMatch: false, content: " here" }
         ]
       }
     ];
@@ -94,7 +94,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         }
 
         const flush = strategy.flush(state);
-        if (flush) results.push({ content: flush, match: false });
+        if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toEqual(expected);
       });
@@ -107,7 +107,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         name: "returns content when pattern not found",
         pattern: "OLD",
         chunks: ["Hello beautiful world"],
-        expected: [{ content: "Hello beautiful world", match: false }]
+        expected: [{ isMatch: false, content: "Hello beautiful world" }]
       },
       {
         name: "returns empty for empty haystack",
@@ -119,13 +119,13 @@ describe("IndexOfKnuthMorrisPratt", () => {
         name: "case sensitive - lowercase pattern vs uppercase haystack",
         pattern: "old",
         chunks: ["OLD"],
-        expected: [{ content: "OLD", match: false }]
+        expected: [{ isMatch: false, content: "OLD" }]
       },
       {
         name: "case sensitive - uppercase pattern vs lowercase haystack",
         pattern: "OLD",
         chunks: ["old"],
-        expected: [{ content: "old", match: false }]
+        expected: [{ isMatch: false, content: "old" }]
       }
     ];
 
@@ -142,7 +142,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         }
 
         const flush = strategy.flush(state);
-        if (flush) results.push({ content: flush, match: false });
+        if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toEqual(expected);
       });
@@ -156,9 +156,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Hello O", "LD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -166,9 +166,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Hello ", "OLD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -176,9 +176,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Hello O", "LD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -186,9 +186,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Hello OL", "D world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -196,9 +196,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "PATTERN",
         chunks: ["Find PAT", "TER", "N here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: "PATTERN" },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -206,9 +206,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["Hello ", "O", "L", "D", " world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -216,9 +216,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["text O", "LD more"],
         expected: [
-          { content: "text ", match: false },
-          { content: "OLD", match: true },
-          { content: " more", match: false }
+          { isMatch: false, content: "text " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " more" }
         ]
       },
       {
@@ -226,8 +226,8 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["OL OL", "D"],
         expected: [
-          { content: "OL ", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "OL " },
+          { isMatch: true, content: "OLD" }
         ]
       },
       {
@@ -235,8 +235,8 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["OLOL", "D"],
         expected: [
-          { content: "OL", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "OL" },
+          { isMatch: true, content: "OLD" }
         ]
       }
     ];
@@ -254,7 +254,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         }
 
         const flush = strategy.flush(state);
-        if (flush) results.push({ content: flush, match: false });
+        if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toEqual(expected);
       });
@@ -267,21 +267,21 @@ describe("IndexOfKnuthMorrisPratt", () => {
         name: "partial match at end - one character",
         pattern: "OLD",
         chunks: ["text O"],
-        expectedYields: [{ content: "text ", match: false }],
+        expectedYields: [{ isMatch: false, content: "text " }],
         expectedFlush: "O"
       },
       {
         name: "partial match at end - two characters",
         pattern: "OLD",
         chunks: ["text OL"],
-        expectedYields: [{ content: "text ", match: false }],
+        expectedYields: [{ isMatch: false, content: "text " }],
         expectedFlush: "OL"
       },
       {
         name: "partial match at end - longest partial",
         pattern: "ABCDEF",
         chunks: ["text ABCD"],
-        expectedYields: [{ content: "text ", match: false }],
+        expectedYields: [{ isMatch: false, content: "text " }],
         expectedFlush: "ABCD"
       },
       {
@@ -295,7 +295,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         name: "overlapping pattern ends incomplete",
         pattern: "OLD",
         chunks: ["OLOL"],
-        expectedYields: [{ content: "OL", match: false }],
+        expectedYields: [{ isMatch: false, content: "OL" }],
         expectedFlush: "OL"
       }
     ];
@@ -327,10 +327,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["First OLD", " and second OLD"],
         expected: [
-          { content: "First ", match: false },
-          { content: "OLD", match: true },
-          { content: " and second ", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "First " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " and second " },
+          { isMatch: true, content: "OLD" }
         ]
       },
       {
@@ -338,10 +338,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["First OLD", "OLD second"],
         expected: [
-          { content: "First ", match: false },
-          { content: "OLD", match: true },
-          { content: "OLD", match: true },
-          { content: " second", match: false }
+          { isMatch: false, content: "First " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " second" }
         ]
       },
       {
@@ -349,10 +349,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["First O", "LD and OLD"],
         expected: [
-          { content: "First ", match: false },
-          { content: "OLD", match: true },
-          { content: " and ", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "First " },
+          { isMatch: true, content: "OLD" },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: "OLD" }
         ]
       }
     ];
@@ -383,15 +383,15 @@ describe("IndexOfKnuthMorrisPratt", () => {
       const iterator = strategy.processChunk("First OLD and second OLD", state);
       for (const match of iterator) {
         results.push(match);
-        if (match.match) {
+        if (match.isMatch) {
           break;
         }
       }
       const flushed = strategy.flush(state);
 
       expect(results).toEqual([
-        { content: "First ", match: false },
-        { content: "OLD", match: true }
+        { isMatch: false, content: "First " },
+        { isMatch: true, content: "OLD" }
       ]);
       expect(flushed).toBe(" and second OLD");
     });

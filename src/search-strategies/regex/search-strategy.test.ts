@@ -5,6 +5,11 @@ import validateInput from "./input-validation.ts";
 
 vi.mock("./input-validation.ts");
 
+// Helper to extract string value from MatchResult
+function getValue(result: MatchResult<RegExpExecArray>): string {
+  return result.isMatch ? result.content[0] : result.content;
+}
+
 describe("RegexSearchStrategy", () => {
   it("should validate input regex", () => {
     const someRegex = /test-regex/;
@@ -24,21 +29,21 @@ describe("RegexSearchStrategy", () => {
         name: "handles no matches in non-matching haystack",
         pattern: /OLD/,
         chunks: ["something else"],
-        expected: [{ content: "something else", match: false }]
+        expected: [{ isMatch: false, content: "something else" }]
       },
       {
         name: "finds pattern when haystack equals pattern",
         pattern: /OLD/,
         chunks: ["OLD"],
-        expected: [{ content: "OLD", match: true }]
+        expected: [{ isMatch: true, content: expect.arrayContaining(["OLD"]) }]
       },
       {
         name: "finds pattern at start of chunk",
         pattern: /OLD/,
         chunks: ["OLDtext"],
         expected: [
-          { content: "OLD", match: true },
-          { content: "text", match: false }
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: "text" }
         ]
       },
       {
@@ -46,8 +51,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["textOLD"],
         expected: [
-          { content: "text", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "text" },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) }
         ]
       },
       {
@@ -55,9 +60,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Hello OLD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -65,11 +70,11 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Replace OLD and OLD content"],
         expected: [
-          { content: "Replace ", match: false },
-          { content: "OLD", match: true },
-          { content: " and ", match: false },
-          { content: "OLD", match: true },
-          { content: " content", match: false }
+          { isMatch: false, content: "Replace " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " content" }
         ]
       },
       {
@@ -77,8 +82,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["OLDOLD"],
         expected: [
-          { content: "OLD", match: true },
-          { content: "OLD", match: true }
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) }
         ]
       },
       {
@@ -86,9 +91,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /X/,
         chunks: ["test X test"],
         expected: [
-          { content: "test ", match: false },
-          { content: "X", match: true },
-          { content: " test", match: false }
+          { isMatch: false, content: "test " },
+          { isMatch: true, content: expect.arrayContaining(["X"]) },
+          { isMatch: false, content: " test" }
         ]
       },
       {
@@ -96,9 +101,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE COMPLEX PATTERN/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -106,9 +111,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE .* PATTERN/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -116,11 +121,11 @@ describe("RegexSearchStrategy", () => {
         pattern: /(FIRST|SECOND) PATTERN/,
         chunks: ["Find FIRST PATTERN and SECOND PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "FIRST PATTERN", match: true },
-          { content: " and ", match: false },
-          { content: "SECOND PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["FIRST PATTERN"]) },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: expect.arrayContaining(["SECOND PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -128,11 +133,11 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE .*? PATTERN/,
         chunks: ["Find THE FIRST PATTERN here and THE SECOND PATTERN there"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE FIRST PATTERN", match: true },
-          { content: " here and ", match: false },
-          { content: "THE SECOND PATTERN", match: true },
-          { content: " there", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          { isMatch: false, content: " here and " },
+          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          { isMatch: false, content: " there" }
         ]
       },
       {
@@ -140,9 +145,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /[A-Z]+/,
         chunks: ["find PATTERN here"],
         expected: [
-          { content: "find ", match: false },
-          { content: "PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "find " },
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -150,9 +155,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE [A-Z]{3}PLEX PATTERN/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -160,8 +165,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /.+?PLEX PATTERN/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: true, content: expect.arrayContaining(["Find THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -169,8 +174,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /COMPLEX PATTERN.+/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find THE ", match: false },
-          { content: "COMPLEX PATTERN here", match: true }
+          { isMatch: false, content: "Find THE " },
+          { isMatch: true, content: expect.arrayContaining(["COMPLEX PATTERN here"]) }
         ]
       },
       {
@@ -178,9 +183,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE COMPLEX PATTERN/i,
         chunks: ["Find The cOmPlEx PATtern here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "The cOmPlEx PATtern", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["The cOmPlEx PATtern"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -188,9 +193,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE .+ PATTERN/s,
         chunks: ["Find THE COMP\nLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMP\nLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMP\nLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -200,11 +205,11 @@ describe("RegexSearchStrategy", () => {
           "Find \nTHE FIRST PATTERN\n here and \nTHE SECOND PATTERN\n there"
         ],
         expected: [
-          { content: "Find \n", match: false },
-          { content: "THE FIRST PATTERN", match: true },
-          { content: "\n here and \n", match: false },
-          { content: "THE SECOND PATTERN", match: true },
-          { content: "\n there", match: false }
+          { isMatch: false, content: "Find \n" },
+          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          { isMatch: false, content: "\n here and \n" },
+          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          { isMatch: false, content: "\n there" }
         ]
       },
       {
@@ -212,9 +217,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -222,7 +227,7 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN not here"],
         expected: [
-          { content: "Find THE COMPLEX PATTERN not here", match: false }
+          { isMatch: false, content: "Find THE COMPLEX PATTERN not here" }
         ]
       },
       {
@@ -230,30 +235,30 @@ describe("RegexSearchStrategy", () => {
         pattern: /\bPATTERN\b/,
         chunks: ["PATTERN! NotAPATTERN."],
         expected: [
-          { content: "PATTERN", match: true },
-          { content: "! NotAPATTERN.", match: false }
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
+          { isMatch: false, content: "! NotAPATTERN." }
         ]
       },
       {
         name: "handles patterns with input boundary assertions",
         pattern: /^PATTERN$/,
         chunks: ["PATTERN"],
-        expected: [{ content: "PATTERN", match: true }]
+        expected: [{ isMatch: true, content: expect.arrayContaining(["PATTERN"]) }]
       },
       {
         name: "handles patterns with input boundary assertions (inverse scenario)",
         pattern: /^PATTERN$/,
         chunks: ["the PATTERN here"],
-        expected: [{ content: "the PATTERN here", match: false }]
+        expected: [{ isMatch: false, content: "the PATTERN here" }]
       },
       {
         name: "handles patterns with escaped characters",
         pattern: /THE \.COMPLEX \?PATTERN\*/,
         chunks: ["Find THE .COMPLEX ?PATTERN* here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE .COMPLEX ?PATTERN*", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -261,10 +266,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /(こんにちは|👋)/,
         chunks: ["Say こんにちは to everyone 👋"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんにちは", match: true },
-          { content: " to everyone ", match: false },
-          { content: "👋", match: true }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
+          { isMatch: false, content: " to everyone " },
+          { isMatch: true, content: expect.arrayContaining(["👋"]) }
         ]
       },
       {
@@ -272,9 +277,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /\p{Script=Hiragana}+/u,
         chunks: ["Say こんにちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんにちは", match: true },
-          { content: " to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
+          { isMatch: false, content: " to everyone" }
         ]
       },
       {
@@ -282,25 +287,25 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say こんにちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんにちは", match: true },
-          { content: " to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
+          { isMatch: false, content: " to everyone" }
         ]
       },
       {
         name: "handles patterns with unicodeSet character classes (inverse scenario)",
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say konnichiwa to everyone"],
-        expected: [{ content: "Say konnichiwa to everyone", match: false }]
+        expected: [{ isMatch: false, content: "Say konnichiwa to everyone" }]
       },
       {
         name: "handles patterns with unicodeSet character classes with intersections",
         pattern: /[\p{Script=Hiragana}&&\p{Alphabetic}]+/v,
         chunks: ["Say こんにちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんにちは", match: true },
-          { content: " to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
+          { isMatch: false, content: " to everyone" }
         ]
       },
       {
@@ -308,13 +313,13 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\P{Script=Hiragana}&&\P{Alphabetic}]+/v,
         chunks: ["Say こんにちは123 to everyone"],
         expected: [
-          { content: "Say", match: false },
-          { content: " ", match: true },
-          { content: "こんにちは", match: false },
-          { content: "123 ", match: true },
-          { content: "to", match: false },
-          { content: " ", match: true },
-          { content: "everyone", match: false }
+          { isMatch: false, content: "Say" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "こんにちは" },
+          { isMatch: true, content: expect.arrayContaining(["123 "]) },
+          { isMatch: false, content: "to" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "everyone" }
         ]
       },
       {
@@ -322,13 +327,13 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}\p{Alphabetic}]+/v,
         chunks: ["Say こんにちは to everyone"],
         expected: [
-          { content: "Say", match: true },
-          { content: " ", match: false },
-          { content: "こんにちは", match: true },
-          { content: " ", match: false },
-          { content: "to", match: true },
-          { content: " ", match: false },
-          { content: "everyone", match: true }
+          { isMatch: true, content: expect.arrayContaining(["Say"]) },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: expect.arrayContaining(["to"]) },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: expect.arrayContaining(["everyone"]) }
         ]
       },
       {
@@ -336,13 +341,13 @@ describe("RegexSearchStrategy", () => {
         pattern: /[^\p{Script=Hiragana}\p{Alphabetic}]+/v,
         chunks: ["Say こんにちは to everyone"],
         expected: [
-          { content: "Say", match: false },
-          { content: " ", match: true },
-          { content: "こんにちは", match: false },
-          { content: " ", match: true },
-          { content: "to", match: false },
-          { content: " ", match: true },
-          { content: "everyone", match: false }
+          { isMatch: false, content: "Say" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "こんにちは" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "to" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "everyone" }
         ]
       },
       {
@@ -350,9 +355,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}--[ちは]]+/v,
         chunks: ["Say こんにちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんに", match: true },
-          { content: "ちは to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
+          { isMatch: false, content: "ちは to everyone" }
         ]
       },
       {
@@ -360,15 +365,16 @@ describe("RegexSearchStrategy", () => {
         pattern: /(THE)( PATTERN)/,
         chunks: ["Find THE PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            [0]: "THE PATTERN",
-            [1]: "THE",
-            [2]: " PATTERN"
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "THE PATTERN",
+              [1]: "THE",
+              [2]: " PATTERN"
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -376,14 +382,15 @@ describe("RegexSearchStrategy", () => {
         pattern: /(THE)(?: PATTERN)/,
         chunks: ["Find THE PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            [0]: "THE PATTERN",
-            [1]: "THE"
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "THE PATTERN",
+              [1]: "THE"
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -391,13 +398,14 @@ describe("RegexSearchStrategy", () => {
         pattern: /(?<first>THE)(?<second> PATTERN)/,
         chunks: ["Find THE PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            groups: { first: "THE", second: " PATTERN" }
+            isMatch: true,
+            content: expect.objectContaining({
+              groups: { first: "THE", second: " PATTERN" }
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -405,22 +413,23 @@ describe("RegexSearchStrategy", () => {
         pattern: /(THE)(?<second> PATTERN)/,
         chunks: ["Find THE PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            [0]: "THE PATTERN",
-            [1]: "THE",
-            groups: { second: " PATTERN" }
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "THE PATTERN",
+              [1]: "THE",
+              groups: { second: " PATTERN" }
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
         name: "handles patterns with astral characters matching as a single character, via the unicode flag",
         pattern: /./u,
         chunks: ["\ud83d\ude04"], // "😄"
-        expected: [{ content: "😄", match: true }]
+        expected: [{ isMatch: true, content: expect.arrayContaining(["😄"]) }]
       }
     ];
 
@@ -428,7 +437,7 @@ describe("RegexSearchStrategy", () => {
       test(name, () => {
         const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
-        const results: MatchResult[] = [];
+        const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
           for (const result of strategy.processChunk(chunk, state)) {
             results.push(result);
@@ -436,7 +445,7 @@ describe("RegexSearchStrategy", () => {
         }
 
         const flush = strategy.flush(state);
-        if (flush) results.push({ content: flush, match: false });
+        if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toMatchObject(expected);
       });
@@ -449,7 +458,7 @@ describe("RegexSearchStrategy", () => {
         name: "returns content when pattern not found",
         pattern: /OLD/,
         chunks: ["Hello beautiful world"],
-        expected: [{ content: "Hello beautiful world", match: false }]
+        expected: [{ isMatch: false, content: "Hello beautiful world" }]
       },
       {
         name: "returns empty for empty haystack",
@@ -461,13 +470,13 @@ describe("RegexSearchStrategy", () => {
         name: "case sensitive - lowercase pattern vs uppercase haystack",
         pattern: /old/,
         chunks: ["OLD"],
-        expected: [{ content: "OLD", match: false }]
+        expected: [{ isMatch: false, content: "OLD" }]
       },
       {
         name: "case sensitive - uppercase pattern vs lowercase haystack",
         pattern: /OLD/,
         chunks: ["old"],
-        expected: [{ content: "old", match: false }]
+        expected: [{ isMatch: false, content: "old" }]
       }
     ];
 
@@ -475,7 +484,7 @@ describe("RegexSearchStrategy", () => {
       test(name, () => {
         const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
-        const results: MatchResult[] = [];
+        const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
           for (const result of strategy.processChunk(chunk, state)) {
             results.push(result);
@@ -483,7 +492,7 @@ describe("RegexSearchStrategy", () => {
         }
 
         const flush = strategy.flush(state);
-        if (flush) results.push({ content: flush, match: false });
+        if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toMatchObject(expected);
       });
@@ -497,9 +506,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Hello O", "LD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -507,9 +516,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Hello ", "OLD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -517,9 +526,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Hello O", "LD world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -527,9 +536,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Hello OL", "D world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -537,9 +546,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /PATTERN/,
         chunks: ["Find PAT", "TER", "N here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -547,9 +556,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["Hello ", "O", "L", "D", " world"],
         expected: [
-          { content: "Hello ", match: false },
-          { content: "OLD", match: true },
-          { content: " world", match: false }
+          { isMatch: false, content: "Hello " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -557,9 +566,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["text O", "LD more"],
         expected: [
-          { content: "text ", match: false },
-          { content: "OLD", match: true },
-          { content: " more", match: false }
+          { isMatch: false, content: "text " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " more" }
         ]
       },
       {
@@ -567,8 +576,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["OL OL", "D"],
         expected: [
-          { content: "OL ", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "OL " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) }
         ]
       },
       {
@@ -576,8 +585,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["OLOL", "D"],
         expected: [
-          { content: "OL", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "OL" },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) }
         ]
       },
       {
@@ -585,9 +594,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE .+? PATTERN/,
         chunks: ["Find TH", "E COMPL", "EX ", "PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -595,9 +604,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE .* PATTERN/,
         chunks: ["Find THE COM", "PLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -605,11 +614,11 @@ describe("RegexSearchStrategy", () => {
         pattern: /(FIRST|SECOND) PATTERN/,
         chunks: ["Find FIR", "ST PATTERN and SE", "COND PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "FIRST PATTERN", match: true },
-          { content: " and ", match: false },
-          { content: "SECOND PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["FIRST PATTERN"]) },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: expect.arrayContaining(["SECOND PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -621,12 +630,12 @@ describe("RegexSearchStrategy", () => {
           "re and THE SECOND PATTERN there"
         ],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE FIRST PATTERN", match: true },
-          { content: " he", match: false },
-          { content: "re and ", match: false },
-          { content: "THE SECOND PATTERN", match: true },
-          { content: " there", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          { isMatch: false, content: " he" },
+          { isMatch: false, content: "re and " },
+          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          { isMatch: false, content: " there" }
         ]
       },
       {
@@ -634,9 +643,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE [A-Z]{3}PLEX PATTERN/,
         chunks: ["Find THE CO", "MPLEX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -644,8 +653,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /.+?PLEX PATTERN/,
         chunks: ["Find T", "HE CO", "MPLEX PATTERN here"],
         expected: [
-          { content: "Find THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: true, content: expect.arrayContaining(["Find THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -653,9 +662,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /COMPLEX PATTERN.+/,
         chunks: ["Find THE COMPLEX PATTE", "RN he", "re"],
         expected: [
-          { content: "Find THE ", match: false },
-          { content: "COMPLEX PATTERN he", match: true },
-          { content: "re", match: false }
+          { isMatch: false, content: "Find THE " },
+          { isMatch: true, content: expect.arrayContaining(["COMPLEX PATTERN he"]) },
+          { isMatch: false, content: "re" }
         ]
       },
       {
@@ -663,9 +672,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE .+? PATTERN/s,
         chunks: ["Find THE CO", "MP\nL", "EX PATTERN here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMP\nLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMP\nLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -677,11 +686,11 @@ describe("RegexSearchStrategy", () => {
           "TTERN\n there"
         ],
         expected: [
-          { content: "Find \n", match: false },
-          { content: "THE FIRST PATTERN", match: true },
-          { content: "\n here and \n", match: false },
-          { content: "THE SECOND PATTERN", match: true },
-          { content: "\n there", match: false }
+          { isMatch: false, content: "Find \n" },
+          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          { isMatch: false, content: "\n here and \n" },
+          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          { isMatch: false, content: "\n there" }
         ]
       },
       {
@@ -689,9 +698,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN", " here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -699,8 +708,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN", " not here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE COMPLEX PATTERN not here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: false, content: "THE COMPLEX PATTERN not here" }
         ]
       },
       {
@@ -708,24 +717,24 @@ describe("RegexSearchStrategy", () => {
         pattern: /\bPATTERN\b/,
         chunks: ["PATT", "ERN! NotAP", "ATTERN."],
         expected: [
-          { content: "PATTERN", match: true },
-          { content: "! NotAP", match: false },
-          { content: "ATTERN.", match: false }
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
+          { isMatch: false, content: "! NotAP" },
+          { isMatch: false, content: "ATTERN." }
         ]
       },
       {
         name: "handles patterns with input boundary assertions, across chunks",
         pattern: /^PATTERN$/,
         chunks: ["PAT", "TERN"],
-        expected: [{ content: "PATTERN", match: true }]
+        expected: [{ isMatch: true, content: expect.arrayContaining(["PATTERN"]) }]
       },
       {
         name: "handles patterns with input boundary assertions (inverse scenario), across chunks",
         pattern: /^PATTERN$/,
         chunks: ["the PAT", "TERN here"],
         expected: [
-          { content: "the PAT", match: false },
-          { content: "TERN here", match: false }
+          { isMatch: false, content: "the PAT" },
+          { isMatch: false, content: "TERN here" }
         ]
       },
       {
@@ -733,9 +742,9 @@ describe("RegexSearchStrategy", () => {
         pattern: /THE \.COMPLEX \?PATTERN\*/,
         chunks: ["Find THE .COMP", "LEX ?PATTERN* here"],
         expected: [
-          { content: "Find ", match: false },
-          { content: "THE .COMPLEX ?PATTERN*", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "Find " },
+          { isMatch: true, content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -743,10 +752,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /[A-Z]+/,
         chunks: ["find PAT", "TERN here"],
         expected: [
-          { content: "find ", match: false },
-          { content: "PAT", match: true },
-          { content: "TERN", match: true },
-          { content: " here", match: false }
+          { isMatch: false, content: "find " },
+          { isMatch: true, content: expect.arrayContaining(["PAT"]) },
+          { isMatch: true, content: expect.arrayContaining(["TERN"]) },
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -754,10 +763,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /(こんにちは|👋)/,
         chunks: ["Say こん", "にちは to everyone ", "👋"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんにちは", match: true },
-          { content: " to everyone ", match: false },
-          { content: "👋", match: true }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
+          { isMatch: false, content: " to everyone " },
+          { isMatch: true, content: expect.arrayContaining(["👋"]) }
         ]
       },
       {
@@ -765,10 +774,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /\p{Script=Hiragana}+/u,
         chunks: ["Say こんに", "ちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんに", match: true },
-          { content: "ちは", match: true },
-          { content: " to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
+          { isMatch: true, content: expect.arrayContaining(["ちは"]) },
+          { isMatch: false, content: " to everyone" }
         ]
       },
       {
@@ -776,10 +785,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say こん", "にちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こん", match: true },
-          { content: "にちは", match: true },
-          { content: " to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こん"]) },
+          { isMatch: true, content: expect.arrayContaining(["にちは"]) },
+          { isMatch: false, content: " to everyone" }
         ]
       },
       {
@@ -787,8 +796,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say konn", "ichiwa to everyone"],
         expected: [
-          { content: "Say konn", match: false },
-          { content: "ichiwa to everyone", match: false }
+          { isMatch: false, content: "Say konn" },
+          { isMatch: false, content: "ichiwa to everyone" }
         ]
       },
       {
@@ -796,10 +805,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}&&\p{Alphabetic}]+/v,
         chunks: ["Say こんに", "ちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こんに", match: true },
-          { content: "ちは", match: true },
-          { content: " to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
+          { isMatch: true, content: expect.arrayContaining(["ちは"]) },
+          { isMatch: false, content: " to everyone" }
         ]
       },
       {
@@ -807,15 +816,15 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\P{Script=Hiragana}&&\P{Alphabetic}]+/v,
         chunks: ["Say こんに", "ちは12", "3 to everyone"],
         expected: [
-          { content: "Say", match: false },
-          { content: " ", match: true },
-          { content: "こんに", match: false },
-          { content: "ちは", match: false },
-          { content: "12", match: true },
-          { content: "3 ", match: true },
-          { content: "to", match: false },
-          { content: " ", match: true },
-          { content: "everyone", match: false }
+          { isMatch: false, content: "Say" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "こんに" },
+          { isMatch: false, content: "ちは" },
+          { isMatch: true, content: expect.arrayContaining(["12"]) },
+          { isMatch: true, content: expect.arrayContaining(["3 "]) },
+          { isMatch: false, content: "to" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "everyone" }
         ]
       },
       {
@@ -823,14 +832,14 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}\p{Alphabetic}]+/v,
         chunks: ["Say こん", "にちは to everyone"],
         expected: [
-          { content: "Say", match: true },
-          { content: " ", match: false },
-          { content: "こん", match: true },
-          { content: "にちは", match: true },
-          { content: " ", match: false },
-          { content: "to", match: true },
-          { content: " ", match: false },
-          { content: "everyone", match: true }
+          { isMatch: true, content: expect.arrayContaining(["Say"]) },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: expect.arrayContaining(["こん"]) },
+          { isMatch: true, content: expect.arrayContaining(["にちは"]) },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: expect.arrayContaining(["to"]) },
+          { isMatch: false, content: " " },
+          { isMatch: true, content: expect.arrayContaining(["everyone"]) }
         ]
       },
       {
@@ -838,14 +847,14 @@ describe("RegexSearchStrategy", () => {
         pattern: /[^\p{Script=Hiragana}\p{Alphabetic}]+/v,
         chunks: ["Say こんに", "ちは to everyone"],
         expected: [
-          { content: "Say", match: false },
-          { content: " ", match: true },
-          { content: "こんに", match: false },
-          { content: "ちは", match: false },
-          { content: " ", match: true },
-          { content: "to", match: false },
-          { content: " ", match: true },
-          { content: "everyone", match: false }
+          { isMatch: false, content: "Say" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "こんに" },
+          { isMatch: false, content: "ちは" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "to" },
+          { isMatch: true, content: expect.arrayContaining([" "]) },
+          { isMatch: false, content: "everyone" }
         ]
       },
       {
@@ -853,10 +862,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /[\p{Script=Hiragana}--[ちは]]+/v,
         chunks: ["Say こん", "にちは to everyone"],
         expected: [
-          { content: "Say ", match: false },
-          { content: "こん", match: true },
-          { content: "に", match: true },
-          { content: "ちは to everyone", match: false }
+          { isMatch: false, content: "Say " },
+          { isMatch: true, content: expect.arrayContaining(["こん"]) },
+          { isMatch: true, content: expect.arrayContaining(["に"]) },
+          { isMatch: false, content: "ちは to everyone" }
         ]
       },
       {
@@ -864,15 +873,16 @@ describe("RegexSearchStrategy", () => {
         pattern: /(THE)( PATTERN)/,
         chunks: ["Find TH", "E PAT", "TERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            [0]: "THE PATTERN",
-            [1]: "THE",
-            [2]: " PATTERN"
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "THE PATTERN",
+              [1]: "THE",
+              [2]: " PATTERN"
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -880,14 +890,15 @@ describe("RegexSearchStrategy", () => {
         pattern: /(THE)(?: PATTERN)/,
         chunks: ["Find THE P", "ATTERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            [0]: "THE PATTERN",
-            [1]: "THE"
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "THE PATTERN",
+              [1]: "THE"
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -895,13 +906,14 @@ describe("RegexSearchStrategy", () => {
         pattern: /(?<first>THE)(?<second> PATTERN)/,
         chunks: ["Find TH", "E PA", "TTERN here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            groups: { first: "THE", second: " PATTERN" }
+            isMatch: true,
+            content: expect.objectContaining({
+              groups: { first: "THE", second: " PATTERN" }
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -909,15 +921,16 @@ describe("RegexSearchStrategy", () => {
         pattern: /(THE)(?<second> PATTERN)/,
         chunks: ["Find THE", " PATTER", "N here"],
         expected: [
-          { content: "Find ", match: false },
+          { isMatch: false, content: "Find " },
           {
-            content: "THE PATTERN",
-            match: true,
-            [0]: "THE PATTERN",
-            [1]: "THE",
-            groups: { second: " PATTERN" }
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "THE PATTERN",
+              [1]: "THE",
+              groups: { second: " PATTERN" }
+            })
           },
-          { content: " here", match: false }
+          { isMatch: false, content: " here" }
         ]
       },
       {
@@ -925,8 +938,8 @@ describe("RegexSearchStrategy", () => {
         pattern: /(?<foo>.)/u,
         chunks: ["\ud83d", "\ude04"],
         expected: [
-          { content: "\ud83d", match: true, groups: { foo: "\ud83d" } },
-          { content: "\ude04", match: true, groups: { foo: "\ude04" } }
+          { isMatch: true, content: expect.objectContaining({ groups: { foo: "\ud83d" } }) },
+          { isMatch: true, content: expect.objectContaining({ groups: { foo: "\ude04" } }) }
         ]
       }
     ];
@@ -935,7 +948,7 @@ describe("RegexSearchStrategy", () => {
       test(name, () => {
         const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
-        const results: MatchResult[] = [];
+        const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
           for (const result of strategy.processChunk(chunk, state)) {
             results.push(result);
@@ -943,7 +956,7 @@ describe("RegexSearchStrategy", () => {
         }
 
         const flush = strategy.flush(state);
-        if (flush) results.push({ content: flush, match: false });
+        if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toMatchObject(expected);
       });
@@ -956,21 +969,21 @@ describe("RegexSearchStrategy", () => {
         name: "partial match at end - one character",
         pattern: /OLD/,
         chunks: ["text O"],
-        expectedYields: [{ content: "text ", match: false }],
+        expectedYields: [{ isMatch: false, content: "text " }],
         expectedFlush: "O"
       },
       {
         name: "partial match at end - two characters",
         pattern: /OLD/,
         chunks: ["text OL"],
-        expectedYields: [{ content: "text ", match: false }],
+        expectedYields: [{ isMatch: false, content: "text " }],
         expectedFlush: "OL"
       },
       {
         name: "partial match at end - longest partial",
         pattern: /ABCDEF/,
         chunks: ["text ABCD"],
-        expectedYields: [{ content: "text ", match: false }],
+        expectedYields: [{ isMatch: false, content: "text " }],
         expectedFlush: "ABCD"
       },
       {
@@ -984,7 +997,7 @@ describe("RegexSearchStrategy", () => {
         name: "overlapping pattern ends incomplete",
         pattern: /OLD/,
         chunks: ["OLOL"],
-        expectedYields: [{ content: "OL", match: false }],
+        expectedYields: [{ isMatch: false, content: "OL" }],
         expectedFlush: "OL"
       }
     ];
@@ -994,7 +1007,7 @@ describe("RegexSearchStrategy", () => {
         test(name, () => {
           const strategy = new RegexSearchStrategy(pattern);
           const state = strategy.createState();
-          const results: MatchResult[] = [];
+          const results: MatchResult<RegExpExecArray>[] = [];
           for (const chunk of chunks) {
             for (const result of strategy.processChunk(chunk, state)) {
               results.push(result);
@@ -1016,10 +1029,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["First OLD", " and second OLD"],
         expected: [
-          { content: "First ", match: false },
-          { content: "OLD", match: true },
-          { content: " and second ", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "First " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " and second " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) }
         ]
       },
       {
@@ -1027,10 +1040,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["First OLD", "OLD second"],
         expected: [
-          { content: "First ", match: false },
-          { content: "OLD", match: true },
-          { content: "OLD", match: true },
-          { content: " second", match: false }
+          { isMatch: false, content: "First " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " second" }
         ]
       },
       {
@@ -1038,10 +1051,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /OLD/,
         chunks: ["First O", "LD and OLD"],
         expected: [
-          { content: "First ", match: false },
-          { content: "OLD", match: true },
-          { content: " and ", match: false },
-          { content: "OLD", match: true }
+          { isMatch: false, content: "First " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
+          { isMatch: false, content: " and " },
+          { isMatch: true, content: expect.arrayContaining(["OLD"]) }
         ]
       }
     ];
@@ -1050,7 +1063,7 @@ describe("RegexSearchStrategy", () => {
       test(name, () => {
         const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
-        const results: MatchResult[] = [];
+        const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
           for (const result of strategy.processChunk(chunk, state)) {
             results.push(result);
@@ -1070,7 +1083,7 @@ describe("RegexSearchStrategy", () => {
       const outputs: string[] = [];
 
       let generator = strategy.processChunk("Text with ", state);
-      outputs.push(generator.next().value!.content);
+      outputs.push(getValue(generator.next().value!));
       expect(generator.return().value).toBeUndefined();
       expect(strategy.flush(state)).toBe("");
       expect(outputs).toMatchObject(["Text with "]);
@@ -1083,7 +1096,7 @@ describe("RegexSearchStrategy", () => {
       const outputs: string[] = [];
 
       let generator = strategy.processChunk("Text with {", state);
-      outputs.push(generator.next().value!.content);
+      outputs.push(getValue(generator.next().value!));
       const remainder = generator.return().value;
       outputs.push(strategy.flush(state));
       expect(remainder).toBeUndefined();
@@ -1094,7 +1107,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
-      const outputs: MatchResult[] = [];
+      const outputs: MatchResult<RegExpExecArray>[] = [];
 
       for (const value of strategy.processChunk(
         "Text with {{ something }} and {{ something more }}",
@@ -1104,8 +1117,8 @@ describe("RegexSearchStrategy", () => {
         if (outputs.length === 2) break;
       }
       expect(outputs).toMatchObject([
-        { content: "Text with ", match: false },
-        { content: "{{ something }}", match: true }
+        { isMatch: false, content: "Text with " },
+        { isMatch: true, content: expect.arrayContaining(["{{ something }}"]) }
       ]);
       expect(strategy.flush(state)).toBe(" and {{ something more }}");
     });

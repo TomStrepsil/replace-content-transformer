@@ -1,8 +1,8 @@
-import type { MatchResult } from "../src/search-strategies/types.ts";
+import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
 import { vi, type Mocked } from "vitest";
 export { server } from "./vitest.setup";
 
-function mockSearchStrategyFactory(...results: MatchResult[]) {
+function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMatch>[]): Mocked<SearchStrategy<object, TMatch>> {
   return {
     createState: vi.fn().mockReturnValue({}),
     processChunk: vi.fn().mockImplementation(function* () {

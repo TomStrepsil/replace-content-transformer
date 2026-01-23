@@ -2,6 +2,11 @@ import { describe, it, expect } from "vitest";
 import { BufferedIndexOfAnchoredSearchStrategy } from "./search-strategy.ts";
 import { MatchResult } from "../../types.ts";
 
+// Helper function to extract string value from MatchResult
+function getValue(result: MatchResult): string {
+  return result.content;
+}
+
 describe("BufferedIndexOfAnchoredSearchStrategy", () => {
   function processChunks(
     strategy: BufferedIndexOfAnchoredSearchStrategy,
@@ -15,7 +20,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       const generator = strategy.processChunk(chunk, state);
       for (const output of generator) {
         outputs.push(
-          output.match ? replacement(output.content) : output.content
+          output.isMatch ? replacement(output.content) : output.content
         );
       }
     });
@@ -303,7 +308,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       const outputs: string[] = [];
 
       let generator = strategy.processChunk("Text with ", state);
-      outputs.push(generator.next().value!.content);
+      outputs.push(getValue(generator.next().value!));
       generator.return();
       outputs.push(strategy.flush(state));
       expect(outputs).toEqual(["Text with", " "]);
@@ -316,7 +321,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       const outputs: string[] = [];
 
       let generator = strategy.processChunk("Text with {", state);
-      outputs.push(generator.next().value!.content);
+      outputs.push(getValue(generator.next().value!));
       generator.return();
       outputs.push(strategy.flush(state));
       expect(outputs).toEqual(["Text with ", "{"]);
@@ -329,7 +334,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       const outputs: string[] = [];
 
       let generator = strategy.processChunk("Text with {{ something", state);
-      outputs.push(generator.next().value!.content);
+      outputs.push(getValue(generator.next().value!));
       expect(outputs).toEqual(["Text with "]);
       generator.return();
       expect(strategy.flush(state)).toBe("{{ something");
@@ -348,8 +353,8 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       outputs.push(generator.next().value!);
       outputs.push(generator.next().value!);
       expect(outputs).toEqual([
-        { content: "Text with ", match: false },
-        { content: "{{ something }}", match: true }
+        { isMatch: false, content: "Text with " },
+        { isMatch: true, content: "{{ something }}" }
       ]);
       generator.return();
       expect(strategy.flush(state)).toBe(" and {{ something more }}");
@@ -371,7 +376,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       // Exactly bufferSize (1) remaining - yieldUntil would equal position
       const generator = strategy.processChunk("AB", state);
       const result = generator.next();
-      expect(result.value?.content).toBe("A");
+      expect(getValue(result.value!)).toBe("A");
       expect(result.done).toBe(false);
       generator.return();
       expect(strategy.flush(state)).toBe("B");
@@ -402,8 +407,8 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       // Find first two needles but not the third - should buffer mid-sequence
       const generator = strategy.processChunk("text {{ }} more", state);
       const result1 = generator.next();
-      expect(result1.value?.content).toBe("text ");
-      expect(result1.value?.match).toBe(false);
+      expect(getValue(result1.value!)).toBe("text ");
+      expect(result1.value!.isMatch).toBe(false);
 
       generator.return(); // Cancel mid-sequence (found "{{" and "}}", looking for "!")
 

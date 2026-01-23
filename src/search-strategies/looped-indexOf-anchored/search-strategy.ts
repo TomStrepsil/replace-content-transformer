@@ -70,24 +70,24 @@ export class LoopedIndexOfAnchoredSearchStrategy
                 const beforePartial = haystack.slice(position, -partialLength);
                 position = length - partialLength;
                 if (beforePartial) {
-                  yield { content: beforePartial, match: false };
+                  yield { isMatch: false, content: beforePartial };
                 }
                 return;
               }
             }
 
-            const content = haystack.slice(position);
+            const nonMatch = haystack.slice(position);
             position = length;
-            yield { content, match: false };
+            yield { isMatch: false, content: nonMatch };
           }
           return;
         }
 
         if (state.currentNeedleIndex === 0) {
           if (index > position) {
-            const content = haystack.slice(position, index);
+            const nonMatch = haystack.slice(position, index);
             position = index;
-            yield { content, match: false };
+            yield { isMatch: false, content: nonMatch };
           }
           matchStartPosition = index;
         }
@@ -97,8 +97,8 @@ export class LoopedIndexOfAnchoredSearchStrategy
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
           yield {
-            content: haystack.slice(matchStartPosition, position),
-            match: true
+            isMatch: true,
+            content: haystack.slice(matchStartPosition, position)
           };
         }
       }

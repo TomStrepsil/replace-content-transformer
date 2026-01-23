@@ -101,7 +101,7 @@ for (
   const needlePrefix = currentNeedle.slice(0, partialLength);
   if (haystackSuffix === needlePrefix) {
     // Found partial match - buffer it
-    yield { content: remainder.slice(0, -partialLength), match: false };
+    yield { isMatch: false, content: remainder.slice(0, -partialLength) };
     state.buffer = haystackSuffix;
     return;
   }
