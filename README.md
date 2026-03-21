@@ -69,7 +69,6 @@ import {
 The constructors expect a "stream processor" and optional `AbortSignal` as arguments:
 
 ```ts
-import type { SyncProcessor, AsyncProcessor } from "replace-content-transformer";
 const syncTransformer = new ReplaceContentTransformer(
   processor: SyncProcessor, stopReplacingSignal?: AbortSignal
 );
@@ -463,13 +462,13 @@ import { StringAnchorSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new StringAnchorSearchStrategy(["<!--replace me -->"]); // single token
 ```
 
-..or
+...or:
 
 ```ts
 const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anchor" delimiters/tokens
 ```
 
-or
+...or:
 
 ```ts
 import { RegexSearchStrategy } from "replace-content-transformer";

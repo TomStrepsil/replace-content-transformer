@@ -126,4 +126,4 @@ Stream processing performance with the same code across different JavaScript eng
 - Algorithm benchmarks focus on **algorithmic differences** (same runtime, different approaches)
 - Runtime benchmarks focus on **engine differences** (same code, different engines)
 - All benchmarks run in the workspace context with access to `../../src/` for imports
-- Scripts use `--experimental-strip-types` for TypeScript execution without compilation
+- Scripts use `--experimental-strip-types` on Node, for TypeScript execution without compilation
