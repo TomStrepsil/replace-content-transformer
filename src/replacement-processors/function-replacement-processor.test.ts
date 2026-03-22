@@ -27,7 +27,7 @@ describe("FunctionReplacementProcessor", () => {
     it("yields content before match and replacement when complete match found", () => {
       const mockStrategy = mockSearchStrategyFactory(
         { isMatch: false, content: "Hello " },
-        { isMatch: true, content: "OLD" },
+        { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
         { isMatch: false, content: " world" }
       );
 
@@ -110,10 +110,10 @@ describe("FunctionReplacementProcessor", () => {
       expect(outputChunks).toEqual(["text ", "NEW", " end"]);
     });
 
-    it("calls replacement function with matched content and index", () => {
+    it("calls replacement function with matched content, index, startIndex and endIndex", () => {
       const mockStrategy = mockSearchStrategyFactory(
         { isMatch: false, content: "Hello " },
-        { isMatch: true, content: "MATCH" },
+        { isMatch: true, content: "MATCH", startIndex: 6, endIndex: 11 },
         { isMatch: false, content: " world" }
       );
 
@@ -129,7 +129,7 @@ describe("FunctionReplacementProcessor", () => {
         outputChunks.push(chunk);
       }
 
-      expect(replacementFn).toHaveBeenCalledWith("MATCH", 0, undefined, undefined);
+      expect(replacementFn).toHaveBeenCalledWith("MATCH", 0, 6, 11);
       expect(outputChunks).toEqual(["Hello ", "RESULT", " world"]);
     });
 
@@ -140,9 +140,9 @@ describe("FunctionReplacementProcessor", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           callCount++;
           if (callCount === 1) {
-            yield { isMatch: true, content: "MATCH" };
+            yield { isMatch: true, content: "MATCH", startIndex: 0, endIndex: 5 };
           } else if (callCount === 2) {
-            yield { isMatch: true, content: "MATCH" };
+            yield { isMatch: true, content: "MATCH", startIndex: 10, endIndex: 15 };
           }
         }),
         flush: vi.fn().mockReturnValue("")
@@ -164,15 +164,15 @@ describe("FunctionReplacementProcessor", () => {
         outputChunks.push(chunk);
       }
 
-      expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, undefined, undefined);
-      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, undefined, undefined);
+      expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, 0, 5);
+      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, 10, 15);
     });
 
     it("continues processing after match to find subsequent matches", () => {
       const mockStrategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "OLD" },
+        { isMatch: true, content: "OLD", startIndex: 0, endIndex: 3 },
         { isMatch: false, content: " and " },
-        { isMatch: true, content: "OLD" }
+        { isMatch: true, content: "OLD", startIndex: 8, endIndex: 11 }
       );
 
       const processor = new FunctionReplacementProcessor({
@@ -197,9 +197,9 @@ describe("FunctionReplacementProcessor", () => {
       });
 
       const mockStrategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "OLD" },
+        { isMatch: true, content: "OLD", startIndex: 0, endIndex: 3 },
         { isMatch: false, content: " and " },
-        { isMatch: true, content: "OLD" }
+        { isMatch: true, content: "OLD", startIndex: 8, endIndex: 11 }
       );
 
       const processor = new FunctionReplacementProcessor({

@@ -139,10 +139,24 @@ const transformer = new ReplaceContentTransformer(
 );
 ```
 
-#### Replacing a Regular Expression
+Access the character indices of the match, relative to the start of the stream:
+```typescript
+// "here's {{this}}" becomes "here's this, found from 7 to 15"
+const transformer = new ReplaceContentTransformer(
+  new FunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory(["{{", "}}"]),
+    replacement: (match: string, index: number, startIndex: number, endIndex: number) =>
+      `${match.slice(2, -2)}, found from ${startIndex} to ${endIndex}`
+  })
+);
+```
 
 > [!NOTE]
-> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src//search-strategies/regex/README.md#limitations).
+> `endIndex` is exclusive, following the same convention as [`String.prototype.slice(startIndex, endIndex)`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice)[^2]
+
+[^2]: See [half-open intervals](https://en.wikipedia.org/wiki/Interval_(mathematics)#Half-open_intervals)
+
+#### Replacing a Regular Expression
 
 ```typescript
 // `class="anything old-button"` becomes `class="anything new-button"`
@@ -160,6 +174,12 @@ const transformer = new ReplaceContentTransformer(
   })
 );
 ```
+
+> [!CAUTION]
+> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src//search-strategies/regex/README.md#limitations).
+
+> [!IMPORTANT]
+> When requesting [`indices`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#indices), the output is adjusted to be based on a stream offset, since would be otherwise useless.
 
 #### Async Replacement
 
@@ -514,13 +534,13 @@ There are 5 stream processors to select from, rather than the system figuring ou
 
 There is no reliable way in javascript to detect the output type of a function without calling it, and trying to adapt just-in-time based on the first replacement made would be complex. The type of function can be thought to have a ["colour"](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/#what-color-is-your-function) that requires up-front selection.
 
-Rather than a one-size-fits-all / common-denominator supporting asynchronicity (whether needed or not) or adapting to varying function output, the design accepts that a slight (but potentially significant) performance overhead exists with asynchronicity (in Node, at least) [^2]
+Rather than a one-size-fits-all / common-denominator supporting asynchronicity (whether needed or not) or adapting to varying function output, the design accepts that a slight (but potentially significant) performance overhead exists with asynchronicity (in Node, at least) [^3]
 
 Forcing all consumers to act asynchronously, or creating arbitrary iterator adapters above a simple static replacement, was deemed more unwieldy than the choice to be made.
 
 The project aimed for a lightweight code footprint, so providing many options (with unused variation tree-shaken out) is a means to optimise.
 
-[^2]: N.B. A similar performance overhead exists by virtue of the generator pattern used, but this is accepted for the just-in-time nature flexibility afforded.
+[^3]: N.B. A similar performance overhead exists by virtue of the generator pattern used, but this is accepted for the just-in-time nature flexibility afforded.
 
 **Why generators?**
 

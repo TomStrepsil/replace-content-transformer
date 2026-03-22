@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `startIndex` and `endIndex` properties on `MatchResult` matches, providing absolute stream offsets for each match
 
+### Fixed
+
+- Documentation:
+  - Consistent prefix for examples in main README
+  - Fix typo in release process
+  - Remove reference to un-exported `BufferedIndexOfAnchoredSearchStrategy`, linking to benchmarking code within repo instead
+  - Note in regex JSDoc that lookahead support is positive only
+
+- No longer exporting internal use only types.  Not publicly documented, so not considering this a breaking change
+
 ## [1.0.0] - 2026-01-23
 
 ### Changed

@@ -80,7 +80,7 @@ export class FunctionReplacementProcessor<
   TMatch = string,
   R extends string | Promise<string> = string
 > extends ReplacementProcessorBase<TState, TMatch> {
-  private readonly replacementFn: (match: TMatch, index: number) => R;
+  private readonly replacementFn: (match: TMatch, index: number, startIndex: number, endIndex: number) => R;
   private matchIndex: number = 0;
 
   constructor({
