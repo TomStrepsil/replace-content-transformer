@@ -5,8 +5,33 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.ts";
 
-function updateIndices(indices: [number,number][], offset: number) {
+/**
+ * Corrected version of {@link RegExpIndicesArray} that models `undefined`
+ * entries for unmatched optional/alternation capture groups.
+ *
+ * TypeScript's built-in type incorrectly declares `Array<[number, number]>`,
+ * but the ES2022 spec (and all engines) place `undefined` at positions
+ * corresponding to non-participating capture groups.
+ *
+ * Fixed upstream but not yet released:
+ * @see {@link https://github.com/microsoft/TypeScript/issues/61078}
+ * @see {@link https://github.com/microsoft/TypeScript/pull/61079}
+ * 
+ * However, this still incorrectly types groups as `Record<string, [number, number]>` without `undefined` values,
+ */
+interface CorrectedRegExpIndicesArray
+  extends Array<[number, number] | undefined> {
+  groups?: {
+    [key: string]: [number, number] | undefined;
+  };
+}
+
+function updateIndices(
+  indices: CorrectedRegExpIndicesArray,
+  offset: number
+) {
   for (const entry of indices) {
+    if (entry === undefined) continue;
     entry[0] += offset;
     entry[1] += offset;
   }
@@ -94,10 +119,15 @@ export class RegexSearchStrategy
         position += matchLength;
 
         if (completeMatch.indices) {
+          const indices =
+            completeMatch.indices as CorrectedRegExpIndicesArray;
           const offset = startIndex - completeMatch.index;
-          updateIndices(completeMatch.indices, offset);
-          if (completeMatch.indices.groups) {
-            updateIndices(Object.values(completeMatch.indices.groups), offset);
+          updateIndices(indices, offset);
+          if (indices.groups) {
+            updateIndices(
+              Object.values(indices.groups) as CorrectedRegExpIndicesArray,
+              offset
+            );
           }
         }
 

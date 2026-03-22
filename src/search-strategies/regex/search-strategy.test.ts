@@ -1314,5 +1314,104 @@ describe("RegexSearchStrategy", () => {
       });
       expect(match!.content.indices![0]).toEqual([5, 8]);
     });
+
+    it("should handle optional unmatched capture group (undefined index entry)", () => {
+      const strategy = new RegexSearchStrategy(/a(b)?c/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix ac suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [7, 9]
+      });
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([7, 9]);
+      expect(indices[1]).toBeUndefined();
+    });
+
+    it("should handle optional matched capture group", () => {
+      const strategy = new RegexSearchStrategy(/a(b)?c/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix abc suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [7, 10]
+      });
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([7, 10]);
+      expect(indices[1]).toEqual([8, 9]);
+    });
+
+    it("should handle named optional unmatched group (undefined in indices.groups)", () => {
+      const strategy = new RegexSearchStrategy(/a(?<mid>b)?c/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix ac suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [7, 9]
+      });
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([7, 9]);
+      expect(indices[1]).toBeUndefined();
+      expect(indices.groups!.mid).toBeUndefined();
+    });
+
+    it("should handle named optional matched group", () => {
+      const strategy = new RegexSearchStrategy(/a(?<mid>b)?c/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix abc suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([7, 10]);
+      expect(indices[1]).toEqual([8, 9]);
+      expect(indices.groups!.mid).toEqual([8, 9]);
+    });
+
+    it("should handle mixed matched and unmatched optional groups", () => {
+      const strategy = new RegexSearchStrategy(/(?<a>x)?y(?<b>z)?/d);
+      const state = strategy.createState();
+
+      // Only "y" matches — both optional groups unmatched
+      const results1 = [...strategy.processChunk("prefix y suffix", state)];
+      const match1 = results1.find((r) => r.isMatch);
+      const indices1 = match1!.content.indices!;
+      expect(indices1[0]).toEqual([7, 8]);
+      expect(indices1[1]).toBeUndefined();
+      expect(indices1[2]).toBeUndefined();
+      expect(indices1.groups!.a).toBeUndefined();
+      expect(indices1.groups!.b).toBeUndefined();
+    });
+
+    it("should handle optional groups with offset from prior chunks", () => {
+      const strategy = new RegexSearchStrategy(/a(?<opt>b)?c/d);
+      const state = strategy.createState();
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- just need to dummy process a chunk to advance the stream index
+      [...strategy.processChunk("first chunk no match ", state)];
+      const results2 = [...strategy.processChunk("ac end", state)];
+      const match = results2.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [21, 23]
+      });
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([21, 23]);
+      expect(indices[1]).toBeUndefined();
+      expect(indices.groups!.opt).toBeUndefined();
+    });
+
+    it("should handle alternation where one branch has more groups", () => {
+      const strategy = new RegexSearchStrategy(/(?<word>\w+)|(?<num>\d+)/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix hello suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      const indices = match!.content.indices!;
+      // "word" group matched, "num" group undefined
+      expect(indices.groups!.word).toEqual(indices[1]);
+      expect(indices.groups!.num).toBeUndefined();
+    });
   });
 });
