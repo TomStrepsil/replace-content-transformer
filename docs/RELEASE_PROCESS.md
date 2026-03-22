@@ -2,7 +2,7 @@
 
 Releases are automated based on semver selections in merged PRs:
 
-1. Go to **Actions** → **Release** workflow
+1. Go to **Actions** → **Create Draft Release** workflow
 2. Click "**Run workflow**" → "**Run workflow**"
 3. The workflow will automatically:
    - Analyze all merged PRs since the last release

@@ -169,7 +169,7 @@ type RegexSearchState = {
 
 ## Limitations
 
-Due to the streaming nature of the algorithm, or due to the implementation of `regex-partial-match`, certain regex features are problematic:
+Due to the streaming nature of the algorithm, or due to the implementation of [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match), certain regex features are problematic:
 
 ### ❌ Backreferences
 
