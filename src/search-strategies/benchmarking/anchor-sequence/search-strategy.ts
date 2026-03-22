@@ -46,6 +46,7 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
     haystack: string,
     state: AnchorSequenceSearchState<TState>
   ): Generator<MatchResult, void, undefined> {
+    const inputLength = haystack.length;
     let isMidMatch = state.currentNeedleIndex !== 0;
     try {
       while (haystack) {
@@ -80,14 +81,17 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
         isMidMatch = state.currentNeedleIndex !== 0;
         if (!isMidMatch) {
           const match = state.buffer;
+          const endIndex = state.streamOffset + inputLength - haystack.length;
+          const startIndex = endIndex - match.length;
           state.buffer = "";
-          yield { isMatch: true, content: match };
+          yield { isMatch: true, content: match, startIndex, endIndex };
         }
       }
     } finally {
       if (haystack) {
         state.buffer += haystack;
       }
+      state.streamOffset += inputLength;
     }
   }
 

@@ -114,7 +114,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         calls: [{ haystack: "Hello {{name}} world" }],
         expectedResults: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "{{name}}" },
+          { isMatch: true, content: "{{name}}", startIndex: 6, endIndex: 14 },
           { isMatch: false, content: " world" }
         ],
         expectedFlush: ""
@@ -124,7 +124,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{value}} text" }],
         expectedResults: [
-          { isMatch: true, content: "{{value}}" },
+          { isMatch: true, content: "{{value}}", startIndex: 0, endIndex: 9 },
           { isMatch: false, content: " text" }
         ],
         expectedFlush: ""
@@ -135,7 +135,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         calls: [{ haystack: "text {{value}}" }],
         expectedResults: [
           { isMatch: false, content: "text " },
-          { isMatch: true, content: "{{value}}" }
+          { isMatch: true, content: "{{value}}", startIndex: 5, endIndex: 14 }
         ],
         expectedFlush: ""
       },
@@ -144,9 +144,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{first}} and {{second}}" }],
         expectedResults: [
-          { isMatch: true, content: "{{first}}" },
+          { isMatch: true, content: "{{first}}", startIndex: 0, endIndex: 9 },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: "{{second}}" }
+          { isMatch: true, content: "{{second}}", startIndex: 14, endIndex: 24 }
         ],
         expectedFlush: ""
       },
@@ -156,7 +156,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         calls: [{ haystack: "text {{}} more" }],
         expectedResults: [
           { isMatch: false, content: "text " },
-          { isMatch: true, content: "{{}}" },
+          { isMatch: true, content: "{{}}", startIndex: 5, endIndex: 9 },
           { isMatch: false, content: " more" }
         ],
         expectedFlush: ""
@@ -166,7 +166,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ['<img src="', '" alt="', '">'],
         calls: [{ haystack: '<img src="/photo.jpg" alt="sunset"> text' }],
         expectedResults: [
-          { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">' },
+          { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">', startIndex: 0, endIndex: 35 },
           { isMatch: false, content: " text" }
         ],
         expectedFlush: ""
@@ -177,7 +177,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         calls: [{ haystack: "text [value] more" }],
         expectedResults: [
           { isMatch: false, content: "text " },
-          { isMatch: true, content: "[value]" },
+          { isMatch: true, content: "[value]", startIndex: 5, endIndex: 12 },
           { isMatch: false, content: " more" }
         ],
         expectedFlush: ""
@@ -187,9 +187,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{this is a very long string with many words}}" }],
         expectedResults: [
-          {
-            isMatch: true, content: "{{this is a very long string with many words}}"
-          }
+          { isMatch: true, content: "{{this is a very long string with many words}}", startIndex: 0, endIndex: 46 }
         ],
         expectedFlush: ""
       },
@@ -198,9 +196,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{first}}" }, { haystack: " and {{second}}" }],
         expectedResults: [
-          { isMatch: true, content: "{{first}}" },
+          { isMatch: true, content: "{{first}}", startIndex: 0, endIndex: 9 },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: "{{second}}" }
+          { isMatch: true, content: "{{second}}", startIndex: 14, endIndex: 24 }
         ],
         expectedFlush: ""
       }
@@ -243,14 +241,14 @@ describe("AnchorSequenceSearchStrategy", () => {
         name: "start delimiter split across two chunks: '{' + '{name}}'",
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{" }, { haystack: "{name}}" }],
-        expectedResults: [{ isMatch: true, content: "{{name}}" }],
+        expectedResults: [{ isMatch: true, content: "{{name}}", startIndex: 0, endIndex: 8 }],
         expectedFlush: ""
       },
       {
         name: "end delimiter split across two chunks: '{{name}' + '}'",
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{name}" }, { haystack: "}" }],
-        expectedResults: [{ isMatch: true, content: "{{name}}" }],
+        expectedResults: [{ isMatch: true, content: "{{name}}", startIndex: 0, endIndex: 8 }],
         expectedFlush: ""
       },
       {
@@ -261,7 +259,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           { haystack: '" alt="sunset">' }
         ],
         expectedResults: [
-          { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">' }
+          { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">', startIndex: 0, endIndex: 35 }
         ],
         expectedFlush: ""
       },
@@ -276,7 +274,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           { haystack: "}" },
           { haystack: "}" }
         ],
-        expectedResults: [{ isMatch: true, content: "{{name}}" }],
+        expectedResults: [{ isMatch: true, content: "{{name}}", startIndex: 0, endIndex: 8 }],
         expectedFlush: ""
       },
       {
@@ -284,9 +282,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{name}}" }, { haystack: " {{value}}" }],
         expectedResults: [
-          { isMatch: true, content: "{{name}}" },
+          { isMatch: true, content: "{{name}}", startIndex: 0, endIndex: 8 },
           { isMatch: false, content: " " },
-          { isMatch: true, content: "{{value}}" }
+          { isMatch: true, content: "{{value}}", startIndex: 9, endIndex: 18 }
         ],
         expectedFlush: ""
       },
@@ -296,7 +294,7 @@ describe("AnchorSequenceSearchStrategy", () => {
         calls: [{ haystack: "text " }, { haystack: "{{name}}" }],
         expectedResults: [
           { isMatch: false, content: "text " },
-          { isMatch: true, content: "{{name}}" }
+          { isMatch: true, content: "{{name}}", startIndex: 5, endIndex: 13 }
         ],
         expectedFlush: ""
       },
@@ -308,7 +306,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           { haystack: "IN content E" },
           { haystack: "ND" }
         ],
-        expectedResults: [{ isMatch: true, content: "BEGIN content END" }],
+        expectedResults: [{ isMatch: true, content: "BEGIN content END", startIndex: 0, endIndex: 17 }],
         expectedFlush: ""
       },
       {
@@ -316,9 +314,9 @@ describe("AnchorSequenceSearchStrategy", () => {
         delimiters: ["{{", "}}"],
         calls: [{ haystack: "{{first}} and {{se" }, { haystack: "cond}} end" }],
         expectedResults: [
-          { isMatch: true, content: "{{first}}" },
+          { isMatch: true, content: "{{first}}", startIndex: 0, endIndex: 9 },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: "{{second}}" },
+          { isMatch: true, content: "{{second}}", startIndex: 14, endIndex: 24 },
           { isMatch: false, content: " end" }
         ],
         expectedFlush: ""
@@ -373,7 +371,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       expect(results).toEqual([
         { isMatch: false, content: "First " },
-        { isMatch: true, content: "{{OLD}}" }
+        { isMatch: true, content: "{{OLD}}", startIndex: 6, endIndex: 13 }
       ]);
       expect(flushed).toEqual(" and second {{OLD}}");
     });

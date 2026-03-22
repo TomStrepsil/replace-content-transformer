@@ -6,7 +6,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("yields stream content chunk-by-chunk without buffering", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
       { isMatch: false, content: " world" }
     );
 
@@ -41,9 +41,9 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
 
   it("handles multiple matches with different stream replacements", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", startIndex: 0, endIndex: 3 },
       { isMatch: false, content: " and " },
-      { isMatch: true, content: "OLD" }
+      { isMatch: true, content: "OLD", startIndex: 8, endIndex: 11 }
     );
 
     const stream1Chunks = ["A1", "A2"];
@@ -78,7 +78,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("handles empty stream replacement", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
       { isMatch: false, content: " world" }
     );
 
@@ -102,7 +102,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   });
 
   it("handles stream replacement with match context and index", async () => {
-    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH" });
+    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH", startIndex: 0, endIndex: 5 });
 
     const streamFactory = async (matchedContent: string, index: number) => {
       return new ReadableStream({
@@ -138,7 +138,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
         if (callCount === 1) {
           yield { isMatch: false, content: "text " };
         } else {
-          yield { isMatch: true, content: "OLD" };
+          yield { isMatch: true, content: "OLD", startIndex: 5, endIndex: 8 };
           yield { isMatch: false, content: " end" };
         }
       }),

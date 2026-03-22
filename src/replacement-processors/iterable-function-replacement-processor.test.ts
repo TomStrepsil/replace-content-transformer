@@ -8,7 +8,7 @@ describe("IterableFunctionReplacementProcessor", () => {
   it("yields iterable content chunk-by-chunk without buffering", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
       { isMatch: false, content: " world" }
     );
     const iterableChunks = ["chunk1", "chunk2", "chunk3"];
@@ -35,9 +35,9 @@ describe("IterableFunctionReplacementProcessor", () => {
 
   it("handles multiple matches with different iterable replacements", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", startIndex: 0, endIndex: 3 },
       { isMatch: false, content: " and " },
-      { isMatch: true, content: "OLD" }
+      { isMatch: true, content: "OLD", startIndex: 8, endIndex: 11 }
     );
 
     const iterable1Chunks = ["A1", "A2"];
@@ -65,7 +65,7 @@ describe("IterableFunctionReplacementProcessor", () => {
   it("handles empty iterable replacement", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
       { isMatch: false, content: " world" }
     );
 
@@ -85,7 +85,7 @@ describe("IterableFunctionReplacementProcessor", () => {
   });
 
   it("handles iterable replacement with match context and index", async () => {
-    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH" });
+    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH", startIndex: 0, endIndex: 5 });
 
     const iterableFactory = (matchedContent: string, index: number) => {
       return [`[${matchedContent}:${index}]`];
@@ -119,7 +119,7 @@ describe("IterableFunctionReplacementProcessor", () => {
         if (callCount === 1) {
           yield { isMatch: false, content: "text " };
         } else {
-          yield { isMatch: true, content: "OLD" };
+          yield { isMatch: true, content: "OLD", startIndex: 5, endIndex: 8 };
           yield { isMatch: false, content: " end" };
         }
       }),

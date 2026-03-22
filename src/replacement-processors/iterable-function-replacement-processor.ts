@@ -71,7 +71,7 @@ export class IterableFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements SyncProcessor {
-  private readonly replacementFn: (match: TMatch, index: number) => Iterable<string>;
+  private readonly replacementFn: (match: TMatch, index: number, startIndex: number, endIndex: number) => Iterable<string>;
   private matchIndex: number = 0;
 
   constructor({

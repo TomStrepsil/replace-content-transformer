@@ -354,7 +354,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       outputs.push(generator.next().value!);
       expect(outputs).toEqual([
         { isMatch: false, content: "Text with " },
-        { isMatch: true, content: "{{ something }}" }
+        { isMatch: true, content: "{{ something }}", startIndex: 10, endIndex: 25 }
       ]);
       generator.return();
       expect(strategy.flush(state)).toBe(" and {{ something more }}");

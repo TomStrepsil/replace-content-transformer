@@ -1,8 +1,9 @@
 import type { SearchStrategy, MatchResult } from "../../types.ts";
-import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
-export interface LoopedIndexOfCancellableSearchState {
+import StringBufferStrategyBase, {
+  type StringBufferState
+} from "../../string-buffer-strategy-base.ts";
+export interface LoopedIndexOfCancellableSearchState extends StringBufferState {
   needleIndex: number;
-  buffer: string;
 }
 
 export class LoopedIndexOfCancellableSearchStrategy
@@ -24,8 +25,12 @@ export class LoopedIndexOfCancellableSearchStrategy
     haystack: string,
     state: LoopedIndexOfCancellableSearchState
   ): Generator<MatchResult, void, undefined> {
+    const inputLength = haystack.length;
+    let absoluteCursor = state.streamOffset;
     try {
       if (state.needleIndex) {
+        const bufferLength = state.buffer.length;
+        const matchStart = absoluteCursor - bufferLength;
         const needlePossibleWithinHaystack = this.needle.slice(
           state.needleIndex,
           state.needleIndex + haystack.length
@@ -34,15 +39,22 @@ export class LoopedIndexOfCancellableSearchStrategy
         if (needlePossibleWithinHaystack === haystack.slice(0, length)) {
           state.buffer += haystack.slice(0, length);
           haystack = haystack.slice(length);
+          absoluteCursor += length;
           state.needleIndex = (state.needleIndex + length) % this.needle.length;
 
           if (state.needleIndex === 0) {
             const match = state.buffer;
             state.buffer = "";
-            yield { isMatch: true, content: match };
+            yield {
+              isMatch: true,
+              content: match,
+              startIndex: matchStart,
+              endIndex: matchStart + this.needle.length
+            };
           }
         } else {
           haystack = state.buffer + haystack;
+          absoluteCursor -= bufferLength;
         }
       }
 
@@ -74,17 +86,23 @@ export class LoopedIndexOfCancellableSearchStrategy
         }
 
         yield { isMatch: false, content: haystack.slice(0, matchPos) };
+        const startIndex = absoluteCursor + matchPos;
+        const endIndex = startIndex + this.needle.length;
+        absoluteCursor += matchPos + this.needle.length;
         haystack = haystack.slice(matchPos + this.needle.length);
         state.buffer = "";
         yield {
           isMatch: true,
-          content: this.needle
+          content: this.needle,
+          startIndex,
+          endIndex
         };
       }
     } finally {
       if (haystack) {
         state.buffer = haystack;
       }
+      state.streamOffset += inputLength;
     }
   }
 }

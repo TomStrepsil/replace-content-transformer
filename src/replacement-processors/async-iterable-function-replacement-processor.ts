@@ -93,7 +93,7 @@ export class AsyncIterableFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
-  private readonly replacementFn: (match: TMatch, index: number) => Promise<AsyncIterable<string>>;
+  private readonly replacementFn: (match: TMatch, index: number, startIndex: number, endIndex: number) => Promise<AsyncIterable<string>>;
   private matchIndex: number = 0;
 
   constructor({

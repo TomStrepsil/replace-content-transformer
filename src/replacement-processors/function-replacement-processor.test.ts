@@ -85,7 +85,7 @@ describe("FunctionReplacementProcessor", () => {
             // "OL" is buffered (not yielded)
           } else if (callCount === 2) {
             // Second chunk completes the match
-            yield { isMatch: true, content: "OLD" };
+            yield { isMatch: true, content: "OLD", startIndex: 5, endIndex: 8 };
             yield { isMatch: false, content: " end" };
           }
         }),
@@ -142,7 +142,7 @@ describe("FunctionReplacementProcessor", () => {
           if (callCount === 1) {
             yield { isMatch: true, content: "MATCH", startIndex: 0, endIndex: 5 };
           } else if (callCount === 2) {
-            yield { isMatch: true, content: "MATCH", startIndex: 10, endIndex: 15 };
+            yield { isMatch: true, content: "MATCH", startIndex: 5, endIndex: 10 };
           }
         }),
         flush: vi.fn().mockReturnValue("")
@@ -165,7 +165,7 @@ describe("FunctionReplacementProcessor", () => {
       }
 
       expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, 0, 5);
-      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, 10, 15);
+      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, 5, 10);
     });
 
     it("continues processing after match to find subsequent matches", () => {
