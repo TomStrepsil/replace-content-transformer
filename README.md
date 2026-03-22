@@ -176,7 +176,7 @@ const transformer = new ReplaceContentTransformer(
 ```
 
 > [!CAUTION]
-> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src//search-strategies/regex/README.md#limitations).
+> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations).
 
 #### Async Replacement
 
