@@ -179,7 +179,7 @@ const transformer = new ReplaceContentTransformer(
 > The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src//search-strategies/regex/README.md#limitations).
 
 > [!IMPORTANT]
-> When requesting [`indices`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#indices), the output is adjusted to be based on a stream offset, since would be otherwise useless.
+> When requesting [`indices`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#indices), the output is adjusted to be based on a whole stream offset, since would be otherwise useless.
 
 #### Async Replacement
 
