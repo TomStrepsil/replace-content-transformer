@@ -10,6 +10,7 @@ abstract class StringBufferStrategyBase {
   flush(state: StringBufferState): string {
     const flushed = state.buffer;
     state.buffer = "";
+    state.streamOffset = 0;
     return flushed;
   }
 }

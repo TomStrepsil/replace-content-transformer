@@ -102,7 +102,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -112,7 +115,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -124,7 +130,10 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, content: "Find " },
           { isMatch: true, content: expect.arrayContaining(["FIRST PATTERN"]) },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: expect.arrayContaining(["SECOND PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["SECOND PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -134,9 +143,15 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE FIRST PATTERN here and THE SECOND PATTERN there"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE FIRST PATTERN"])
+          },
           { isMatch: false, content: " here and " },
-          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE SECOND PATTERN"])
+          },
           { isMatch: false, content: " there" }
         ]
       },
@@ -156,7 +171,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -165,7 +183,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /.+?PLEX PATTERN/,
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
-          { isMatch: true, content: expect.arrayContaining(["Find THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["Find THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -175,7 +196,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find THE " },
-          { isMatch: true, content: expect.arrayContaining(["COMPLEX PATTERN here"]) }
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["COMPLEX PATTERN here"])
+          }
         ]
       },
       {
@@ -184,7 +208,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find The cOmPlEx PATtern here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["The cOmPlEx PATtern"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["The cOmPlEx PATtern"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -194,7 +221,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMP\nLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMP\nLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMP\nLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -206,9 +236,15 @@ describe("RegexSearchStrategy", () => {
         ],
         expected: [
           { isMatch: false, content: "Find \n" },
-          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE FIRST PATTERN"])
+          },
           { isMatch: false, content: "\n here and \n" },
-          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE SECOND PATTERN"])
+          },
           { isMatch: false, content: "\n there" }
         ]
       },
@@ -218,7 +254,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -243,7 +282,9 @@ describe("RegexSearchStrategy", () => {
         name: "handles patterns with input boundary assertions",
         pattern: /^PATTERN$/,
         chunks: ["PATTERN"],
-        expected: [{ isMatch: true, content: expect.arrayContaining(["PATTERN"]) }]
+        expected: [
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) }
+        ]
       },
       {
         name: "handles patterns with input boundary assertions (inverse scenario)",
@@ -257,7 +298,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE .COMPLEX ?PATTERN* here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -595,7 +639,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find TH", "E COMPL", "EX ", "PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -605,7 +652,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COM", "PLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -617,7 +667,10 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, content: "Find " },
           { isMatch: true, content: expect.arrayContaining(["FIRST PATTERN"]) },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: expect.arrayContaining(["SECOND PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["SECOND PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -631,10 +684,16 @@ describe("RegexSearchStrategy", () => {
         ],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE FIRST PATTERN"])
+          },
           { isMatch: false, content: " he" },
           { isMatch: false, content: "re and " },
-          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE SECOND PATTERN"])
+          },
           { isMatch: false, content: " there" }
         ]
       },
@@ -644,7 +703,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE CO", "MPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -653,7 +715,10 @@ describe("RegexSearchStrategy", () => {
         pattern: /.+?PLEX PATTERN/,
         chunks: ["Find T", "HE CO", "MPLEX PATTERN here"],
         expected: [
-          { isMatch: true, content: expect.arrayContaining(["Find THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["Find THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -663,7 +728,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTE", "RN he", "re"],
         expected: [
           { isMatch: false, content: "Find THE " },
-          { isMatch: true, content: expect.arrayContaining(["COMPLEX PATTERN he"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["COMPLEX PATTERN he"])
+          },
           { isMatch: false, content: "re" }
         ]
       },
@@ -673,7 +741,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE CO", "MP\nL", "EX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMP\nLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMP\nLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -687,9 +758,15 @@ describe("RegexSearchStrategy", () => {
         ],
         expected: [
           { isMatch: false, content: "Find \n" },
-          { isMatch: true, content: expect.arrayContaining(["THE FIRST PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE FIRST PATTERN"])
+          },
           { isMatch: false, content: "\n here and \n" },
-          { isMatch: true, content: expect.arrayContaining(["THE SECOND PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE SECOND PATTERN"])
+          },
           { isMatch: false, content: "\n there" }
         ]
       },
@@ -699,7 +776,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE COMPLEX PATTERN", " here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE COMPLEX PATTERN"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -726,7 +806,9 @@ describe("RegexSearchStrategy", () => {
         name: "handles patterns with input boundary assertions, across chunks",
         pattern: /^PATTERN$/,
         chunks: ["PAT", "TERN"],
-        expected: [{ isMatch: true, content: expect.arrayContaining(["PATTERN"]) }]
+        expected: [
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) }
+        ]
       },
       {
         name: "handles patterns with input boundary assertions (inverse scenario), across chunks",
@@ -743,7 +825,10 @@ describe("RegexSearchStrategy", () => {
         chunks: ["Find THE .COMP", "LEX ?PATTERN* here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"]) },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"])
+          },
           { isMatch: false, content: " here" }
         ]
       },
@@ -938,8 +1023,14 @@ describe("RegexSearchStrategy", () => {
         pattern: /(?<foo>.)/u,
         chunks: ["\ud83d", "\ude04"],
         expected: [
-          { isMatch: true, content: expect.objectContaining({ groups: { foo: "\ud83d" } }) },
-          { isMatch: true, content: expect.objectContaining({ groups: { foo: "\ude04" } }) }
+          {
+            isMatch: true,
+            content: expect.objectContaining({ groups: { foo: "\ud83d" } })
+          },
+          {
+            isMatch: true,
+            content: expect.objectContaining({ groups: { foo: "\ude04" } })
+          }
         ]
       }
     ];
@@ -1199,7 +1290,9 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{(\w+)}}/);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix {{name}} suffix", state)];
+      const results = [
+        ...strategy.processChunk("prefix {{name}} suffix", state)
+      ];
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
@@ -1252,7 +1345,9 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{(\w+)}}/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix {{name}} suffix", state)];
+      const results = [
+        ...strategy.processChunk("prefix {{name}} suffix", state)
+      ];
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
         streamIndices: [7, 15]
@@ -1266,7 +1361,9 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{(?<name>\w+)}}/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix {{foo}} suffix", state)];
+      const results = [
+        ...strategy.processChunk("prefix {{foo}} suffix", state)
+      ];
       const match = results.find((r) => r.isMatch);
       const indices = match!.content.indices!;
       expect(indices[0]).toEqual([7, 14]);
@@ -1412,6 +1509,44 @@ describe("RegexSearchStrategy", () => {
       // "word" group matched, "num" group undefined
       expect(indices.groups!.word).toEqual(indices[1]);
       expect(indices.groups!.num).toBeUndefined();
+    });
+
+    it("should produce correct streamIndices when state is reused after flush", () => {
+      const strategy = new RegexSearchStrategy(/hello/d);
+      const state = strategy.createState();
+
+      // Stream 1: match at position 7
+      const results1 = [...strategy.processChunk("prefix hello suffix", state)];
+      strategy.flush(state);
+      const match1 = results1.find((r) => r.isMatch);
+      expect(match1).toMatchObject({ streamIndices: [7, 12] });
+
+      // Stream 2: reuse state after flush — indices should start from 0 again
+      const results2 = [...strategy.processChunk("prefix hello suffix", state)];
+      strategy.flush(state);
+      const match2 = results2.find((r) => r.isMatch);
+      expect(match2).toMatchObject({ streamIndices: [7, 12] });
+    });
+
+    it("should produce correct streamIndices after flush with multi-chunk streams", () => {
+      const strategy = new RegexSearchStrategy(/world/);
+      const state = strategy.createState();
+
+      // Stream 1: two chunks
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      [...strategy.processChunk("hello ", state)];
+      const results1 = [...strategy.processChunk("world!", state)];
+      strategy.flush(state);
+      const match1 = results1.find((r) => r.isMatch);
+      expect(match1).toMatchObject({ streamIndices: [6, 11] });
+
+      // Stream 2: same content, reused state — should get same indices
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      [...strategy.processChunk("hello ", state)];
+      const results2 = [...strategy.processChunk("world!", state)];
+      strategy.flush(state);
+      const match2 = results2.find((r) => r.isMatch);
+      expect(match2).toMatchObject({ streamIndices: [6, 11] });
     });
   });
 });

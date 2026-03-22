@@ -432,6 +432,23 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       expect(match2).toMatchObject({ streamIndices: [0, 6] });
     });
 
+    it("should reset streamOffset on flush for state reuse", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      // Stream 1
+      const results1 = [...strategy.processChunk("text {{m1}}", state)];
+      strategy.flush(state);
+      const match1 = results1.find((r) => r.isMatch);
+      expect(match1).toMatchObject({ streamIndices: [5, 11] });
+
+      // Stream 2: reuse state after flush — indices should start from 0 again
+      const results2 = [...strategy.processChunk("text {{m2}}", state)];
+      strategy.flush(state);
+      const match2 = results2.find((r) => r.isMatch);
+      expect(match2).toMatchObject({ streamIndices: [5, 11] });
+    });
+
     it("should handle indices correctly with buffered partial matches", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
