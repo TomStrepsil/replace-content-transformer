@@ -1,10 +1,11 @@
 import type { SearchStrategy, MatchResult } from "../../types.ts";
 import KMP from "./knuth-morris-pratt.ts";
-import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
+import StringBufferStrategyBase, {
+  type StringBufferState
+} from "../../string-buffer-strategy-base.ts";
 
-export interface IndexOfKnuthMorrisPrattSearchState {
+export interface IndexOfKnuthMorrisPrattSearchState extends StringBufferState {
   needleIndex: number;
-  buffer: string;
 }
 
 export class IndexOfKnuthMorrisPrattSearchStrategy
@@ -28,8 +29,12 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
     haystack: string,
     state: IndexOfKnuthMorrisPrattSearchState
   ): Generator<MatchResult, void, undefined> {
+    const inputLength = haystack.length;
+    let absoluteCursor = state.streamOffset;
     try {
       if (state.needleIndex) {
+        const bufferLength = state.buffer.length;
+        const matchStart = absoluteCursor - bufferLength;
         const needlePossibleWithinHaystack = this.needle.slice(
           state.needleIndex,
           state.needleIndex + haystack.length
@@ -38,15 +43,21 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
         if (needlePossibleWithinHaystack === haystack.slice(0, length)) {
           state.buffer += haystack.slice(0, length);
           haystack = haystack.slice(length);
+          absoluteCursor += length;
           state.needleIndex = (state.needleIndex + length) % this.needle.length;
 
           if (state.needleIndex === 0) {
             const match = state.buffer;
             state.buffer = "";
-            yield { isMatch: true, content: match };
+            yield {
+              isMatch: true,
+              content: match,
+              streamIndices: [matchStart, matchStart + this.needle.length]
+            };
           }
         } else {
           haystack = state.buffer + haystack;
+          absoluteCursor -= bufferLength;
         }
       }
 
@@ -73,17 +84,27 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
           yield { isMatch: false, content: nonMatch };
         }
 
+        const startIndex = absoluteCursor + matchPos;
+        const endIndex = startIndex + this.needle.length;
+        absoluteCursor += matchPos + this.needle.length;
         haystack = haystack.slice(matchPos + this.needle.length);
         state.buffer = "";
         yield {
           isMatch: true,
-          content: this.needle
+          content: this.needle,
+          streamIndices: [startIndex, endIndex]
         };
       }
     } finally {
       if (haystack) {
         state.buffer += haystack;
       }
+      state.streamOffset += inputLength;
     }
+  }
+
+  flush(state: IndexOfKnuthMorrisPrattSearchState): string {
+    state.needleIndex = 0;
+    return super.flush(state);
   }
 }

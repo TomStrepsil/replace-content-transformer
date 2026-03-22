@@ -1,12 +1,11 @@
 import type { MatchResult, SearchStrategy } from "../../types.ts";
 import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
 
-/**
- * State object for {@link BufferedIndexOfAnchoredSearchStrategy}.
- */
 export type BufferedIndexOfAnchoredSearchState = {
   /** Buffer holding partial content that may contain incomplete matches spanning chunks */
   buffer: string;
+  /** Tracks absolute stream offset for position reporting */
+  streamOffset: number;
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
 };
@@ -75,10 +74,12 @@ export class BufferedIndexOfAnchoredSearchStrategy
     haystack: string,
     state: BufferedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
+    const bufferLength = state.buffer.length;
+    const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
-    let matchStartPosition;
+    let matchStartPosition = 0;
     try {
       while (position < length) {
         const currentNeedle = this.needles[state.currentNeedleIndex];
@@ -110,13 +111,23 @@ export class BufferedIndexOfAnchoredSearchStrategy
         if (state.currentNeedleIndex === 0) {
           yield {
             isMatch: true,
-            content: haystack.slice(matchStartPosition, position)
+            content: haystack.slice(matchStartPosition, position),
+            streamIndices: [
+              baseOffset + matchStartPosition,
+              baseOffset + position
+            ]
           };
         }
       }
     } finally {
       const isMidMatch = state.currentNeedleIndex > 0;
       state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
+      state.streamOffset += haystack.length - bufferLength;
     }
+  }
+
+  flush(state: BufferedIndexOfAnchoredSearchState): string {
+    state.currentNeedleIndex = 0;
+    return super.flush(state);
   }
 }

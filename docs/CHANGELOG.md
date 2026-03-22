@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `streamIndices` property on `MatchResult` matches, providing absolute stream offsets `[startIndex, endIndex]` for each match
+
+### Fixed
+
+- Documentation:
+  - Consistent prefix for examples in main README
+  - Fix typo in release process
+  - Remove reference to un-exported `BufferedIndexOfAnchoredSearchStrategy`, linking to benchmarking code within repo instead
+  - Note in regex JSDoc that lookahead support is positive only
+  - Clarify in the benchmarking README that `--experimental-strip-types` is a Node thing
+  - Update a `NOTE` in the main README to be a `CAUTION` and move under the example
+- No longer exporting internal use only types.  Not publicly documented, so not considering this a breaking change
+- Ensure the `BufferedIndexOfAnchoredSearchState`, `IndexOfKnuthMorrisPrattSearchStrategy` and `LoopedIndexOfCancellableSearchStrategy`  benchmark comparison strategies properly resets their state
+
 ## [1.0.0] - 2026-01-23
 
 ### Changed

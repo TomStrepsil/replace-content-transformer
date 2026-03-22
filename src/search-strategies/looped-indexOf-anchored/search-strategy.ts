@@ -3,10 +3,7 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.ts";
 
-/**
- * State object for {@link LoopedIndexOfAnchoredSearchStrategy}.
- */
-type LoopedIndexOfAnchoredSearchState = StringBufferState & {
+export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
 };
@@ -15,9 +12,11 @@ type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * A high-performance search strategy for finding sequential string patterns (anchor sequences)
  * using smart partial matching to avoid unnecessary buffering.
  *
- * Similar to {@link BufferedIndexOfAnchoredSearchStrategy} but uses intelligent partial matching
- * at chunk boundaries - only buffering when there's actually a potential partial match, rather
- * than blindly buffering the maximum possible partial match length.
+ * Similar to the buffered indexOf anchored strategy
+ * (https://github.com/TomStrepsil/replace-content-transformer/blob/64c8d74ea8651401375bf01c00372fcdf2dbfcbb/src/search-strategies/benchmarking/buffered-indexOf-anchored/README.md)
+ * but uses intelligent partial matching at chunk boundaries - only buffering when there's 
+ * actually a potential partial match, rather than blindly buffering the maximum possible 
+ * partial match length.
  *
  * This strategy efficiently searches for sequences of strings that must appear in order,
  * separated by any content. For example, `['{{', 'name', '}}']` matches `{{name}}` or
@@ -49,10 +48,12 @@ export class LoopedIndexOfAnchoredSearchStrategy
     haystack: string,
     state: LoopedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
+    const bufferLength = state.buffer.length;
+    const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
-    let matchStartPosition;
+    let matchStartPosition = 0;
     try {
       while (position < length) {
         const currentNeedle = this.needles[state.currentNeedleIndex];
@@ -70,7 +71,10 @@ export class LoopedIndexOfAnchoredSearchStrategy
                 const beforePartial = haystack.slice(position, -partialLength);
                 position = length - partialLength;
                 if (beforePartial) {
-                  yield { isMatch: false, content: beforePartial };
+                  yield {
+                    isMatch: false,
+                    content: beforePartial
+                  };
                 }
                 return;
               }
@@ -96,15 +100,20 @@ export class LoopedIndexOfAnchoredSearchStrategy
         state.currentNeedleIndex =
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
+          const content = haystack.slice(matchStartPosition, position);
+          const startIndex = baseOffset + matchStartPosition;
+          const endIndex = baseOffset + position;
           yield {
             isMatch: true,
-            content: haystack.slice(matchStartPosition, position)
+            content,
+            streamIndices: [startIndex, endIndex]
           };
         }
       }
     } finally {
       const isMidMatch = state.currentNeedleIndex > 0;
       state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
+      state.streamOffset += haystack.length - bufferLength;
     }
   }
 

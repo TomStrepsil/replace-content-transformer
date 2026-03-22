@@ -18,10 +18,11 @@ export type AsyncFunctionReplacementProcessorOptions<
    * Async function called for each match to generate the replacement content.
    * 
    * @param match - The matched content
-   * @param index - Zero-based index of this match
+   * @param matchIndex - Zero-based index of this match
+   * @param streamIndices - [startIndex, endIndex] of the match in the stream (endIndex is exclusive)
    * @returns Promise resolving to the replacement string
    */
-  replacement: (match: TMatch, index: number) => Promise<string>;
+  replacement: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<string>;
 };
 
 /**
@@ -54,8 +55,8 @@ export type AsyncFunctionReplacementProcessorOptions<
  * 
  * const processor = new AsyncFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{user}}'),
- *   replacement: async (match, index) => {
- *     const response = await fetch(`/api/users/${index}`);
+ *   replacement: async (match, matchIndex) => {
+ *     const response = await fetch(`/api/users/${matchIndex}`);
  *     return response.text();
  *   }
  * });
@@ -68,7 +69,7 @@ export class AsyncFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
-  private readonly replacementFn: (match: TMatch, index: number) => Promise<string>;
+  private readonly replacementFn: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<string>;
   private matchIndex: number = 0;
 
   constructor({
@@ -80,15 +81,19 @@ export class AsyncFunctionReplacementProcessor<
   }
 
   async *processChunk(chunk: string): AsyncGenerator<string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!isMatch) {
-        yield content;
+      if (!result.isMatch) {
+        yield result.content;
         continue;
       }
-      yield await this.replacementFn(content, this.matchIndex++);
+      yield await this.replacementFn(
+        result.content,
+        this.matchIndex++,
+        result.streamIndices
+      );
     }
   }
 }

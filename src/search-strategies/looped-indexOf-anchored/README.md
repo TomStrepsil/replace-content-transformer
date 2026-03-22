@@ -201,8 +201,6 @@ type LoopedIndexOfAnchoredSearchState = {
 ### Two-Token Pattern (Opening/Closing Delimiters)
 
 ```typescript
-import { LoopedIndexOfAnchoredSearchStrategy } from "replace-content-transformer";
-
 const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
 ```
 

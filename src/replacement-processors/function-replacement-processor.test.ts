@@ -27,7 +27,7 @@ describe("FunctionReplacementProcessor", () => {
     it("yields content before match and replacement when complete match found", () => {
       const mockStrategy = mockSearchStrategyFactory(
         { isMatch: false, content: "Hello " },
-        { isMatch: true, content: "OLD" },
+        { isMatch: true, content: "OLD", streamIndices: [6, 9] },
         { isMatch: false, content: " world" }
       );
 
@@ -85,7 +85,7 @@ describe("FunctionReplacementProcessor", () => {
             // "OL" is buffered (not yielded)
           } else if (callCount === 2) {
             // Second chunk completes the match
-            yield { isMatch: true, content: "OLD" };
+            yield { isMatch: true, content: "OLD", streamIndices: [5, 8] };
             yield { isMatch: false, content: " end" };
           }
         }),
@@ -110,10 +110,10 @@ describe("FunctionReplacementProcessor", () => {
       expect(outputChunks).toEqual(["text ", "NEW", " end"]);
     });
 
-    it("calls replacement function with matched content and index", () => {
+    it("calls replacement function with matched content, matchIndex and streamIndices", () => {
       const mockStrategy = mockSearchStrategyFactory(
         { isMatch: false, content: "Hello " },
-        { isMatch: true, content: "MATCH" },
+        { isMatch: true, content: "MATCH", streamIndices: [6, 11] },
         { isMatch: false, content: " world" }
       );
 
@@ -129,7 +129,7 @@ describe("FunctionReplacementProcessor", () => {
         outputChunks.push(chunk);
       }
 
-      expect(replacementFn).toHaveBeenCalledWith("MATCH", 0);
+      expect(replacementFn).toHaveBeenCalledWith("MATCH", 0, [6, 11]);
       expect(outputChunks).toEqual(["Hello ", "RESULT", " world"]);
     });
 
@@ -140,9 +140,9 @@ describe("FunctionReplacementProcessor", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           callCount++;
           if (callCount === 1) {
-            yield { isMatch: true, content: "MATCH" };
+            yield { isMatch: true, content: "MATCH", streamIndices: [0, 5] };
           } else if (callCount === 2) {
-            yield { isMatch: true, content: "MATCH" };
+            yield { isMatch: true, content: "MATCH", streamIndices: [5, 10] };
           }
         }),
         flush: vi.fn().mockReturnValue("")
@@ -164,15 +164,15 @@ describe("FunctionReplacementProcessor", () => {
         outputChunks.push(chunk);
       }
 
-      expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0);
-      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1);
+      expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, [0, 5]);
+      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, [5, 10]);
     });
 
     it("continues processing after match to find subsequent matches", () => {
       const mockStrategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "OLD" },
+        { isMatch: true, content: "OLD", streamIndices: [0, 3] },
         { isMatch: false, content: " and " },
-        { isMatch: true, content: "OLD" }
+        { isMatch: true, content: "OLD", streamIndices: [8, 11] }
       );
 
       const processor = new FunctionReplacementProcessor({
@@ -197,9 +197,9 @@ describe("FunctionReplacementProcessor", () => {
       });
 
       const mockStrategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "OLD" },
+        { isMatch: true, content: "OLD", streamIndices: [0, 3] },
         { isMatch: false, content: " and " },
-        { isMatch: true, content: "OLD" }
+        { isMatch: true, content: "OLD", streamIndices: [8, 11] }
       );
 
       const processor = new FunctionReplacementProcessor({
