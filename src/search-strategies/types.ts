@@ -3,7 +3,7 @@
  *
  * Uses boolean discrimination with typed content:
  * - `{ isMatch: false, content: string }` - Literal content to yield as-is
- * - `{ isMatch: true, content: T, streamIndices: [startIndex, endIndex] }` - Match value passed to replacement function
+ * - `{ isMatch: true, content: T, streamIndices: [startIndex, endIndex] }` - Match value passed to replacement function (endIndex is exclusive / half-open interval)
  *
  * @typeParam T - The type of value returned for matches (default: string)
  */
@@ -31,7 +31,7 @@ export interface SearchStrategy<TState, TMatch = string> {
    *
    * @param haystack - New content to process
    * @param state - Mutable state object to track search progress
-   * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch }`
+   * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch, streamIndices: [startIndex, endIndex] }`
    */
   processChunk(
     haystack: string,
