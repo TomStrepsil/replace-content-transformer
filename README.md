@@ -337,7 +337,7 @@ const transformer = new AsyncReplaceContentTransformer(
       if (response.ok) {
         return response.body.pipeThrough(new TextDecoderStream());
       }
-      if (index === 1) {
+      if (matchIndex === 1) {
         abortController.abort(); // after two replacements, stop replacing
       }
     }
