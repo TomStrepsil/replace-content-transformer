@@ -458,7 +458,7 @@ The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchSt
 
 The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
 
-> ![NOTE]
+> [!NOTE]
 > The `streamIndices` property contains absolute character offsets into the overall stream as `[startIndex, endIndex]`, thus not chunk-relative.
 
 Each strategy contains the pattern-matching logic for a specific use case:
