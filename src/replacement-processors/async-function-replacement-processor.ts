@@ -19,9 +19,11 @@ export type AsyncFunctionReplacementProcessorOptions<
    * 
    * @param match - The matched content
    * @param index - Zero-based index of this match
+   * @param startIndex - start index of the match in the stream
+   * @param endIndex - end index (exclusive) of the match in the stream
    * @returns Promise resolving to the replacement string
    */
-  replacement: (match: TMatch, index: number) => Promise<string>;
+  replacement: (match: TMatch, index: number, startIndex: number, endIndex: number) => Promise<string>;
 };
 
 /**
@@ -68,7 +70,7 @@ export class AsyncFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
-  private readonly replacementFn: (match: TMatch, index: number) => Promise<string>;
+  private readonly replacementFn: (match: TMatch, index: number, startIndex: number, endIndex: number) => Promise<string>;
   private matchIndex: number = 0;
 
   constructor({
@@ -80,15 +82,20 @@ export class AsyncFunctionReplacementProcessor<
   }
 
   async *processChunk(chunk: string): AsyncGenerator<string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!isMatch) {
-        yield content;
+      if (!result.isMatch) {
+        yield result.content;
         continue;
       }
-      yield await this.replacementFn(content, this.matchIndex++);
+      yield await this.replacementFn(
+        result.content,
+        this.matchIndex++,
+        result.startIndex,
+        result.endIndex
+      );
     }
   }
 }

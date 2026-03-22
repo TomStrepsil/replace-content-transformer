@@ -23,7 +23,7 @@ describe("AsyncFunctionReplacementProcessor", () => {
       outputChunks.push(chunk);
     }
 
-    expect(asyncReplacementFn).toHaveBeenCalledWith("MATCH", 0);
+    expect(asyncReplacementFn).toHaveBeenCalledWith("MATCH", 0, undefined, undefined);
     expect(outputChunks).toEqual(["Hello ", "ASYNC_RESULT", " world"]);
   });
 
@@ -47,8 +47,8 @@ describe("AsyncFunctionReplacementProcessor", () => {
       outputChunks.push(chunk);
     }
 
-    expect(asyncReplacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0);
-    expect(asyncReplacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1);
+    expect(asyncReplacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, undefined, undefined);
+    expect(asyncReplacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, undefined, undefined);
   });
 
   it("handles string replacement with async processor", async () => {

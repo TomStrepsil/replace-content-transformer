@@ -1123,4 +1123,208 @@ describe("RegexSearchStrategy", () => {
       expect(strategy.flush(state)).toBe(" and {{ something more }}");
     });
   });
+
+  describe("stream offset tracking", () => {
+    it("should track correct indices for single chunk match", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("before OLD after", state)];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 7,
+        endIndex: 10
+      });
+    });
+
+    it("should track correct indices across chunk boundaries", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("prefix OL", state)];
+      const results2 = [...strategy.processChunk("D suffix", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 7,
+        endIndex: 10
+      });
+    });
+
+    it("should track multiple matches with correct indices", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("a OLD b OLD c", state)];
+
+      const matches = results.filter((r) => r.isMatch);
+      expect(matches).toHaveLength(2);
+      expect(matches[0]).toMatchObject({
+        startIndex: 2,
+        endIndex: 5
+      });
+      expect(matches[1]).toMatchObject({
+        startIndex: 8,
+        endIndex: 11
+      });
+    });
+
+    it("should track indices across multiple chunks with no matches initially", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("chunk1 no matches ", state)];
+      const results2 = [...strategy.processChunk("chunk2 OLD end", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 25,
+        endIndex: 28
+      });
+    });
+
+    it("should reset offset on createState", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+
+      const state1 = strategy.createState();
+      const results1 = [...strategy.processChunk("OLD", state1)];
+      const match1 = results1.find((r) => r.isMatch);
+      expect(match1?.startIndex).toBe(0);
+
+      const state2 = strategy.createState();
+      const results2 = [...strategy.processChunk("OLD", state2)];
+      const match2 = results2.find((r) => r.isMatch);
+      expect(match2?.startIndex).toBe(0);
+    });
+
+    it("should track indices with capture groups", () => {
+      const strategy = new RegexSearchStrategy(/{{(\w+)}}/);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix {{name}} suffix", state)];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 7,
+        endIndex: 15
+      });
+    });
+
+    it("should handle indices correctly with buffered partial matches", () => {
+      const strategy = new RegexSearchStrategy(/{{.+?}}/);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("text {", state)];
+      const results2 = [...strategy.processChunk("{done}} after", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 5,
+        endIndex: 13
+      });
+    });
+
+    it("should track indices for match at stream start", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("OLD after", state)];
+
+      expect(results[0]).toMatchObject({
+        isMatch: true,
+        startIndex: 0,
+        endIndex: 3
+      });
+    });
+  });
+
+  describe("RegExpExecArray.indices with d flag", () => {
+    it("should produce indices on matches", () => {
+      const strategy = new RegexSearchStrategy(/OLD/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix OLD suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        isMatch: true,
+        startIndex: 7,
+        endIndex: 10
+      });
+      expect(match!.content.indices![0]).toEqual([7, 10]);
+    });
+
+    it("should produce indices for capture groups", () => {
+      const strategy = new RegexSearchStrategy(/{{(\w+)}}/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix {{name}} suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 7,
+        endIndex: 15
+      });
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([7, 15]);
+      expect(indices[1]).toEqual([9, 13]);
+    });
+
+    it("should produce named group indices", () => {
+      const strategy = new RegexSearchStrategy(/{{(?<name>\w+)}}/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("prefix {{foo}} suffix", state)];
+      const match = results.find((r) => r.isMatch);
+      const indices = match!.content.indices!;
+      expect(indices[0]).toEqual([7, 14]);
+      expect(indices.groups!.name).toEqual([9, 12]);
+    });
+
+    it("should adjust indices across chunk boundaries", () => {
+      const strategy = new RegexSearchStrategy(/OLD/d);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("chunk1 no match ", state)];
+      const results2 = [...strategy.processChunk("chunk2 OLD end", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 23,
+        endIndex: 26
+      });
+      expect(match!.content.indices![0]).toEqual([23, 26]);
+    });
+
+    it("should adjust indices for multiple matches", () => {
+      const strategy = new RegexSearchStrategy(/OLD/d);
+      const state = strategy.createState();
+
+      const results = [...strategy.processChunk("a OLD b OLD c", state)];
+
+      const matches = results.filter((r) => r.isMatch);
+      expect(matches).toHaveLength(2);
+      expect(matches[0]!.content.indices![0]).toEqual([2, 5]);
+      expect(matches[1]!.content.indices![0]).toEqual([8, 11]);
+    });
+
+    it("should adjust indices across buffered partial matches", () => {
+      const strategy = new RegexSearchStrategy(/OLD/d);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("text OL", state)];
+      const results2 = [...strategy.processChunk("D end", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 5,
+        endIndex: 8
+      });
+      expect(match!.content.indices![0]).toEqual([5, 8]);
+    });
+  });
 });

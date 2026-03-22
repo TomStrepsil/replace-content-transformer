@@ -19,9 +19,11 @@ export type IterableFunctionReplacementProcessorOptions<
    *
    * @param match - The matched content (type inferred from search strategy)
    * @param index - Zero-based index of this match
+   * @param startIndex - start index of the match in the stream
+   * @param endIndex - end index (exclusive) of the match in the stream
    * @returns An iterable of replacement strings
    */
-  replacement: (match: TMatch, index: number) => Iterable<string>;
+  replacement: (match: TMatch, index: number, startIndex: number, endIndex: number) => Iterable<string>;
 };
 
 /**
@@ -81,15 +83,20 @@ export class IterableFunctionReplacementProcessor<
   }
 
   *processChunk(chunk: string): Generator<string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!isMatch) {
-        yield content;
+      if (!result.isMatch) {
+        yield result.content;
         continue;
       }
-      yield* this.replacementFn(content, this.matchIndex++);
+      yield* this.replacementFn(
+        result.content,
+        this.matchIndex++,
+        result.startIndex,
+        result.endIndex
+      );
     }
   }
 }

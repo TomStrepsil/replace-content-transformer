@@ -5,12 +5,18 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.ts";
 
+function updateIndices(indices: [number,number][], offset: number) {
+  for (const entry of indices) {
+    entry[0] += offset;
+    entry[1] += offset;
+  }
+}
 
 /**
  * A search strategy for finding patterns using regular expressions.
  *
  * This strategy enables powerful pattern matching using JavaScript RegExp, supporting
- * most standard regex features (capture groups, lookaheads, character classes, etc.).
+ * most standard regex features (capture groups, positive lookaheads, character classes, etc.).
  * It correctly handles matches that span chunk boundaries by maintaining a buffer and
  * using partial match detection to avoid splitting incomplete patterns.
  *
@@ -29,7 +35,6 @@ import StringBufferStrategyBase, {
  * });
  * ```
  */
-
 export class RegexSearchStrategy
   extends StringBufferStrategyBase
   implements SearchStrategy<StringBufferState, RegExpExecArray>
@@ -48,6 +53,7 @@ export class RegexSearchStrategy
     haystack: string,
     state: StringBufferState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
+    const bufferLength = state.buffer.length;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
@@ -81,13 +87,26 @@ export class RegexSearchStrategy
           yield { isMatch: false, content: nonMatch };
         }
 
-        position += completeMatch[0].length;
-        yield { isMatch: true, content: completeMatch };
+        const matchLength = completeMatch[0].length;
+        const startIndex = state.streamOffset + (position - bufferLength);
+        const endIndex = startIndex + matchLength;
+        position += matchLength;
+
+        if (completeMatch.indices) {
+          const offset = startIndex - completeMatch.index;
+          updateIndices(completeMatch.indices, offset);
+          if (completeMatch.indices.groups) {
+            updateIndices(Object.values(completeMatch.indices.groups), offset);
+          }
+        }
+
+        yield { isMatch: true, content: completeMatch, startIndex, endIndex };
       }
     } finally {
       if (position < length) {
         state.buffer += haystack.slice(position);
       }
+      state.streamOffset += haystack.length - bufferLength;
     }
   }
 }

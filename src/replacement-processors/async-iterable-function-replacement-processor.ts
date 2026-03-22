@@ -19,9 +19,11 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
    * 
    * @param match - The matched content (type inferred from search strategy)
    * @param index - Zero-based index of this match
+   * @param startIndex - start index of the match in the stream
+   * @param endIndex - end index (exclusive) of the match in the stream
    * @returns Promise resolving to an async iterable of replacement strings
    */
-  replacement: (match: TMatch, index: number) => Promise<AsyncIterable<string>>;
+  replacement: (match: TMatch, index: number, startIndex: number, endIndex: number) => Promise<AsyncIterable<string>>;
 };
 
 /**
@@ -103,15 +105,20 @@ export class AsyncIterableFunctionReplacementProcessor<
   }
 
   async *processChunk(chunk: string): AsyncGenerator<string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       chunk,
       this.searchState
     )) {
-      if (!isMatch) {
-        yield content;
+      if (!result.isMatch) {
+        yield result.content;
         continue;
       }
-      yield* await this.replacementFn(content, this.matchIndex++);
+      yield* await this.replacementFn(
+        result.content,
+        this.matchIndex++,
+        result.startIndex,
+        result.endIndex
+      );
     }
   }
 }

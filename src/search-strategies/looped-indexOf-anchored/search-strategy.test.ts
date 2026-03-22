@@ -11,7 +11,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{" },
+      { isMatch: true, content: "{{", startIndex: 7, endIndex: 9 },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -26,7 +26,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
+      { isMatch: true, content: "{{name}}", startIndex: 7, endIndex: 15 },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -44,7 +44,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
+      { isMatch: true, content: "{{name}}", startIndex: 7, endIndex: 15 },
       { isMatch: false, content: "" }
     ]);
   });
@@ -61,7 +61,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
+      { isMatch: true, content: "{{name}}", startIndex: 7, endIndex: 15 },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -109,7 +109,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     // Complete the match
     const results2 = [...strategy.processChunk("{name}}", state)];
-    expect(results2).toEqual([{ isMatch: true, content: "{{name}}" }]);
+    expect(results2).toEqual([{ isMatch: true, content: "{{name}}", startIndex: 15, endIndex: 23 }]);
   });
 
   it("should handle false starts", () => {
@@ -125,7 +125,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     expect(results).toEqual([
       { isMatch: false, content: "text " },
       { isMatch: false, content: "{x " },
-      { isMatch: true, content: "{{match}}" },
+      { isMatch: true, content: "{{match}}", startIndex: 8, endIndex: 17 },
       { isMatch: false, content: "" }
     ]);
   });
@@ -140,9 +140,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     ];
 
     expect(results).toEqual([
-      { isMatch: true, content: "{{first}}" },
-      { isMatch: true, content: "{{second}}" },
-      { isMatch: true, content: "{{third}}" },
+      { isMatch: true, content: "{{first}}", startIndex: 0, endIndex: 9 },
+      { isMatch: true, content: "{{second}}", startIndex: 9, endIndex: 19 },
+      { isMatch: true, content: "{{third}}", startIndex: 19, endIndex: 28 },
       { isMatch: false, content: "" }
     ]);
   });
@@ -163,7 +163,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "<{{name}}>" },
+      { isMatch: true, content: "<{{name}}>", startIndex: 7, endIndex: 17 },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -388,6 +388,67 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       // Should buffer "{{{"
       expect(strategy.flush(state)).toBe("{{{");
+    });
+  });
+
+  describe("stream offset tracking", () => {
+    it("should track correct indices across chunk boundaries", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("prefix {", state)];
+      const results2 = [...strategy.processChunk("{content}}", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 7,
+        endIndex: 18
+      });
+    });
+
+    it("should track indices across multiple chunks with no matches initially", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("chunk1 no matches ", state)];
+      const results2 = [...strategy.processChunk("chunk2 {{match}} end", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 25,
+        endIndex: 34
+      });
+    });
+
+    it("should reset offset on createState", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+ 
+      const state1 = strategy.createState();
+      const [match1] = [...strategy.processChunk("{{m1}}", state1)];
+      expect(match1).toMatchObject({ startIndex: 0, endIndex: 6 });
+
+      const state2 = strategy.createState();
+      const [match2] = [...strategy.processChunk("{{m2}}", state2)];
+      expect(match2).toMatchObject({ startIndex: 0, endIndex: 6 });
+    });
+
+    it("should handle indices correctly with buffered partial matches", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      // First chunk ends with partial match
+      const results1 = [...strategy.processChunk("text {", state)];
+      // Second chunk completes and continues
+      const results2 = [...strategy.processChunk("{done}} after", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        startIndex: 5,
+        endIndex: 13
+      });
     });
   });
 });

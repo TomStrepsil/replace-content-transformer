@@ -49,6 +49,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
     haystack: string,
     state: LoopedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
+    const bufferLength = state.buffer.length;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
@@ -70,7 +71,10 @@ export class LoopedIndexOfAnchoredSearchStrategy
                 const beforePartial = haystack.slice(position, -partialLength);
                 position = length - partialLength;
                 if (beforePartial) {
-                  yield { isMatch: false, content: beforePartial };
+                  yield {
+                    isMatch: false,
+                    content: beforePartial
+                  };
                 }
                 return;
               }
@@ -96,15 +100,21 @@ export class LoopedIndexOfAnchoredSearchStrategy
         state.currentNeedleIndex =
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
+          const content = haystack.slice(matchStartPosition, position);
+          const startIndex = state.streamOffset + ((matchStartPosition ?? 0) - bufferLength);
+          const endIndex = startIndex + content.length;
           yield {
             isMatch: true,
-            content: haystack.slice(matchStartPosition, position)
+            content,
+            startIndex,
+            endIndex
           };
         }
       }
     } finally {
       const isMidMatch = state.currentNeedleIndex > 0;
       state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
+      state.streamOffset += haystack.length - bufferLength;
     }
   }
 

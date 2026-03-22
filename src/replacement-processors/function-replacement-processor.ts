@@ -20,9 +20,11 @@ export type FunctionReplacementProcessorOptions<
    * 
    * @param match - The matched content (type inferred from search strategy)
    * @param index - Zero-based index of this match (increments with each match)
+   * @param startIndex - start index of the match in the stream
+   * @param endIndex - end index (exclusive) of the match in the stream
    * @returns The replacement string, or a Promise<string> for async operations
    */
-  replacement: (match: TMatch, index: number) => R;
+  replacement: (match: TMatch, index: number, startIndex: number, endIndex: number) => R;
 };
 
 /**
@@ -90,15 +92,20 @@ export class FunctionReplacementProcessor<
   }
 
   *processChunk(input: string): Generator<R | string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       input,
       this.searchState
     )) {
-      if (!isMatch) {
-        yield content;
+      if (!result.isMatch) {
+        yield result.content;
         continue;
       }
-      yield this.replacementFn(content, this.matchIndex++);
+      yield this.replacementFn(
+        result.content,
+        this.matchIndex++,
+        result.startIndex,
+        result.endIndex
+      );
     }
   }
 }
