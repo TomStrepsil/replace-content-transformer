@@ -49,10 +49,11 @@ export class LoopedIndexOfAnchoredSearchStrategy
     state: LoopedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
     const bufferLength = state.buffer.length;
+    const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
-    let matchStartPosition;
+    let matchStartPosition = 0;
     try {
       while (position < length) {
         const currentNeedle = this.needles[state.currentNeedleIndex];
@@ -100,8 +101,8 @@ export class LoopedIndexOfAnchoredSearchStrategy
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
           const content = haystack.slice(matchStartPosition, position);
-          const startIndex = state.streamOffset + ((matchStartPosition ?? 0) - bufferLength);
-          const endIndex = startIndex + content.length;
+          const startIndex = baseOffset + matchStartPosition;
+          const endIndex = baseOffset + position;
           yield {
             isMatch: true,
             content,

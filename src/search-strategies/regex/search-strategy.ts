@@ -54,6 +54,7 @@ export class RegexSearchStrategy
     state: StringBufferState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const bufferLength = state.buffer.length;
+    const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     let position = 0;
@@ -88,7 +89,7 @@ export class RegexSearchStrategy
         }
 
         const matchLength = completeMatch[0].length;
-        const startIndex = state.streamOffset + (position - bufferLength);
+        const startIndex = baseOffset + position;
         const endIndex = startIndex + matchLength;
         position += matchLength;
 
