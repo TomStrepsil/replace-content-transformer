@@ -112,7 +112,10 @@ export class BufferedIndexOfAnchoredSearchStrategy
           yield {
             isMatch: true,
             content: haystack.slice(matchStartPosition, position),
-            streamIndices: [baseOffset + matchStartPosition, baseOffset + position]
+            streamIndices: [
+              baseOffset + matchStartPosition,
+              baseOffset + position
+            ]
           };
         }
       }
@@ -121,5 +124,10 @@ export class BufferedIndexOfAnchoredSearchStrategy
       state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
       state.streamOffset += haystack.length - bufferLength;
     }
+  }
+
+  flush(state: BufferedIndexOfAnchoredSearchState): string {
+    state.currentNeedleIndex = 0;
+    return super.flush(state);
   }
 }
