@@ -1,9 +1,6 @@
 import type { MatchResult, SearchStrategy } from "../../types.ts";
 import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
 
-/**
- * State object for {@link BufferedIndexOfAnchoredSearchStrategy}.
- */
 export type BufferedIndexOfAnchoredSearchState = {
   /** Buffer holding partial content that may contain incomplete matches spanning chunks */
   buffer: string;

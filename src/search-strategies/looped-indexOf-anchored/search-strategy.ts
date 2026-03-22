@@ -3,10 +3,7 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.ts";
 
-/**
- * State object for {@link LoopedIndexOfAnchoredSearchStrategy}.
- */
-type LoopedIndexOfAnchoredSearchState = StringBufferState & {
+export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
 };
@@ -15,9 +12,11 @@ type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * A high-performance search strategy for finding sequential string patterns (anchor sequences)
  * using smart partial matching to avoid unnecessary buffering.
  *
- * Similar to {@link BufferedIndexOfAnchoredSearchStrategy} but uses intelligent partial matching
- * at chunk boundaries - only buffering when there's actually a potential partial match, rather
- * than blindly buffering the maximum possible partial match length.
+ * Similar to the buffered indexOf anchored strategy
+ * (https://github.com/TomStrepsil/replace-content-transformer/blob/64c8d74ea8651401375bf01c00372fcdf2dbfcbb/src/search-strategies/benchmarking/buffered-indexOf-anchored/README.md)
+ * but uses intelligent partial matching at chunk boundaries - only buffering when there's 
+ * actually a potential partial match, rather than blindly buffering the maximum possible 
+ * partial match length.
  *
  * This strategy efficiently searches for sequences of strings that must appear in order,
  * separated by any content. For example, `['{{', 'name', '}}']` matches `{{name}}` or
