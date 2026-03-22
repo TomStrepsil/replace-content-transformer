@@ -103,4 +103,9 @@ export class LoopedIndexOfCancellableSearchStrategy
       state.streamOffset += inputLength;
     }
   }
+
+  flush(state: LoopedIndexOfCancellableSearchState): string {
+    state.needleIndex = 0;
+    return super.flush(state);
+  }
 }

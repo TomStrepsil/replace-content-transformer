@@ -102,4 +102,9 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
       state.streamOffset += inputLength;
     }
   }
+
+  flush(state: IndexOfKnuthMorrisPrattSearchState): string {
+    state.needleIndex = 0;
+    return super.flush(state);
+  }
 }
