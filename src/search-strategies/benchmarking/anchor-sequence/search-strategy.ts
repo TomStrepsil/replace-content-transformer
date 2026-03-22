@@ -84,7 +84,7 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
           const endIndex = state.streamOffset + inputLength - haystack.length;
           const startIndex = endIndex - match.length;
           state.buffer = "";
-          yield { isMatch: true, content: match, startIndex, endIndex };
+          yield { isMatch: true, content: match, streamIndices: [startIndex, endIndex] };
         }
       }
     } finally {

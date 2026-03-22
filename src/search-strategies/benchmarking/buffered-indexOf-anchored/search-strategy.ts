@@ -112,8 +112,7 @@ export class BufferedIndexOfAnchoredSearchStrategy
           yield {
             isMatch: true,
             content: haystack.slice(matchStartPosition, position),
-            startIndex: baseOffset + matchStartPosition,
-            endIndex: baseOffset + position
+            streamIndices: [baseOffset + matchStartPosition, baseOffset + position]
           };
         }
       }

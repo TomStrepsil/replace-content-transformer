@@ -18,7 +18,7 @@ To enable optimistic/early yielding, certain regular expression features are uns
 > The strategy yields an object containing `{ content: RegExpExecArray }` for matches (rather than `{ content: string }`), where the `RegExpExecArray` is the result of calling `RegExp.prototype.exec`. This provides access to capture groups via `match.content[1]`, `match.content[2]`, etc., and named groups via `match.content.groups`. The array also includes [`index`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#index) and [`input`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#input) properties, which make little sense in a streaming scenario and should be disregarded.
 
 > [!NOTE]
-> Where the `d` flag is provided, indices are mapped to be offsets into the stream as a whole.  The indices on the match will duplicate the `startIndex` and `endIndex` arguments passed to the replacement function.  However, the `groups` property on indices is also updated, which may prove more useful.
+> Where the `d` flag is provided, indices are mapped to be offsets into the stream as a whole.  The indices on the match will duplicate the `streamIndices` passed to the replacement function.  However, the `groups` property on indices is also updated, which may prove more useful.
 
 ## How It Works
 

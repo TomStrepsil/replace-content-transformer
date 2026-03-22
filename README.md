@@ -133,8 +133,8 @@ import { FunctionReplacementProcessor } from "replace-content-transformer";
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (match: string, index: number) =>
-      `${match.slice(2, -2)} was match ${index}`
+    replacement: (match: string, matchIndex: number) =>
+      `${match.slice(2, -2)} was match ${matchIndex}`
   })
 );
 ```
@@ -145,14 +145,14 @@ Access the character indices of the match, relative to the start of the stream:
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (match: string, index: number, startIndex: number, endIndex: number) =>
-      `${match.slice(2, -2)}, found from ${startIndex} to ${endIndex}`
+    replacement: (match: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) =>
+      `${match.slice(2, -2)}, found from ${streamIndices[0]} to ${streamIndices[1]}`
   })
 );
 ```
 
 > [!NOTE]
-> `endIndex` is exclusive, following the same convention as [`String.prototype.slice(startIndex, endIndex)`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice)[^2]
+> `streamIndices[1]` (endIndex) is exclusive, following the same convention as [`String.prototype.slice(startIndex, endIndex)`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice)[^2]
 
 [^2]: See [half-open intervals](https://en.wikipedia.org/wiki/Interval_(mathematics)#Half-open_intervals)
 
@@ -332,7 +332,7 @@ const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match, index) => {
+    replacement: async (match, matchIndex) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -440,7 +440,7 @@ Pluggable strategies implement the `SearchStrategy` interface:
 ```typescript
 type MatchResult<T = string> =
   | { isMatch: false; content: string }
-  | { isMatch: true; content: T, startIndex: number, endIndex: number};
+  | { isMatch: true; content: T, streamIndices: [startIndex: number, endIndex: number]};
 
 interface SearchStrategy<TState, TMatch = string> {
   createState(): TState;
@@ -459,7 +459,7 @@ The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchSt
 The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
 
 > ![NOTE]
-> The `startIndex` and `endIndex` properties are absolute character offsets into the overall stream, thus not chunk-relative.
+> The `streamIndices` property contains absolute character offsets into the overall stream as `[startIndex, endIndex]`, thus not chunk-relative.
 
 Each strategy contains the pattern-matching logic for a specific use case:
 

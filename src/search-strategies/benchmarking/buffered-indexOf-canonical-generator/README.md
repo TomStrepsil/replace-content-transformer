@@ -31,7 +31,7 @@ This variant implements the standard `SearchStrategy<TState>` interface:
   state: BufferedIndexOfCanonicalGeneratorState
 ): Generator<MatchResult, void, undefined> {
   yield { isMatch: false, content: "..." };
-  yield { isMatch: true, content: "...", startIndex: #, endIndex: # };
+  yield { isMatch: true, content: "...", streamIndices: [#, #] };
 }
 ```
 

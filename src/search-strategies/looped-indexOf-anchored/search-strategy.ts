@@ -106,8 +106,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
           yield {
             isMatch: true,
             content,
-            startIndex,
-            endIndex
+            streamIndices: [startIndex, endIndex]
           };
         }
       }

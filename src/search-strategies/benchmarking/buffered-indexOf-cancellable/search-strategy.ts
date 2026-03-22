@@ -50,7 +50,7 @@ export class BufferedIndexOfCancellableSearchStrategy
         const match = candidate.slice(index, index + this.needle.length);
         candidate = candidate.slice(index + this.needle.length);
         state.buffer = "";
-        yield { isMatch: true, content: match, startIndex, endIndex };
+        yield { isMatch: true, content: match, streamIndices: [startIndex, endIndex] };
       }
     } finally {
       if (candidate) {

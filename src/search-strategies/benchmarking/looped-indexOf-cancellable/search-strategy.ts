@@ -48,8 +48,7 @@ export class LoopedIndexOfCancellableSearchStrategy
             yield {
               isMatch: true,
               content: match,
-              startIndex: matchStart,
-              endIndex: matchStart + this.needle.length
+              streamIndices: [matchStart, matchStart + this.needle.length]
             };
           }
         } else {
@@ -94,8 +93,7 @@ export class LoopedIndexOfCancellableSearchStrategy
         yield {
           isMatch: true,
           content: this.needle,
-          startIndex,
-          endIndex
+          streamIndices: [startIndex, endIndex]
         };
       }
     } finally {

@@ -1133,8 +1133,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 7,
-        endIndex: 10
+        streamIndices: [7, 10]
       });
     });
 
@@ -1148,8 +1147,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 7,
-        endIndex: 10
+        streamIndices: [7, 10]
       });
     });
 
@@ -1162,12 +1160,10 @@ describe("RegexSearchStrategy", () => {
       const matches = results.filter((r) => r.isMatch);
       expect(matches).toHaveLength(2);
       expect(matches[0]).toMatchObject({
-        startIndex: 2,
-        endIndex: 5
+        streamIndices: [2, 5]
       });
       expect(matches[1]).toMatchObject({
-        startIndex: 8,
-        endIndex: 11
+        streamIndices: [8, 11]
       });
     });
 
@@ -1181,8 +1177,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 25,
-        endIndex: 28
+        streamIndices: [25, 28]
       });
     });
 
@@ -1192,12 +1187,12 @@ describe("RegexSearchStrategy", () => {
       const state1 = strategy.createState();
       const results1 = [...strategy.processChunk("OLD", state1)];
       const match1 = results1.find((r) => r.isMatch);
-      expect(match1?.startIndex).toBe(0);
+      expect(match1?.streamIndices[0]).toBe(0);
 
       const state2 = strategy.createState();
       const results2 = [...strategy.processChunk("OLD", state2)];
       const match2 = results2.find((r) => r.isMatch);
-      expect(match2?.startIndex).toBe(0);
+      expect(match2?.streamIndices[0]).toBe(0);
     });
 
     it("should track indices with capture groups", () => {
@@ -1208,8 +1203,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 7,
-        endIndex: 15
+        streamIndices: [7, 15]
       });
     });
 
@@ -1223,8 +1217,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 5,
-        endIndex: 13
+        streamIndices: [5, 13]
       });
     });
 
@@ -1236,8 +1229,7 @@ describe("RegexSearchStrategy", () => {
 
       expect(results[0]).toMatchObject({
         isMatch: true,
-        startIndex: 0,
-        endIndex: 3
+        streamIndices: [0, 3]
       });
     });
   });
@@ -1251,8 +1243,7 @@ describe("RegexSearchStrategy", () => {
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
         isMatch: true,
-        startIndex: 7,
-        endIndex: 10
+        streamIndices: [7, 10]
       });
       expect(match!.content.indices![0]).toEqual([7, 10]);
     });
@@ -1264,8 +1255,7 @@ describe("RegexSearchStrategy", () => {
       const results = [...strategy.processChunk("prefix {{name}} suffix", state)];
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 7,
-        endIndex: 15
+        streamIndices: [7, 15]
       });
       const indices = match!.content.indices!;
       expect(indices[0]).toEqual([7, 15]);
@@ -1293,8 +1283,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 23,
-        endIndex: 26
+        streamIndices: [23, 26]
       });
       expect(match!.content.indices![0]).toEqual([23, 26]);
     });
@@ -1321,8 +1310,7 @@ describe("RegexSearchStrategy", () => {
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
-        startIndex: 5,
-        endIndex: 8
+        streamIndices: [5, 8]
       });
       expect(match!.content.indices![0]).toEqual([5, 8]);
     });

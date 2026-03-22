@@ -101,7 +101,7 @@ export class RegexSearchStrategy
           }
         }
 
-        yield { isMatch: true, content: completeMatch, startIndex, endIndex };
+        yield { isMatch: true, content: completeMatch, streamIndices: [startIndex, endIndex] };
       }
     } finally {
       if (position < length) {

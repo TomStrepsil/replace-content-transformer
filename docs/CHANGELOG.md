@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `startIndex` and `endIndex` properties on `MatchResult` matches, providing absolute stream offsets for each match
+- `streamIndices` property on `MatchResult` matches, providing absolute stream offsets `[startIndex, endIndex]` for each match
 
 ### Fixed
 

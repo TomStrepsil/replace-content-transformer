@@ -28,7 +28,7 @@ describe("StaticReplacementProcessor", () => {
   it("yields content before match and replacement when complete match found", () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
+      { isMatch: true, content: "OLD", streamIndices: [6, 9] },
       { isMatch: false, content: " world" }
     );
 
@@ -49,9 +49,9 @@ describe("StaticReplacementProcessor", () => {
   it("handles multiple replacements in single chunk", () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD", startIndex: 6, endIndex: 9 },
+      { isMatch: true, content: "OLD", streamIndices: [6, 9] },
       { isMatch: false, content: " " },
-      { isMatch: true, content: "OLD", startIndex: 10, endIndex: 13 },
+      { isMatch: true, content: "OLD", streamIndices: [10, 13] },
       { isMatch: false, content: " world" }
     );
 
@@ -94,7 +94,7 @@ describe("StaticReplacementProcessor", () => {
 
   it("handles replacement at start of chunk", () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { isMatch: true, content: "Hello", startIndex: 0, endIndex: 5 },
+      { isMatch: true, content: "Hello", streamIndices: [0, 5] },
       { isMatch: false, content: " world" }
     );
 

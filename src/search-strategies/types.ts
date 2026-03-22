@@ -3,13 +3,13 @@
  *
  * Uses boolean discrimination with typed content:
  * - `{ isMatch: false, content: string }` - Literal content to yield as-is
- * - `{ isMatch: true, content: T, startIndex: number, endIndex: number }` - Match value passed to replacement function
+ * - `{ isMatch: true, content: T, streamIndices: [startIndex, endIndex] }` - Match value passed to replacement function
  *
  * @typeParam T - The type of value returned for matches (default: string)
  */
 export type MatchResult<T = string> =
   | { isMatch: false; content: string }
-  | { isMatch: true; content: T; startIndex: number; endIndex: number };
+  | { isMatch: true; content: T; streamIndices: [startIndex: number, endIndex: number] };
 
 /**
  * Search strategy for finding patterns in streaming content.

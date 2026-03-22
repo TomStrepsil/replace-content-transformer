@@ -18,12 +18,11 @@ export type AsyncFunctionReplacementProcessorOptions<
    * Async function called for each match to generate the replacement content.
    * 
    * @param match - The matched content
-   * @param index - Zero-based index of this match
-   * @param startIndex - start index of the match in the stream
-   * @param endIndex - end index (exclusive) of the match in the stream
+   * @param matchIndex - Zero-based index of this match
+   * @param streamIndices - [startIndex, endIndex] of the match in the stream (endIndex is exclusive)
    * @returns Promise resolving to the replacement string
    */
-  replacement: (match: TMatch, index: number, startIndex: number, endIndex: number) => Promise<string>;
+  replacement: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<string>;
 };
 
 /**
@@ -56,8 +55,8 @@ export type AsyncFunctionReplacementProcessorOptions<
  * 
  * const processor = new AsyncFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{user}}'),
- *   replacement: async (match, index) => {
- *     const response = await fetch(`/api/users/${index}`);
+ *   replacement: async (match, matchIndex) => {
+ *     const response = await fetch(`/api/users/${matchIndex}`);
  *     return response.text();
  *   }
  * });
@@ -70,7 +69,7 @@ export class AsyncFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
-  private readonly replacementFn: (match: TMatch, index: number, startIndex: number, endIndex: number) => Promise<string>;
+  private readonly replacementFn: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<string>;
   private matchIndex: number = 0;
 
   constructor({
@@ -93,8 +92,7 @@ export class AsyncFunctionReplacementProcessor<
       yield await this.replacementFn(
         result.content,
         this.matchIndex++,
-        result.startIndex,
-        result.endIndex
+        result.streamIndices
       );
     }
   }

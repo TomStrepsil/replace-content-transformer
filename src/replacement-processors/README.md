@@ -13,9 +13,9 @@ Replaces all pattern matches with the same static string value. Simplest and fas
 
 ### ⚡ Function Replacement
 
-Replaces matches using a function that receives the matched content, match index and start and end character indices into the stream. Supports both sync and async replacement functions.
+Replaces matches using a function that receives the matched content, match index and stream indices. Supports both sync and async replacement functions.
 
-- **Replacement Type**: `(matchedContent: string, index: number, startIndex: number, endIndex: number) => string | Promise<string>`
+- **Replacement Type**: `(matchedContent: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => string | Promise<string>`
 - **Execution**: Synchronous generator (can yield promises)
 - **Use Case**: Dynamic replacements, transformations, API calls
 - **Example**: `new FunctionReplacementProcessor({ searchStrategy, replacement: (match, i) => `[${i}]` })`
@@ -24,7 +24,7 @@ Replaces matches using a function that receives the matched content, match index
 
 Replacement function returns an iterable that yields multiple string chunks for a single match. Useful for streaming large replacements or expanding matches into multiple parts.
 
-- **Replacement Type**: `(matchedContent: string, index: number, startIndex: number, endIndex: number) => Iterable<string>`
+- **Replacement Type**: `(matchedContent: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Iterable<string>`
 - **Execution**: Synchronous generator
 - **Use Case**: Expanding matches, streaming large replacements, multi-part substitutions
 - **Example**: `new IterableFunctionReplacementProcessor({ searchStrategy, replacement: (match) => ['<', match, '>'] })`
@@ -33,7 +33,7 @@ Replacement function returns an iterable that yields multiple string chunks for 
 
 Async version of FunctionReplacementProcessor. Replacement function must return a Promise. Processor awaits each replacement before yielding.
 
-- **Replacement Type**: `(matchedContent: string, index: number, startIndex: number, endIndex: number) => Promise<string>`
+- **Replacement Type**: `(matchedContent: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<string>`
 - **Execution**: Async generator
 - **Use Case**: API calls, database lookups, async transformations
 - **Example**: `new AsyncFunctionReplacementProcessor({ searchStrategy, replacement: async (match) => await fetch(...) })`
@@ -42,7 +42,7 @@ Async version of FunctionReplacementProcessor. Replacement function must return 
 
 Async version of IterableFunctionReplacementProcessor. Replacement function returns an async iterable that yields chunks asynchronously.
 
-- **Replacement Type**: `(matchedContent: string, index: number, startIndex: number, endIndex: number) => AsyncIterable<string>`
+- **Replacement Type**: `(matchedContent: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => AsyncIterable<string>`
 - **Execution**: Async generator
 - **Use Case**: Streaming API responses, async chunk generation
 - **Example**: `new AsyncIterableFunctionReplacementProcessor({ searchStrategy, replacement: async function* (match) { yield* streamData() } })`
