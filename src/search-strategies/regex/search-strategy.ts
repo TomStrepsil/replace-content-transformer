@@ -17,7 +17,8 @@ import StringBufferStrategyBase, {
  * @see {@link https://github.com/microsoft/TypeScript/issues/61078}
  * @see {@link https://github.com/microsoft/TypeScript/pull/61079}
  * 
- * However, this still incorrectly types groups as `Record<string, [number, number]>` without `undefined` values,
+ * However, this still incorrectly types groups as `Record<string, [number, number]>` without `undefined` values
+ * @see {@link https://github.com/microsoft/TypeScript/issues/63281}
  */
 interface CorrectedRegExpIndicesArray
   extends Array<[number, number] | undefined> {
