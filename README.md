@@ -421,7 +421,7 @@ Pluggable strategies implement the `SearchStrategy` interface:
 ```typescript
 type MatchResult<T = string> =
   | { isMatch: false; content: string }
-  | { isMatch: true; content: T };
+  | { isMatch: true; content: T, startIndex: number, endIndex: number};
 
 interface SearchStrategy<TState, TMatch = string> {
   createState(): TState;
@@ -438,6 +438,9 @@ The `TState` type is specific to the strategy, managed by the consuming processo
 The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
 
 The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
+
+> ![NOTE]
+> The `startIndex` and `endIndex` properties are absolute character offsets into the overall stream, thus not chunk-relative.
 
 Each strategy contains the pattern-matching logic for a specific use case:
 

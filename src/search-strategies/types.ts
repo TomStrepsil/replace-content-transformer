@@ -3,7 +3,7 @@
  *
  * Uses boolean discrimination with typed content:
  * - `{ isMatch: false, content: string }` - Literal content to yield as-is
- * - `{ isMatch: true, content: T, startIndex?: number, endIndex?: number }` - Match value passed to replacement function
+ * - `{ isMatch: true, content: T, startIndex: number, endIndex: number }` - Match value passed to replacement function
  *
  * @typeParam T - The type of value returned for matches (default: string)
  */
