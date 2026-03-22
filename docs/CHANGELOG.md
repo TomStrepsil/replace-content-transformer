@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remove reference to un-exported `BufferedIndexOfAnchoredSearchStrategy`, linking to benchmarking code within repo instead
   - Note in regex JSDoc that lookahead support is positive only
   - Clarify in the benchmarking README that `--experimental-strip-types` is a Node thing
+  - Update a `NOTE` in the main README to be a `CAUTION` and move under the example
 
 - No longer exporting internal use only types.  Not publicly documented, so not considering this a breaking change
 
