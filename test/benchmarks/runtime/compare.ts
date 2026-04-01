@@ -251,14 +251,14 @@ function generateComparisonTable(allResults: BenchmarkResult[]): string {
       for (const runtime of runtimes) {
         const result = results.find((r) => r.runtime === runtime);
         if (result) {
-          let value = "";
-          if (result.hz > 1_000_000) {
-            value = `${(result.hz / 1_000_000).toFixed(1)}M Hz`;
-          } else if (result.hz > 1_000) {
-            value = `${(result.hz / 1_000).toFixed(0)}K Hz`;
-          } else {
-            value = `${result.hz.toFixed(0)} Hz`;
-          }
+          const baseValue =
+            result.hz > 1_000_000
+              ? `${(result.hz / 1_000_000).toFixed(1)}M Hz`
+              : result.hz > 1_000
+                ? `${(result.hz / 1_000).toFixed(0)}K Hz`
+                : `${result.hz.toFixed(0)} Hz`;
+
+          let value = baseValue;
 
           if (result.hz === maxHz) {
             value = `🏆 ${value}`;

@@ -131,6 +131,6 @@ describe("createReplaceContentTransformer", () => {
       mockSyncProcessorFactory()
     );
 
-    expect(transformer.cancel).toBeUndefined();
+    expect("cancel" in transformer).toBe(false);
   });
 });

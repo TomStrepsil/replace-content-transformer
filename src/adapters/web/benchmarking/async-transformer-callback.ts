@@ -1,4 +1,3 @@
-import type { Transformer } from "node:stream/web";
 import type { AsyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
 
 export function createAsyncReplaceContentTransformerCallback(

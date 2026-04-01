@@ -10,7 +10,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "WebWorker"],
     "types": ["@types/node", "vitest/globals", "bun", "deno"],
   },
   "include": ["src/**/*", "test/**/*", "test/benchmarks/**/*"],

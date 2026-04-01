@@ -1,4 +1,3 @@
-import type { Transformer } from "node:stream/web";
 import type { Processor } from "../../replacement-processors/types";
 
 export abstract class ReplaceContentTransformerBase<T = string>

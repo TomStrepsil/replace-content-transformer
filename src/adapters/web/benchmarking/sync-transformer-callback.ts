@@ -1,4 +1,3 @@
-import type { Transformer } from "node:stream/web";
 import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
 
 export function createReplaceContentTransformerCallback<

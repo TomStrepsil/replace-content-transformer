@@ -1,4 +1,3 @@
-import type { Transformer } from "node:stream/web";
 import type { SyncProcessor } from "../../replacement-processors/types.ts";
 
 /**
