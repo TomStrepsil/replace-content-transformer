@@ -4,16 +4,16 @@ import {
   ReplaceContentTransformer,
 } from "./sync-transformer.ts";
 import {
-  mockTransformStreamDefaultControllerFactory,
-  mockSyncProcessorFactory
+  createMockTransformStreamDefaultController,
+  createMockSyncProcessor
 } from "../../../test/utilities.ts";
 
 describe("ReplaceContentTransformer", () => {
   it("delegates to processor and enqueues output", () => {
-    const mockProcessor = mockSyncProcessorFactory("ABC", "abc!");
+    const mockProcessor = createMockSyncProcessor("ABC", "abc!");
     const transformer = createReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    const controller = createMockTransformStreamDefaultController(outputs);
 
     transformer.transform!("abc", controller);
 
@@ -23,14 +23,14 @@ describe("ReplaceContentTransformer", () => {
   });
 
   it("skips processing when abort signal is set prior to transformation", () => {
-    const mockProcessor = mockSyncProcessorFactory("transformed");
+    const mockProcessor = createMockSyncProcessor("transformed");
     const abortController = new AbortController();
     const transformer = createReplaceContentTransformer(
       mockProcessor,
       abortController.signal
     );
     const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    const controller = createMockTransformStreamDefaultController(outputs);
     abortController.abort();
 
     transformer.transform!("input", controller);
@@ -41,7 +41,7 @@ describe("ReplaceContentTransformer", () => {
 
   it("stops processing mid-transformation when abort signal is set", () => {
     const abortController = new AbortController();
-    const mockProcessor = mockSyncProcessorFactory(() => {
+    const mockProcessor = createMockSyncProcessor(() => {
       abortController.abort();
       return "PART1";
     }, "PART2");
@@ -50,7 +50,7 @@ describe("ReplaceContentTransformer", () => {
       abortController.signal
     );
     const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    const controller = createMockTransformStreamDefaultController(outputs);
 
     transformer.transform!("input", controller);
 
@@ -60,11 +60,11 @@ describe("ReplaceContentTransformer", () => {
   });
 
   it("flush enqueues flushed content", () => {
-    const mockProcessor = mockSyncProcessorFactory();
+    const mockProcessor = createMockSyncProcessor();
 
     const transformer = createReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    const controller = createMockTransformStreamDefaultController(outputs);
 
     transformer.flush!(controller);
 
@@ -73,7 +73,7 @@ describe("ReplaceContentTransformer", () => {
   });
 
   it("supports Promise<string> generic type for async replacement functions", async () => {
-    const mockProcessor = mockSyncProcessorFactory<Promise<string> | string>(
+    const mockProcessor = createMockSyncProcessor<Promise<string> | string>(
       Promise.resolve("ASYNC_RESULT_1"),
       "regular string",
       Promise.resolve("ASYNC_RESULT_2")
@@ -83,7 +83,7 @@ describe("ReplaceContentTransformer", () => {
       mockProcessor
     );
     const outputs: Array<string | Promise<string>> = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    const controller = createMockTransformStreamDefaultController(outputs);
 
     transformer.transform!("input", controller);
 
@@ -100,23 +100,23 @@ describe("ReplaceContentTransformer", () => {
 
   it("does not expose cancel", () => {
     const transformer = createReplaceContentTransformer(
-      mockSyncProcessorFactory()
+      createMockSyncProcessor()
     );
 
     expect("cancel" in transformer).toBe(false);
   });
 
   it("supports deprecated constructor syntax with factory-equivalent behavior", () => {
-    const legacyProcessor = mockSyncProcessorFactory("ABC", "abc!");
-    const factoryProcessor = mockSyncProcessorFactory("ABC", "abc!");
+    const legacyProcessor = createMockSyncProcessor("ABC", "abc!");
+    const factoryProcessor = createMockSyncProcessor("ABC", "abc!");
     const legacyTransformer = new ReplaceContentTransformer(legacyProcessor);
     const factoryTransformer = createReplaceContentTransformer(factoryProcessor);
     const legacyOutputs: string[] = [];
     const factoryOutputs: string[] = [];
     const legacyController =
-      mockTransformStreamDefaultControllerFactory(legacyOutputs);
+      createMockTransformStreamDefaultController(legacyOutputs);
     const factoryController =
-      mockTransformStreamDefaultControllerFactory(factoryOutputs);
+      createMockTransformStreamDefaultController(factoryOutputs);
 
     legacyTransformer.transform("abc", legacyController);
     factoryTransformer.transform!("abc", factoryController);

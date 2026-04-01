@@ -9,8 +9,21 @@ export type ReplacementProcessorOptions<TState, TMatch> = {
 };
 
 /**
- * Base class for replacement processors.
- * Uses separate generics for state and match to avoid type casts.
+ * Creates the shared processor internals: search strategy, state, and flush.
+ */
+export function createProcessorBase<TState, TMatch>(
+  searchStrategy: SearchStrategy<TState, TMatch>
+) {
+  const searchState = searchStrategy.createState();
+  return {
+    searchStrategy,
+    searchState,
+    flush: () => searchStrategy.flush(searchState)
+  };
+}
+
+/**
+ * @deprecated Base class retained for backward compatibility only.
  */
 export abstract class ReplacementProcessorBase<TState, TMatch> {
   protected readonly searchStrategy: SearchStrategy<TState, TMatch>;

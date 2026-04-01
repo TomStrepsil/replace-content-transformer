@@ -1,1 +1,1 @@
-export * from "./search-strategy.ts";
+export { createRegexSearchStrategy, RegexSearchStrategy } from "./search-strategy.ts";

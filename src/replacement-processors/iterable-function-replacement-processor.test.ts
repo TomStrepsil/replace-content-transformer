@@ -1,19 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
-import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.ts";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
+import { createIterableFunctionReplacementProcessor, IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.ts";
+import { createMockSearchStrategy } from "../../test/utilities.ts";
 
 describe("IterableFunctionReplacementProcessor", () => {
   const mockInput = "test input";
 
   it("yields iterable content chunk-by-chunk without buffering", async () => {
-    const mockStrategy = mockSearchStrategyFactory(
+    const mockStrategy = createMockSearchStrategy(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " world" }
     );
     const iterableChunks = ["chunk1", "chunk2", "chunk3"];
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: () => iterableChunks
     });
@@ -34,7 +34,7 @@ describe("IterableFunctionReplacementProcessor", () => {
   });
 
   it("handles multiple matches with different iterable replacements", async () => {
-    const mockStrategy = mockSearchStrategyFactory(
+    const mockStrategy = createMockSearchStrategy(
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " and " },
       { isMatch: true, content: "OLD" }
@@ -48,7 +48,7 @@ describe("IterableFunctionReplacementProcessor", () => {
       return iterableIndex++ === 0 ? iterable1Chunks : iterable2Chunks;
     };
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: iterableFactory
     });
@@ -63,7 +63,7 @@ describe("IterableFunctionReplacementProcessor", () => {
   });
 
   it("handles empty iterable replacement", async () => {
-    const mockStrategy = mockSearchStrategyFactory(
+    const mockStrategy = createMockSearchStrategy(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " world" }
@@ -71,7 +71,7 @@ describe("IterableFunctionReplacementProcessor", () => {
 
     const emptyIterable: string[] = [];
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: () => emptyIterable
     });
@@ -85,13 +85,13 @@ describe("IterableFunctionReplacementProcessor", () => {
   });
 
   it("handles iterable replacement with match context and index", async () => {
-    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH" });
+    const mockStrategy = createMockSearchStrategy({ isMatch: true, content: "MATCH" });
 
     const iterableFactory = (matchedContent: string, index: number) => {
       return [`[${matchedContent}:${index}]`];
     };
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: iterableFactory
     });
@@ -128,7 +128,7 @@ describe("IterableFunctionReplacementProcessor", () => {
 
     const iterableChunks = ["N", "E", "W"];
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: () => iterableChunks
     });
@@ -151,13 +151,13 @@ describe("IterableFunctionReplacementProcessor", () => {
 
   describe("flush", () => {
   it("returns buffered content when called", async () => {
-    const mockStrategy = mockSearchStrategyFactory({
+    const mockStrategy = createMockSearchStrategy({
       isMatch: false,
       content: "text "
     });
     mockStrategy.flush.mockReturnValue("OL");
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: () => []
     });
@@ -172,9 +172,9 @@ describe("IterableFunctionReplacementProcessor", () => {
   });
 
   it("returns empty string when no buffered content", async () => {
-    const mockStrategy = mockSearchStrategyFactory();
+    const mockStrategy = createMockSearchStrategy();
 
-    const processor = new IterableFunctionReplacementProcessor({
+    const processor = createIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: () => []
     });
@@ -186,6 +186,18 @@ describe("IterableFunctionReplacementProcessor", () => {
     expect(flushed).toBe("");
   });
 });
+
+  it("should support deprecated constructor syntax", () => {
+    const mockStrategy = createMockSearchStrategy(
+      { isMatch: true, content: "OLD" }
+    );
+    const processor = new IterableFunctionReplacementProcessor({
+      searchStrategy: mockStrategy,
+      replacement: () => ["NEW"]
+    });
+    const outputChunks = [...processor.processChunk("OLD")];
+    expect(outputChunks).toEqual(["NEW"]);
+  });
 });
 
 

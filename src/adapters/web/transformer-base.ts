@@ -31,8 +31,8 @@ export abstract class ReplaceContentTransformerBase<T = string>
    * ```typescript
    * const ac = new AbortController();
    *
-   * const transformer = new AsyncReplaceContentTransformer(
-   *   new AsyncFunctionReplacementProcessor({
+   * const transformer = createAsyncReplaceContentTransformer(
+   *   createAsyncFunctionReplacementProcessor({
    *     searchStrategy,
    *     replacement: async (match) => {
    *       const res = await fetch(`/api/${match}`, { signal: ac.signal });

@@ -1,5 +1,5 @@
-import { FunctionReplacementProcessor } from "../../src/index.ts";
-import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
+import { createFunctionReplacementProcessor } from "../../src/index.ts";
+import { createReplaceContentTransformer } from "../../src/adapters/web/index.ts";
 import {
   AnchorSequenceSearchStrategy,
   LoopedIndexOfCancellableSearchStrategy,
@@ -25,8 +25,8 @@ export const LoopedIndexOfAnchorSequenceHarness = {
     strategy: AnchorSequenceSearchStrategy<LoopedIndexOfCancellableSearchState>;
     replacement: (match: string, index: number) => string;
   }) =>
-    new ReplaceContentTransformer(
-      new FunctionReplacementProcessor({
+    createReplaceContentTransformer(
+      createFunctionReplacementProcessor({
         searchStrategy: strategy,
         replacement
       })

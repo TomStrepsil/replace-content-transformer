@@ -1,6 +1,8 @@
-import { ReplaceContentTransformer } from "../../src/adapters/web/sync-transformer.ts";
-import { FunctionReplacementProcessor } from "../../src/index.ts";
-import { LoopedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
+import { createReplaceContentTransformer } from "../../src/adapters/web/sync-transformer.ts";
+import { createFunctionReplacementProcessor } from "../../src/index.ts";
+import { createLoopedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
+import type { SearchStrategy } from "../../src/search-strategies/types.ts";
+import type { LoopedIndexOfAnchoredSearchState } from "../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
 
 export const LoopedIndexOfAnchoredHarness = {
   name: "Looped IndexOf Anchored",
@@ -11,17 +13,17 @@ export const LoopedIndexOfAnchoredHarness = {
     tokens: string[];
     replacement?: (match: string, index: number) => string;
   }) => {
-    return new LoopedIndexOfAnchoredSearchStrategy(tokens);
+    return createLoopedIndexOfAnchoredSearchStrategy(tokens);
   },
   createTransformer: ({
     strategy,
     replacement
   }: {
-    strategy: LoopedIndexOfAnchoredSearchStrategy;
+    strategy: SearchStrategy<LoopedIndexOfAnchoredSearchState>;
     replacement: (match: string, index: number) => string;
   }) =>
-    new ReplaceContentTransformer(
-      new FunctionReplacementProcessor({
+    createReplaceContentTransformer(
+      createFunctionReplacementProcessor({
         searchStrategy: strategy,
         replacement
       })

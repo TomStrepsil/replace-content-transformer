@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.ts";
-import { AsyncReplaceContentTransformer } from "./async-transformer.ts";
+import { createAsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.ts";
+import { createAsyncReplaceContentTransformer } from "./async-transformer.ts";
 import { http, HttpResponse } from "msw";
 import { server } from "../../../test/utilities.ts";
 import { text } from "node:stream/consumers";
-import { StringAnchorSearchStrategy } from "../../search-strategies/index.ts";
+import { createStringAnchorSearchStrategy } from "../../search-strategies/index.ts";
 
 describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
   it("should support streaming ReadableStream into the output", async () => {
@@ -33,9 +33,9 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
     const result = await text(
       parentResponse.pipeThrough(
         new TransformStream(
-          new AsyncReplaceContentTransformer(
-            new AsyncIterableFunctionReplacementProcessor({
-              searchStrategy: new StringAnchorSearchStrategy([
+          createAsyncReplaceContentTransformer(
+            createAsyncIterableFunctionReplacementProcessor({
+              searchStrategy: createStringAnchorSearchStrategy([
                 "<esi:include",
                 ">"
               ]),
@@ -82,9 +82,9 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       new TextDecoderStream()
     );
 
-    const transformer = new AsyncReplaceContentTransformer(
-      new AsyncIterableFunctionReplacementProcessor({
-        searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
+    const transformer = createAsyncReplaceContentTransformer(
+      createAsyncIterableFunctionReplacementProcessor({
+        searchStrategy: createStringAnchorSearchStrategy(["<esi:include", ">"]),
         replacement: async (match) => {
           const [, url] = /src="([^"]+)"/.exec(match)!;
           try {

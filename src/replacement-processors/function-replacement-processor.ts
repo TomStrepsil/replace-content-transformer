@@ -1,10 +1,12 @@
 import {
   ReplacementProcessorBase,
+  createProcessorBase,
   type ReplacementProcessorOptions
 } from "./replacement-processor.base.ts";
+import type { SyncProcessor } from "./types.ts";
 
 /**
- * Configuration options for {@link FunctionReplacementProcessor}.
+ * Configuration options for {@link createFunctionReplacementProcessor}.
  * 
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
@@ -26,7 +28,7 @@ export type FunctionReplacementProcessorOptions<
 };
 
 /**
- * A replacement processor that uses a function to generate replacement values for each match.
+ * Creates a replacement processor that uses a function to generate replacement values for each match.
  * 
  * This processor supports both synchronous and asynchronous (Promise-based) replacement functions:
  * - Synchronous: `replacement: (match) => string`
@@ -37,68 +39,90 @@ export type FunctionReplacementProcessorOptions<
  * awaited by downstream consumers.
  * 
  * **IMPORTANT**: The Promise<string> pattern only works with WHATWG Streams (web adapters).
- * For Node.js streams, use {@link AsyncFunctionReplacementProcessor} instead.
+ * For Node.js streams, use {@link createAsyncFunctionReplacementProcessor} instead.
  * 
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  * @typeParam R - The return type of the replacement function (string or Promise<string>)
- * 
+ *
  * @example Synchronous replacements
  * ```typescript
- * import { FunctionReplacementProcessor, searchStrategyFactory } from 'replace-content-transformer';
- * import { ReplaceContentTransformer } from 'replace-content-transformer/web';
- * 
- * const processor = new FunctionReplacementProcessor({
- *   searchStrategy: searchStrategyFactory(/{{(\w+)}}/g),
+ * import { createFunctionReplacementProcessor, createSearchStrategy } from 'replace-content-transformer';
+ * import { createReplaceContentTransformer } from 'replace-content-transformer/web';
+ *
+ * const processor = createFunctionReplacementProcessor({
+ *   searchStrategy: createSearchStrategy(/{{(\w+)}}/g),
  *   replacement: (match, index) => `Replacement #${index}: ${match[1]}`
  * });
- * 
- * const transformer = new ReplaceContentTransformer(processor);
+ *
+ * const transformer = createReplaceContentTransformer(processor);
  * ```
- * 
+ *
  * @example Async replacements with early discovery (WHATWG Streams only)
  * ```typescript
- * import { FunctionReplacementProcessor, searchStrategyFactory } from 'replace-content-transformer';
- * import { ReplaceContentTransformer } from 'replace-content-transformer/web';
- * 
- * const processor = new FunctionReplacementProcessor({
- *   searchStrategy: searchStrategyFactory('{{id}}'),
+ * import { createFunctionReplacementProcessor, createSearchStrategy } from 'replace-content-transformer';
+ * import { createReplaceContentTransformer } from 'replace-content-transformer/web';
+ *
+ * const processor = createFunctionReplacementProcessor({
+ *   searchStrategy: createSearchStrategy('{{id}}'),
  *   replacement: async (match, index) => {
  *     const data = await fetch(`/api/data/${index}`);
  *     return data.text();
  *   }
  * });
- * 
+ *
  * // All API calls start immediately as matches are found
- * const transformer = new ReplaceContentTransformer(processor);
+ * const transformer = createReplaceContentTransformer(processor);
  * ```
+ */
+export function createFunctionReplacementProcessor<
+  TState,
+  TMatch = string,
+  R extends string | Promise<string> = string
+>({
+  searchStrategy,
+  replacement
+}: FunctionReplacementProcessorOptions<TState, TMatch, R>): SyncProcessor<R> {
+  const { searchState, flush } = createProcessorBase(searchStrategy);
+  let matchIndex = 0;
+
+  return {
+    *processChunk(input: string): Generator<R | string, void, undefined> {
+      for (const { isMatch, content } of searchStrategy.processChunk(
+        input,
+        searchState
+      )) {
+        if (!isMatch) {
+          yield content;
+          continue;
+        }
+        yield replacement(content, matchIndex++);
+      }
+    },
+    flush
+  };
+}
+
+/**
+ * @deprecated Use {@link createFunctionReplacementProcessor} instead.
  */
 export class FunctionReplacementProcessor<
   TState,
   TMatch = string,
   R extends string | Promise<string> = string
 > extends ReplacementProcessorBase<TState, TMatch> {
-  private readonly replacementFn: (match: TMatch, index: number) => R;
-  private matchIndex: number = 0;
+  #processor: SyncProcessor<R>;
 
-  constructor({
-    searchStrategy,
-    replacement
-  }: FunctionReplacementProcessorOptions<TState, TMatch, R>) {
-    super({ searchStrategy });
-    this.replacementFn = replacement;
+  constructor(options: FunctionReplacementProcessorOptions<TState, TMatch, R>) {
+    super(options);
+    this.#processor = createFunctionReplacementProcessor(options);
   }
 
   *processChunk(input: string): Generator<R | string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
-      input,
-      this.searchState
-    )) {
-      if (!isMatch) {
-        yield content;
-        continue;
-      }
-      yield this.replacementFn(content, this.matchIndex++);
-    }
+    yield* this.#processor.processChunk(input);
+  }
+
+  flush(): string {
+    return this.#processor.flush();
   }
 }
