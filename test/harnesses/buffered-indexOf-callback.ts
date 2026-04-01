@@ -1,4 +1,4 @@
-import { ReplaceContentTransformerCallback } from "../../src/adapters/web/benchmarking/sync-transformer-callback.ts";
+import { createReplaceContentTransformerCallback } from "../../src/adapters/web/benchmarking/sync-transformer-callback.ts";
 import { BufferedIndexOfCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const BufferedIndexOfCallbackHarness = {
@@ -18,5 +18,5 @@ export const BufferedIndexOfCallbackHarness = {
     strategy
   }: {
     strategy: BufferedIndexOfCallbackSearchStrategy;
-  }) => new ReplaceContentTransformerCallback(strategy)
+  }) => createReplaceContentTransformerCallback(strategy)
 };

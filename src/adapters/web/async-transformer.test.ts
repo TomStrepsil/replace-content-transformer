@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { AsyncReplaceContentTransformer } from "./async-transformer.ts";
+import { describe, it, expect, vi } from "vitest";
+import {
+  createAsyncReplaceContentTransformer,
+  AsyncReplaceContentTransformer,
+} from "./async-transformer.ts";
 import {
   mockTransformStreamDefaultControllerFactory,
   mockAsyncProcessorFactory
@@ -68,5 +71,97 @@ describe("ReplaceContentTransformer (async)", () => {
 
     expect(outputs).toContain("<FLUSHED>");
     expect(mockProcessor.flush).toHaveBeenCalled();
+  });
+
+  it("cancel stops enqueuing mid-transformation at next yield boundary", async () => {
+    const transformer = new AsyncReplaceContentTransformer(
+      mockAsyncProcessorFactory("PART1", "PART2", "PART3")
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    // Monkey-patch enqueue to cancel after first output
+    controller.enqueue = vi.fn().mockImplementation((chunk: string) => {
+      outputs.push(chunk);
+      if (chunk === "PART1") {
+        transformer.cancel("test");
+      }
+    });
+
+    await transformer.transform("input", controller);
+
+    expect(outputs).toEqual(["PART1"]);
+  });
+
+  it("cancel before transform prevents processing", async () => {
+    const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
+    const transformer = new AsyncReplaceContentTransformer(mockProcessor);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    transformer.cancel("test");
+    await transformer.transform("input", controller);
+
+    expect(outputs).toEqual([]);
+    expect(mockProcessor.processChunk).toHaveBeenCalled();
+  });
+});
+
+describe("createAsyncReplaceContentTransformer", () => {
+  it("delegates to processor and enqueues output", async () => {
+    const mockProcessor = mockAsyncProcessorFactory("ABC", "abc!");
+    const transformer = createAsyncReplaceContentTransformer(mockProcessor);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    await transformer.transform!("abc", controller);
+
+    expect(outputs).toContain("ABC");
+    expect(outputs).toContain("abc!");
+    expect(mockProcessor.processChunk).toHaveBeenCalledWith("abc");
+  });
+
+  it("flush enqueues flushed content", () => {
+    const mockProcessor = mockAsyncProcessorFactory();
+    const transformer = createAsyncReplaceContentTransformer(mockProcessor);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    transformer.flush!(controller);
+
+    expect(outputs).toContain("<FLUSHED>");
+    expect(mockProcessor.flush).toHaveBeenCalled();
+  });
+
+  it("cancel stops enqueuing mid-transformation at next yield boundary", async () => {
+    const transformer = createAsyncReplaceContentTransformer(
+      mockAsyncProcessorFactory("PART1", "PART2", "PART3")
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    controller.enqueue = vi.fn().mockImplementation((chunk: string) => {
+      outputs.push(chunk);
+      if (chunk === "PART1") {
+        transformer.cancel!("test");
+      }
+    });
+
+    await transformer.transform!("input", controller);
+
+    expect(outputs).toEqual(["PART1"]);
+  });
+
+  it("cancel before transform prevents enqueuing", async () => {
+    const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
+    const transformer = createAsyncReplaceContentTransformer(mockProcessor);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    transformer.cancel!("test");
+    await transformer.transform!("input", controller);
+
+    expect(outputs).toEqual([]);
+    expect(mockProcessor.processChunk).toHaveBeenCalled();
   });
 });

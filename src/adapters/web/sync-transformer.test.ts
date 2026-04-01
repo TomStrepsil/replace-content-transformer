@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { ReplaceContentTransformer } from "./sync-transformer.ts";
+import {
+  createReplaceContentTransformer,
+  ReplaceContentTransformer,
+} from "./sync-transformer.ts";
 import {
   mockTransformStreamDefaultControllerFactory,
   mockSyncProcessorFactory
@@ -93,5 +96,41 @@ describe("ReplaceContentTransformer (sync)", () => {
     await expect(outputs[0]).resolves.toBe("ASYNC_RESULT_1");
     await expect(outputs[2]).resolves.toBe("ASYNC_RESULT_2");
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
+  });
+
+});
+
+describe("createReplaceContentTransformer", () => {
+  it("delegates to processor and enqueues output", () => {
+    const mockProcessor = mockSyncProcessorFactory("ABC", "abc!");
+    const transformer = createReplaceContentTransformer(mockProcessor);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    transformer.transform!("abc", controller);
+
+    expect(outputs).toContain("ABC");
+    expect(outputs).toContain("abc!");
+    expect(mockProcessor.processChunk).toHaveBeenCalledWith("abc");
+  });
+
+  it("flush enqueues flushed content", () => {
+    const mockProcessor = mockSyncProcessorFactory();
+    const transformer = createReplaceContentTransformer(mockProcessor);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    transformer.flush!(controller);
+
+    expect(outputs).toContain("<FLUSHED>");
+    expect(mockProcessor.flush).toHaveBeenCalled();
+  });
+
+  it("does not expose cancel", () => {
+    const transformer = createReplaceContentTransformer(
+      mockSyncProcessorFactory()
+    );
+
+    expect(transformer.cancel).toBeUndefined();
   });
 });
