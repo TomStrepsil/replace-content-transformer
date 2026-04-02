@@ -19,32 +19,6 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * back-pressure: the `transform()` method returns a promise that the stream infrastructure awaits
  * before delivering the next input chunk.
  *
- * When the stream is cancelled (readable side cancelled or writable side aborted), the returned
- * transformer's `cancel()` sets an internal flag so that an in-flight `transform()` stops
- * enqueuing at the next yield boundary.
- *
- * **External resource cancellation** — `cancel()` cannot reach into a pending replacement
- * function (e.g. an in-flight `fetch`). To cancel those, share an `AbortController` between
- * your replacement function and the code that tears down the stream:
- *
- * ```typescript
- * const ac = new AbortController();
- *
- * const transformer = createAsyncReplaceContentTransformer(
- *   new AsyncFunctionReplacementProcessor({
- *     searchStrategy,
- *     replacement: async (match) => {
- *       const res = await fetch(`/api/${match}`, { signal: ac.signal });
- *       return res.text();
- *     }
- *   })
- * );
- *
- * // To cancel everything:
- * ac.abort();                       // cancels in-flight fetches
- * await readable.cancel("done");    // tears down the stream → cancel() called
- * ```
- *
  * @example
  * ```typescript
  * // Sequential async replacement (e.g. KV store lookup per match)
