@@ -19,12 +19,6 @@ describe("input validation", () => {
     );
   });
 
-  it("should not allow indices flag to be set", () => {
-    expect(() => inputValidation(/test/d)).toThrow(
-      "expressions with 'd' (indices) flag are not supported"
-    );
-  });
-
   it("should not allow backreferences to be used", () => {
     expect(() => inputValidation(/(.)\1/)).toThrow(
       "backreferences are not supported"

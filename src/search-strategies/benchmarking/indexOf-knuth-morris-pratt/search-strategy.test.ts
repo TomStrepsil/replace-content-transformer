@@ -9,14 +9,14 @@ describe("IndexOfKnuthMorrisPratt", () => {
         name: "finds pattern when haystack equals pattern",
         pattern: "OLD",
         chunks: ["OLD"],
-        expected: [{ isMatch: true, content: "OLD" }]
+        expected: [{ isMatch: true, content: "OLD", streamIndices: [0, 3] }]
       },
       {
         name: "finds pattern at start of chunk",
         pattern: "OLD",
         chunks: ["OLDtext"],
         expected: [
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [0, 3] },
           { isMatch: false, content: "text" }
         ]
       },
@@ -26,7 +26,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["textOLD"],
         expected: [
           { isMatch: false, content: "text" },
-          { isMatch: true, content: "OLD" }
+          { isMatch: true, content: "OLD", streamIndices: [4, 7] }
         ]
       },
       {
@@ -35,7 +35,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Hello OLD world"],
         expected: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " world" }
         ]
       },
@@ -45,9 +45,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Replace OLD and OLD content"],
         expected: [
           { isMatch: false, content: "Replace " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [8, 11] },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [16, 19] },
           { isMatch: false, content: " content" }
         ]
       },
@@ -56,8 +56,8 @@ describe("IndexOfKnuthMorrisPratt", () => {
         pattern: "OLD",
         chunks: ["OLDOLD"],
         expected: [
-          { isMatch: true, content: "OLD" },
-          { isMatch: true, content: "OLD" }
+          { isMatch: true, content: "OLD", streamIndices: [0, 3] },
+          { isMatch: true, content: "OLD", streamIndices: [3, 6] }
         ]
       },
       {
@@ -66,7 +66,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["test X test"],
         expected: [
           { isMatch: false, content: "test " },
-          { isMatch: true, content: "X" },
+          { isMatch: true, content: "X", streamIndices: [5, 6] },
           { isMatch: false, content: " test" }
         ]
       },
@@ -76,7 +76,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Find THE COMPLEX PATTERN here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: "THE COMPLEX PATTERN" },
+          { isMatch: true, content: "THE COMPLEX PATTERN", streamIndices: [5, 24] },
           { isMatch: false, content: " here" }
         ]
       }
@@ -157,7 +157,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Hello O", "LD world"],
         expected: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " world" }
         ]
       },
@@ -167,7 +167,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Hello ", "OLD world"],
         expected: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " world" }
         ]
       },
@@ -177,7 +177,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Hello O", "LD world"],
         expected: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " world" }
         ]
       },
@@ -187,7 +187,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Hello OL", "D world"],
         expected: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " world" }
         ]
       },
@@ -197,7 +197,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Find PAT", "TER", "N here"],
         expected: [
           { isMatch: false, content: "Find " },
-          { isMatch: true, content: "PATTERN" },
+          { isMatch: true, content: "PATTERN", streamIndices: [5, 12] },
           { isMatch: false, content: " here" }
         ]
       },
@@ -207,7 +207,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["Hello ", "O", "L", "D", " world"],
         expected: [
           { isMatch: false, content: "Hello " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " world" }
         ]
       },
@@ -217,7 +217,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["text O", "LD more"],
         expected: [
           { isMatch: false, content: "text " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [5, 8] },
           { isMatch: false, content: " more" }
         ]
       },
@@ -227,7 +227,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["OL OL", "D"],
         expected: [
           { isMatch: false, content: "OL " },
-          { isMatch: true, content: "OLD" }
+          { isMatch: true, content: "OLD", streamIndices: [3, 6] }
         ]
       },
       {
@@ -236,7 +236,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["OLOL", "D"],
         expected: [
           { isMatch: false, content: "OL" },
-          { isMatch: true, content: "OLD" }
+          { isMatch: true, content: "OLD", streamIndices: [2, 5] }
         ]
       }
     ];
@@ -328,9 +328,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["First OLD", " and second OLD"],
         expected: [
           { isMatch: false, content: "First " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " and second " },
-          { isMatch: true, content: "OLD" }
+          { isMatch: true, content: "OLD", streamIndices: [21, 24] }
         ]
       },
       {
@@ -339,8 +339,8 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["First OLD", "OLD second"],
         expected: [
           { isMatch: false, content: "First " },
-          { isMatch: true, content: "OLD" },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
+          { isMatch: true, content: "OLD", streamIndices: [9, 12] },
           { isMatch: false, content: " second" }
         ]
       },
@@ -350,9 +350,9 @@ describe("IndexOfKnuthMorrisPratt", () => {
         chunks: ["First O", "LD and OLD"],
         expected: [
           { isMatch: false, content: "First " },
-          { isMatch: true, content: "OLD" },
+          { isMatch: true, content: "OLD", streamIndices: [6, 9] },
           { isMatch: false, content: " and " },
-          { isMatch: true, content: "OLD" }
+          { isMatch: true, content: "OLD", streamIndices: [14, 17] }
         ]
       }
     ];
@@ -391,7 +391,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
       expect(results).toEqual([
         { isMatch: false, content: "First " },
-        { isMatch: true, content: "OLD" }
+        { isMatch: true, content: "OLD", streamIndices: [6, 9] }
       ]);
       expect(flushed).toBe(" and second OLD");
     });

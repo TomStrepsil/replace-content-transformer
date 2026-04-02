@@ -11,7 +11,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{" },
+      { isMatch: true, content: "{{", streamIndices: [7, 9] },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -26,7 +26,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
+      { isMatch: true, content: "{{name}}", streamIndices: [7, 15] },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -44,7 +44,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
+      { isMatch: true, content: "{{name}}", streamIndices: [7, 15] },
       { isMatch: false, content: "" }
     ]);
   });
@@ -61,7 +61,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
+      { isMatch: true, content: "{{name}}", streamIndices: [7, 15] },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -109,7 +109,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     // Complete the match
     const results2 = [...strategy.processChunk("{name}}", state)];
-    expect(results2).toEqual([{ isMatch: true, content: "{{name}}" }]);
+    expect(results2).toEqual([{ isMatch: true, content: "{{name}}", streamIndices: [15, 23] }]);
   });
 
   it("should handle false starts", () => {
@@ -125,7 +125,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     expect(results).toEqual([
       { isMatch: false, content: "text " },
       { isMatch: false, content: "{x " },
-      { isMatch: true, content: "{{match}}" },
+      { isMatch: true, content: "{{match}}", streamIndices: [8, 17] },
       { isMatch: false, content: "" }
     ]);
   });
@@ -140,9 +140,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     ];
 
     expect(results).toEqual([
-      { isMatch: true, content: "{{first}}" },
-      { isMatch: true, content: "{{second}}" },
-      { isMatch: true, content: "{{third}}" },
+      { isMatch: true, content: "{{first}}", streamIndices: [0, 9] },
+      { isMatch: true, content: "{{second}}", streamIndices: [9, 19] },
+      { isMatch: true, content: "{{third}}", streamIndices: [19, 28] },
       { isMatch: false, content: "" }
     ]);
   });
@@ -163,7 +163,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
-      { isMatch: true, content: "<{{name}}>" },
+      { isMatch: true, content: "<{{name}}>", streamIndices: [7, 17] },
       { isMatch: false, content: " after" }
     ]);
     expect(flushed).toBe("");
@@ -388,6 +388,81 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       // Should buffer "{{{"
       expect(strategy.flush(state)).toBe("{{{");
+    });
+  });
+
+  describe("stream offset tracking", () => {
+    it("should track correct indices across chunk boundaries", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("prefix {", state)];
+      const results2 = [...strategy.processChunk("{content}}", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [7, 18]
+      });
+    });
+
+    it("should track indices across multiple chunks with no matches initially", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      const results1 = [...strategy.processChunk("chunk1 no matches ", state)];
+      const results2 = [...strategy.processChunk("chunk2 {{match}} end", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [25, 34]
+      });
+    });
+
+    it("should reset offset on createState", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+ 
+      const state1 = strategy.createState();
+      const [match1] = [...strategy.processChunk("{{m1}}", state1)];
+      expect(match1).toMatchObject({ streamIndices: [0, 6] });
+
+      const state2 = strategy.createState();
+      const [match2] = [...strategy.processChunk("{{m2}}", state2)];
+      expect(match2).toMatchObject({ streamIndices: [0, 6] });
+    });
+
+    it("should reset streamOffset on flush for state reuse", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      // Stream 1
+      const results1 = [...strategy.processChunk("text {{m1}}", state)];
+      strategy.flush(state);
+      const match1 = results1.find((r) => r.isMatch);
+      expect(match1).toMatchObject({ streamIndices: [5, 11] });
+
+      // Stream 2: reuse state after flush — indices should start from 0 again
+      const results2 = [...strategy.processChunk("text {{m2}}", state)];
+      strategy.flush(state);
+      const match2 = results2.find((r) => r.isMatch);
+      expect(match2).toMatchObject({ streamIndices: [5, 11] });
+    });
+
+    it("should handle indices correctly with buffered partial matches", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+
+      // First chunk ends with partial match
+      const results1 = [...strategy.processChunk("text {", state)];
+      // Second chunk completes and continues
+      const results2 = [...strategy.processChunk("{done}} after", state)];
+      const results = [...results1, ...results2];
+
+      const match = results.find((r) => r.isMatch);
+      expect(match).toMatchObject({
+        streamIndices: [5, 13]
+      });
     });
   });
 });

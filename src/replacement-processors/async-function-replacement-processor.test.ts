@@ -7,7 +7,7 @@ describe("AsyncFunctionReplacementProcessor", () => {
   it("calls async replacement function with matched content and index", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "MATCH" },
+      { isMatch: true, content: "MATCH", streamIndices: [6, 11] },
       { isMatch: false, content: " world" }
     );
 
@@ -23,15 +23,15 @@ describe("AsyncFunctionReplacementProcessor", () => {
       outputChunks.push(chunk);
     }
 
-    expect(asyncReplacementFn).toHaveBeenCalledWith("MATCH", 0);
+    expect(asyncReplacementFn).toHaveBeenCalledWith("MATCH", 0, [6, 11]);
     expect(outputChunks).toEqual(["Hello ", "ASYNC_RESULT", " world"]);
   });
 
   it("increments match index for subsequent async matches", async () => {
     const mockStrategy = mockSearchStrategyFactory(
-      { isMatch: true, content: "MATCH" },
+      { isMatch: true, content: "MATCH", streamIndices: [0, 5] },
       { isMatch: false, content: " and " },
-      { isMatch: true, content: "MATCH" }
+      { isMatch: true, content: "MATCH", streamIndices: [10, 15] }
     );
 
     const asyncReplacementFn = vi.fn().mockResolvedValue("ASYNC");
@@ -47,14 +47,14 @@ describe("AsyncFunctionReplacementProcessor", () => {
       outputChunks.push(chunk);
     }
 
-    expect(asyncReplacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0);
-    expect(asyncReplacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1);
+    expect(asyncReplacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, [0, 5]);
+    expect(asyncReplacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, [10, 15]);
   });
 
   it("handles string replacement with async processor", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", streamIndices: [6, 9] },
       { isMatch: false, content: " world" }
     );
 
@@ -80,7 +80,7 @@ describe("AsyncFunctionReplacementProcessor", () => {
         if (callCount === 1) {
           yield { isMatch: false, content: "text " };
         } else {
-          yield { isMatch: true, content: "OLD" };
+          yield { isMatch: true, content: "OLD", streamIndices: [5, 8] };
           yield { isMatch: false, content: " end" };
         }
       }),
@@ -114,9 +114,9 @@ describe("AsyncFunctionReplacementProcessor", () => {
     });
 
     const mockStrategy = mockSearchStrategyFactory(
-      { isMatch: true, content: "OLD" },
+      { isMatch: true, content: "OLD", streamIndices: [0, 3] },
       { isMatch: false, content: " and " },
-      { isMatch: true, content: "OLD" }
+      { isMatch: true, content: "OLD", streamIndices: [8, 11] }
     );
 
     const processor = new AsyncFunctionReplacementProcessor({

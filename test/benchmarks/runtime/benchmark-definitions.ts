@@ -5,9 +5,9 @@ import {
   AsyncIterableFunctionReplacementProcessor
 } from "../../../src/replacement-processors/index.ts";
 import {
-  StringAnchorSearchStrategy,
-  type StringAnchorSearchState as SearchState
+  StringAnchorSearchStrategy
 } from "../../../src/search-strategies/index.ts";
+import type { LoopedIndexOfAnchoredSearchState as SearchState } from "../../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
 
 /**
  * Core benchmark definitions - categorized object

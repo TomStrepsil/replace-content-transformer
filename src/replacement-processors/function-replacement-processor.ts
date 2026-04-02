@@ -19,10 +19,11 @@ export type FunctionReplacementProcessorOptions<
    * Function called for each match to generate the replacement content.
    * 
    * @param match - The matched content (type inferred from search strategy)
-   * @param index - Zero-based index of this match (increments with each match)
+   * @param matchIndex - Zero-based index of this match (increments with each match)
+   * @param streamIndices - [startIndex, endIndex] of the match in the stream (endIndex is exclusive)
    * @returns The replacement string, or a Promise<string> for async operations
    */
-  replacement: (match: TMatch, index: number) => R;
+  replacement: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => R;
 };
 
 /**
@@ -50,7 +51,7 @@ export type FunctionReplacementProcessorOptions<
  * 
  * const processor = new FunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory(/{{(\w+)}}/g),
- *   replacement: (match, index) => `Replacement #${index}: ${match[1]}`
+ *   replacement: (match, matchIndex) => `Replacement #${matchIndex}: ${match[1]}`
  * });
  * 
  * const transformer = new ReplaceContentTransformer(processor);
@@ -63,8 +64,8 @@ export type FunctionReplacementProcessorOptions<
  * 
  * const processor = new FunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{id}}'),
- *   replacement: async (match, index) => {
- *     const data = await fetch(`/api/data/${index}`);
+ *   replacement: async (match, matchIndex) => {
+ *     const data = await fetch(`/api/data/${matchIndex}`);
  *     return data.text();
  *   }
  * });
@@ -78,7 +79,7 @@ export class FunctionReplacementProcessor<
   TMatch = string,
   R extends string | Promise<string> = string
 > extends ReplacementProcessorBase<TState, TMatch> {
-  private readonly replacementFn: (match: TMatch, index: number) => R;
+  private readonly replacementFn: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => R;
   private matchIndex: number = 0;
 
   constructor({
@@ -90,15 +91,19 @@ export class FunctionReplacementProcessor<
   }
 
   *processChunk(input: string): Generator<R | string, void, undefined> {
-    for (const { isMatch, content } of this.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       input,
       this.searchState
     )) {
-      if (!isMatch) {
-        yield content;
+      if (!result.isMatch) {
+        yield result.content;
         continue;
       }
-      yield this.replacementFn(content, this.matchIndex++);
+      yield this.replacementFn(
+        result.content,
+        this.matchIndex++,
+        result.streamIndices
+      );
     }
   }
 }
