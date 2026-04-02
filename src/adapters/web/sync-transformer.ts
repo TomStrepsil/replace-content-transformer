@@ -4,19 +4,19 @@ import type { SyncProcessor } from "../../replacement-processors/types.ts";
  * Creates a synchronous transformer for the WHATWG Streams API that replaces content in streaming text.
  *
  * @typeParam T - The output type of the transformer. Use `string` (default) for synchronous replacements,
- *                or `Promise<string>` when using {@link createFunctionReplacementProcessor} with async replacement functions
+ *                or `Promise<string>` when using FunctionReplacementProcessor with async replacement functions
  *                to enable early discovery of matches while async operations are in flight.
  *
  * @example
  * ```typescript
  * // Default string output
  * const transformer = createReplaceContentTransformer(
- *   createStaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
+ *   new StaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
  * );
  *
  * // Promise<string> output for early discovery
  * const transformer = createReplaceContentTransformer<Promise<string>>(
- *   createFunctionReplacementProcessor<Promise<string>>({
+ *   new FunctionReplacementProcessor<Promise<string>>({
  *     searchStrategy,
  *     replacement: async (match) => await fetch(`/api/${match}`)
  *   })

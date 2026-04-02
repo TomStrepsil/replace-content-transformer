@@ -9,15 +9,15 @@ import type { AsyncProcessor } from "../../replacement-processors/types.js";
  * with `.pipe()` or `.pipeline()`.
  * 
  * Use this when you need to perform async operations (like API calls or database lookups)
- * during replacement. For synchronous replacements, use {@link ReplaceContentTransform} instead.
+ * during replacement. For synchronous replacements, use `ReplaceContentTransform` instead.
  * 
  * @example
  * ```typescript
  * import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
- * import { createAsyncFunctionReplacementProcessor } from "replace-content-transformer";
+ * import { AsyncFunctionReplacementProcessor } from "replace-content-transformer";
  * 
  * const transform = new AsyncReplaceContentTransform(
- *   createAsyncFunctionReplacementProcessor({
+ *   new AsyncFunctionReplacementProcessor({
  *     searchStrategy,
  *     replacement: async (match) => {
  *       const response = await fetch(`/api/${match}`);

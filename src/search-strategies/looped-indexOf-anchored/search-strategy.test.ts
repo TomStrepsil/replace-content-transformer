@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createLoopedIndexOfAnchoredSearchStrategy, LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.ts";
+import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.ts";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{"]);
     const state = strategy.createState();
 
     const results = [...strategy.processChunk("before {{ after", state)];
@@ -18,7 +18,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should match anchor sequence in single chunk", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [...strategy.processChunk("before {{name}} after", state)];
@@ -33,7 +33,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle match split across chunks (start token)", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [
@@ -50,7 +50,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle match split across chunks (end token)", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [
@@ -68,7 +68,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle no matches with smart buffering", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [
@@ -85,7 +85,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should avoid unnecessary buffering when no partial match", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     // Process first chunk - ends with 'a', not '{', so no buffering
@@ -99,7 +99,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should buffer when partial match detected", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     // Process chunk ending with partial match
@@ -113,7 +113,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle false starts", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [
@@ -131,7 +131,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle multiple consecutive matches", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [
@@ -148,7 +148,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle three-token anchor sequence", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy([
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy([
       "<",
       "{{",
       "}}",
@@ -170,7 +170,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   it("should handle incomplete match at end", () => {
-    const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
     const results = [
@@ -187,7 +187,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       result.content;
 
     it("flushes buffer when cancelling with no matches and no partial match", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       const outputs: string[] = [];
@@ -206,7 +206,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("flushes buffer when cancelling with detected partial match", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       const outputs: string[] = [];
@@ -225,7 +225,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("flushes buffer when cancelling mid-match (after finding first needle)", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       let generator = strategy.processChunk("Text {{ something", state);
@@ -247,7 +247,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("flushes buffer when cancelling after complete match before processing remaining content", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       let generator = strategy.processChunk("Text {{ match }} and more", state);
@@ -261,7 +261,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("flushes buffer when cancelling after first match with more matches remaining", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       let generator = strategy.processChunk(
@@ -276,7 +276,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("flushes buffer when cancelling with partial match after complete match", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       let generator = strategy.processChunk("{{ match }} ends {", state);
@@ -289,7 +289,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("handles cancellation with three-needle sequence mid-match continuing into next chunk", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy([
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy([
         "{{",
         "}}",
         "!"
@@ -312,7 +312,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("handles cancellation when generator completes naturally", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       // Let generator complete naturally
@@ -330,7 +330,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("handles cancellation when partial match is multiple characters", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy([
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy([
         "START",
         "END"
       ]);
@@ -346,7 +346,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("handles cancellation before second yield when mid-match", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       // Simulate mid-match continuation from previous chunk
@@ -365,7 +365,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("handles cancellation with no partial match after complete match", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
       let generator = strategy.processChunk("{{ complete }} xyz", state);
@@ -378,7 +378,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
 
     it("handles cancellation during partial match check with long partial", () => {
-      const strategy = createLoopedIndexOfAnchoredSearchStrategy(["{{{{", "}}"]);
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{{{", "}}"]);
       const state = strategy.createState();
 
       // Chunk ends with "{{{" - matches 3-char prefix of "{{{{"
@@ -389,16 +389,5 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       // Should buffer "{{{"
       expect(strategy.flush(state)).toBe("{{{");
     });
-  });
-
-  it("should support deprecated constructor syntax", () => {
-    const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-    const state = strategy.createState();
-    const results = [...strategy.processChunk("before {{name}} after", state)];
-    expect(results).toEqual([
-      { isMatch: false, content: "before " },
-      { isMatch: true, content: "{{name}}" },
-      { isMatch: false, content: " after" },
-    ]);
   });
 });

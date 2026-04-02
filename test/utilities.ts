@@ -2,7 +2,7 @@ import type { MatchResult, SearchStrategy } from "../src/search-strategies/types
 import { vi, type Mocked } from "vitest";
 export { server } from "./vitest.setup";
 
-function createMockSearchStrategy<TMatch = string>(...results: MatchResult<TMatch>[]): Mocked<SearchStrategy<object, TMatch>> {
+function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMatch>[]): Mocked<SearchStrategy<object, TMatch>> {
   return {
     createState: vi.fn().mockReturnValue({}),
     processChunk: vi.fn().mockImplementation(function* () {
@@ -14,7 +14,7 @@ function createMockSearchStrategy<TMatch = string>(...results: MatchResult<TMatc
   };
 }
 
-function createMockTransformStreamDefaultController<T = string>(
+function mockTransformStreamDefaultControllerFactory<T = string>(
   outputs: T[]
 ): Mocked<TransformStreamDefaultController<T>> {
   return {
@@ -27,7 +27,7 @@ function createMockTransformStreamDefaultController<T = string>(
   };
 }
 
-function createMockSyncProcessor<T extends string | Promise<string> = string>(...output: (T | (() => T))[]) {
+function mockSyncProcessorFactory<T extends string | Promise<string> = string>(...output: (T | (() => T))[]) {
   return {
     processChunk: vi.fn().mockImplementation(function* () {
       for (const chunk of output) {
@@ -42,7 +42,7 @@ function createMockSyncProcessor<T extends string | Promise<string> = string>(..
   };
 }
 
-function createMockAsyncProcessor(...output: (string | (() => string))[]) {
+function mockAsyncProcessorFactory(...output: (string | (() => string))[]) {
   return {
     processChunk: vi.fn().mockImplementation(async function* () {
       for (const chunk of output) {
@@ -58,8 +58,8 @@ function createMockAsyncProcessor(...output: (string | (() => string))[]) {
 }
 
 export {
-  createMockAsyncProcessor,
-  createMockSearchStrategy,
-  createMockSyncProcessor,
-  createMockTransformStreamDefaultController
+  mockAsyncProcessorFactory,
+  mockSearchStrategyFactory,
+  mockSyncProcessorFactory,
+  mockTransformStreamDefaultControllerFactory
 };

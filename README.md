@@ -102,15 +102,15 @@ const replacedStream = readableStream
 
 ```typescript
 import {
-  createStaticReplacementProcessor,
-  createSearchStrategy
+  StaticReplacementProcessor,
+  searchStrategyFactory
 } from "replace-content-transformer";
 import { createReplaceContentTransformer } from "replace-content-transformer/web";
 
 // {{needle}} replaced by "12345"
 const transformer = createReplaceContentTransformer(
-  createStaticReplacementProcessor({
-    searchStrategy: createSearchStrategy("{{needle}}"),
+  new StaticReplacementProcessor({
+    searchStrategy: searchStrategyFactory("{{needle}}"),
     replacement: "12345"
   })
 );
@@ -121,8 +121,8 @@ const transformer = createReplaceContentTransformer(
 ```typescript
 // {{anything between braces}} replaced by "54321"
 const transformer = createReplaceContentTransformer(
-  createStaticReplacementProcessor({
-    searchStrategy: createSearchStrategy(["{{" , "}}"] ),
+  new StaticReplacementProcessor({
+    searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: "54321"
   })
 );
@@ -133,12 +133,12 @@ const transformer = createReplaceContentTransformer(
 Use a function for dynamic replacement, perhaps based on the original content:
 
 ```typescript
-import { createFunctionReplacementProcessor } from "replace-content-transformer";
+import { FunctionReplacementProcessor } from "replace-content-transformer";
 
 // "{{this}} and {{that}}" becomes "this was match 0 and that was match 1"
 const transformer = createReplaceContentTransformer(
-  createFunctionReplacementProcessor({
-    searchStrategy: createSearchStrategy(["{{" , "}}"] ),
+  new FunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: (match: string, index: number) =>
       `${match.slice(2, -2)} was match ${index}`
   })
@@ -155,8 +155,8 @@ const transformer = createReplaceContentTransformer(
 // `class="old-button something else"` becomes `class="new-button something else"`
 // `class="cold-button"` remains `class="cold-button"`
 const transformer = createReplaceContentTransformer(
-  createFunctionReplacementProcessor({
-    searchStrategy: createSearchStrategy(
+  new FunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory(
       /class="(?<before>[^"]*?\b)old-button(?<after>\b[^"]*?)"/
     ),
     replacement: (match: RegExpExecArray) => {
@@ -172,15 +172,15 @@ const transformer = createReplaceContentTransformer(
 Replace with asynchronous content. Ensures each async replacement completes before the next starts.
 
 ```typescript
-import { createAsyncFunctionReplacementProcessor } from "replace-content-transformer";
+import { AsyncFunctionReplacementProcessor } from "replace-content-transformer";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // `<img src="file://image.png">` becomes "<img src="data:image/png;base64,...>"
 const transformer = createAsyncReplaceContentTransformer(
-  createAsyncFunctionReplacementProcessor({
-    searchStrategy: createSearchStrategy(["<img", 'src="file://', '.png">']),
+  new AsyncFunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
     replacement: async (imgTag: string) =>
       `<img src="data:image/png;base64,${(
         await fs.readFile(
@@ -194,7 +194,7 @@ const transformer = createAsyncReplaceContentTransformer(
 );
 ```
 
-Can alternatively use the non-async `createFunctionReplacementProcessor` to process `Promise` responses.
+Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses.
 
 > [!WARNING]
 > The WHATWG Streams API allows enqueueing any JavaScript value. Downstream consumers receive `Promise` objects and must explicitly `await` them.
@@ -204,8 +204,8 @@ Can alternatively use the non-async `createFunctionReplacementProcessor` to proc
 ```typescript
 // `<link href="https://example.com/css" rel="stylesheet" />` becomes `<style>{content of sheet}</style>`
 const transformer = createReplaceContentTransformer<Promise<string>>(
-  createFunctionReplacementProcessor({
-    searchStrategy: createSearchStrategy([
+  new FunctionReplacementProcessor<Promise<string>>({
+    searchStrategy: searchStrategyFactory([
       "<link",
       'href="',
       '.css"',
@@ -248,12 +248,12 @@ const replacement = async (match: string): Promise<string> => {
 Interpolate a sequence into the stream:
 
 ```typescript
-import { createIterableFunctionReplacementProcessor } from "replace-content-transformer";
+import { IterableFunctionReplacementProcessor } from "replace-content-transformer";
 
 // "1 2 3 4 5" becomes "1 2 3.1 3.2 3.3 4 5"
 const transformer = createReplaceContentTransformer(
-  createIterableFunctionReplacementProcessor({
-    searchStrategy: createSearchStrategy("3 "),
+  new IterableFunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory("3 "),
     replacement: () => [...Array(3)].map((_, i) => `3.${i + 1} `)
   })
 );
@@ -264,12 +264,12 @@ const transformer = createReplaceContentTransformer(
 Interpolate [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream)s, or other async iterables, into the output. Ensures each async operation completes before the next starts:
 
 ```typescript
-import { createAsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
+import { AsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
 
 // `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
 const transformer = createAsyncReplaceContentTransformer(
-  createAsyncIterableFunctionReplacementProcessor({
-    searchStrategy: createSearchStrategy(["<esi:include", "/>"],),
+  new AsyncIterableFunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     replacement: async (match: string) => {
       const {
         groups: { url }
@@ -286,11 +286,11 @@ const transformer = createAsyncReplaceContentTransformer(
 Recursive replacement, with controlled depth:
 
 ```typescript
-const searchStrategy = createSearchStrategy(["<esi:include", "/>"]);
+const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformerFactory(currentDepth: number) {
   return createAsyncReplaceContentTransformer(
-    createAsyncIterableFunctionReplacementProcessor({
+    new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
       replacement: async (match: string) => {
         const {
@@ -318,8 +318,8 @@ To abort replacement after a certain number of replacements (or, for any other r
 ```ts
 const abortController = new AbortController();
 const transformer = createAsyncReplaceContentTransformer(
-  createAsyncIterableFunctionReplacementProcessor({
-    searchStrategy: createStringAnchorSearchStrategy(["<esi:include", ">"]),
+  new AsyncIterableFunctionReplacementProcessor({
+    searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match, index) => {
       const {
         groups: { url }
@@ -344,8 +344,8 @@ For `fetch` uses cases, with cancellation external to the replacement function, 
 ```ts
 const abortController = new AbortController();
 const transformer = createAsyncReplaceContentTransformer(
-  createAsyncIterableFunctionReplacementProcessor({
-    searchStrategy: createStringAnchorSearchStrategy(["<esi:include", ">"]),
+  new AsyncIterableFunctionReplacementProcessor({
+    searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match) => {
       const {
         groups: { url }
@@ -357,7 +357,7 @@ const transformer = createAsyncReplaceContentTransformer(
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          // needs to be an async iterable to satisfy createAsyncIterableFunctionReplacementProcessor. (Awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
+          // needs to be an async iterable to satisfy the AsyncIterableFunctionReplacementProcessor. (Awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
           return (async function* () {
             yield "<!-- cancelled -->";
           })();
@@ -384,11 +384,11 @@ import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
 import type { Readable } from "node:stream";
 import { get } from "node:https";
 
-const searchStrategy = createSearchStrategy(["<esi:include", "/>"]);
+const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformFactory(currentDepth: number) {
   return new AsyncReplaceContentTransform(
-    createAsyncIterableFunctionReplacementProcessor({
+    new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
       replacement: async (match: string) => {
         const {
@@ -442,14 +442,14 @@ interface SearchStrategy<TState, TMatch = string> {
 
 The `TState` type is specific to the strategy, managed by the consuming processor / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
 
-The `TMatch` type (defaulting to `string`) allows strategies like `createRegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
+The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
 
 The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
 
 Each strategy contains the pattern-matching logic for a specific use case:
 
-- **[`createStringAnchorSearchStrategy`](./src/search-strategies/looped-indexOf-anchored/README.md)** - finds either single tokens, or "anchor" tokens delimiting start/end (or in sequence in-between) of a match
-- **[`createRegexSearchStrategy`](./src/search-strategies/regex/README.md)** - Matches against regular expressions (with some caveats)
+- **[`StringAnchorSearchStrategy`](./src/search-strategies/looped-indexOf-anchored/README.md)** - finds either single tokens, or "anchor" tokens delimiting start/end (or in sequence in-between) of a match
+- **[`RegexSearchStrategy`](./src/search-strategies/regex/README.md)** - Matches against regular expressions (with some caveats)
 
 See [search strategies](./src/search-strategies/README.md) for detail of functionality, and development of the strategies.
 
@@ -458,29 +458,29 @@ See [search strategies](./src/search-strategies/README.md) for detail of functio
 If tree-shaking is not a concern, a factory method for generating a search strategy based on appropriate input is available:
 
 ```ts
-import { createSearchStrategy } from "replace-content-transformer";
+import { searchStrategyFactory } from "replace-content-transformer";
 const searchStrategy =
-  createSearchStrategy(input: string | string[] | RegExp);
+  searchStrategyFactory(input: string | string[] | RegExp);
 ```
 
 However, if choice of string vs regular expression requirement is known at design time, a smaller bundle will be afforded by importing a strategy directly:
 
 ```ts
-import { createStringAnchorSearchStrategy } from "replace-content-transformer";
-const searchStrategy = createStringAnchorSearchStrategy(["<!--replace me -->"]); // single token
+import { StringAnchorSearchStrategy } from "replace-content-transformer";
+const searchStrategy = new StringAnchorSearchStrategy(["<!--replace me -->"]); // single token
 ```
 
 ...or:
 
 ```ts
-const searchStrategy = createStringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anchor" delimiters/tokens
+const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anchor" delimiters/tokens
 ```
 
 ...or:
 
 ```ts
-import { createRegexSearchStrategy } from "replace-content-transformer";
-const searchStrategy = createRegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
+import { RegexSearchStrategy } from "replace-content-transformer";
+const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
 ```
 
 ### 🦾 Replacement Processors
@@ -511,11 +511,11 @@ flush(): string {
 
 There are 5 stream processors to select from, rather than the system figuring out the optimum based on supplied options. See [Replacement Processors](./src/replacement-processors/README.md) for detailed usage guidance.
 
-- **`createStaticReplacementProcessor`** - Yields static strings
-- **`createFunctionReplacementProcessor`** - Yields function results, passing the match and a match index / sequence number
-- **`createIterableFunctionReplacementProcessor`** - Allows a function to return an iterable, flattened with [`yield*`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*)
-- **`createAsyncFunctionReplacementProcessor`** - Allows an async function, as an async generators with [`for await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of)
-- **`createAsyncIterableFunctionReplacementProcessor`** - Flattens async iterables with `yield* await` (assumption that async iterator is itself accessed via a Promise)
+- **`StaticReplacementProcessor`** - Yields static strings
+- **`FunctionReplacementProcessor`** - Yields function results, passing the match and a match index / sequence number
+- **`IterableFunctionReplacementProcessor`** - Allows a function to return an iterable, flattened with [`yield*`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*)
+- **`AsyncFunctionReplacementProcessor`** - Allows an async function, as an async generators with [`for await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of)
+- **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterables with `yield* await` (assumption that async iterator is itself accessed via a Promise)
 
 There is no reliable way in javascript to detect the output type of a function without calling it, and trying to adapt just-in-time based on the first replacement made would be complex. The type of function can be thought to have a ["colour"](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/#what-color-is-your-function) that requires up-front selection.
 

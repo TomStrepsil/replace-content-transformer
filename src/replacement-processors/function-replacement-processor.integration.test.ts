@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
-  createStringAnchorSearchStrategy,
-  createRegexSearchStrategy
+  StringAnchorSearchStrategy,
+  RegexSearchStrategy
 } from "../search-strategies/index.ts";
-import { createFunctionReplacementProcessor } from "./function-replacement-processor.ts";
+import { FunctionReplacementProcessor } from "./function-replacement-processor.ts";
 
 describe("FunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
   it("simple match", () => {
-    const strategy = createStringAnchorSearchStrategy(["{{"]);
-    const processor = createFunctionReplacementProcessor({
+    const strategy = new StringAnchorSearchStrategy(["{{"]);
+    const processor = new FunctionReplacementProcessor({
       searchStrategy: strategy,
       replacement: () => "REPLACED"
     });
@@ -22,8 +22,8 @@ describe("FunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
   });
 
   it("cross-chunk match", () => {
-    const strategy = createStringAnchorSearchStrategy(["{{"]);
-    const processor = createFunctionReplacementProcessor({
+    const strategy = new StringAnchorSearchStrategy(["{{"]);
+    const processor = new FunctionReplacementProcessor({
       searchStrategy: strategy,
       replacement: () => "REPLACED"
     });
@@ -38,8 +38,8 @@ describe("FunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
   });
 
   it("invalid partial match", () => {
-    const strategy = createStringAnchorSearchStrategy(["{{"]);
-    const processor = createFunctionReplacementProcessor({
+    const strategy = new StringAnchorSearchStrategy(["{{"]);
+    const processor = new FunctionReplacementProcessor({
       searchStrategy: strategy,
       replacement: () => "REPLACED"
     });
@@ -56,8 +56,8 @@ describe("FunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
 
 describe("FunctionReplacementProcessor + RegexSearchStrategy", () => {
   it("provides full match via index [0]", () => {
-    const processor = createFunctionReplacementProcessor({
-      searchStrategy: createRegexSearchStrategy(/\{\{(\w+)\}\}/),
+    const processor = new FunctionReplacementProcessor({
+      searchStrategy: new RegexSearchStrategy(/\{\{(\w+)\}\}/),
       replacement: (match) => {
         return `[FULL:${match[0]}]`;
       }
@@ -72,8 +72,8 @@ describe("FunctionReplacementProcessor + RegexSearchStrategy", () => {
   });
 
   it("provides numbered capture groups via indices [1], [2], etc.", () => {
-    const processor = createFunctionReplacementProcessor({
-      searchStrategy: createRegexSearchStrategy(/\{\{(\w+):(\w+)\}\}/),
+    const processor = new FunctionReplacementProcessor({
+      searchStrategy: new RegexSearchStrategy(/\{\{(\w+):(\w+)\}\}/),
       replacement: (match) => {
         return `[GROUP1:${match[1]}|GROUP2:${match[2]}]`;
       }
@@ -90,8 +90,8 @@ describe("FunctionReplacementProcessor + RegexSearchStrategy", () => {
   });
 
   it("provides named capture groups via .groups property", () => {
-    const processor = createFunctionReplacementProcessor({
-      searchStrategy: createRegexSearchStrategy(
+    const processor = new FunctionReplacementProcessor({
+      searchStrategy: new RegexSearchStrategy(
         /\{\{(?<key>\w+):(?<val>\w+)\}\}/
       ),
       replacement: (match) => {
@@ -110,8 +110,8 @@ describe("FunctionReplacementProcessor + RegexSearchStrategy", () => {
   it("handles multiple matches with different capture group values", () => {
     const matchedGroups: Array<{ full: string; group1: string }> = [];
 
-    const processor = createFunctionReplacementProcessor({
-      searchStrategy: createRegexSearchStrategy(/\[(\w+)\]/),
+    const processor = new FunctionReplacementProcessor({
+      searchStrategy: new RegexSearchStrategy(/\[(\w+)\]/),
       replacement: (match) => {
         matchedGroups.push({ full: match[0], group1: match[1] });
         return `<${match[1]}>`;

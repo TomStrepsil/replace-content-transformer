@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { createIterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.ts";
-import { createStringAnchorSearchStrategy } from "../search-strategies/index.ts";
+import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.ts";
+import { StringAnchorSearchStrategy } from "../search-strategies/index.ts";
 
 describe("IterableFunctionReplacementProcessor + BufferedIndexOfCancellableSearchStrategy", () => {
   it("should support recursive replacement", async () => {
-    const searchStrategy = createStringAnchorSearchStrategy(["tock"]);
+    const searchStrategy = new StringAnchorSearchStrategy(["tock"]);
 
     function* replace(
       depth: number,
@@ -14,7 +14,7 @@ describe("IterableFunctionReplacementProcessor + BufferedIndexOfCancellableSearc
         return yield match;
       }
 
-      const processor = createIterableFunctionReplacementProcessor({
+      const processor = new IterableFunctionReplacementProcessor({
         searchStrategy: searchStrategy,
         replacement: replace.bind(null, depth + 1)
       });
@@ -22,7 +22,7 @@ describe("IterableFunctionReplacementProcessor + BufferedIndexOfCancellableSearc
       yield* processor.processChunk("tock follows tick follows tock");
     }
 
-    const processor = createIterableFunctionReplacementProcessor({
+    const processor = new IterableFunctionReplacementProcessor({
       searchStrategy: searchStrategy,
       replacement: replace.bind(null, 0)
     });

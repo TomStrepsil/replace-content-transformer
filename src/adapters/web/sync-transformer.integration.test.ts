@@ -1,15 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
-import { createReplaceContentTransformer } from "./sync-transformer.ts";
-import { createFunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor.ts";
-import { createStringAnchorSearchStrategy } from "../../search-strategies/index.ts";
+import { ReplaceContentTransformer } from "./sync-transformer.ts";
+import { FunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor.ts";
+import { StringAnchorSearchStrategy } from "../../search-strategies/index.ts";
 
 describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-returning FunctionReplacementProcessor", () => {
   it("should handle promises returned by replacement function", async () => {
     vi.useFakeTimers();
 
-    const searchStrategy = createStringAnchorSearchStrategy(["{{", "}}"]);
+    const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]);
 
-    const processor = createFunctionReplacementProcessor({
+    const processor = new FunctionReplacementProcessor({
       searchStrategy,
       replacement: async (match: string, index: number): Promise<string> => {
         await vi.waitFor(() => Promise.resolve(), { timeout: 10 });
@@ -17,7 +17,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
       }
     });
 
-    const transformer = createReplaceContentTransformer(
+    const transformer = new ReplaceContentTransformer(
       processor
     );
 
@@ -58,7 +58,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
 
   it("should verify that promises are actually yielded (not awaited by transformer)", async () => {
     vi.useFakeTimers();
-    const searchStrategy = createStringAnchorSearchStrategy(["{{", "}}"]);
+    const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]);
 
     let resolveFirst: (value: string) => void;
     let resolveSecond: (value: string) => void;
@@ -71,7 +71,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
     });
 
     let callCount = 0;
-    const processor = createFunctionReplacementProcessor({
+    const processor = new FunctionReplacementProcessor({
       searchStrategy,
       replacement: (): Promise<string> => {
         callCount++;
@@ -79,7 +79,7 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
       }
     });
 
-    const transformer = createReplaceContentTransformer(
+    const transformer = new ReplaceContentTransformer(
       processor
     );
 

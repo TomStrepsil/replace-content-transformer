@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as harnesses from "../../harnesses/index.ts";
 import type { BaseHarness } from "../../harnesses/types.ts";
-import { createMockTransformStreamDefaultController } from "../../utilities.ts";
+import { mockTransformStreamDefaultControllerFactory } from "../../utilities.ts";
 
 for (const harness of Object.values(harnesses) as BaseHarness[]) {
   const { name, createSearchStrategy, createTransformer, isAsync } = harness;
@@ -140,7 +140,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
       )}") -> ("${expected}")`, async () => {
         const outputs: string[] = [];
         const transformer = setupTransformer(tokens, replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
@@ -165,7 +165,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
 
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -189,7 +189,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -213,7 +213,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -240,7 +240,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -267,7 +267,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -290,7 +290,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -314,7 +314,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -339,7 +339,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -373,7 +373,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -399,7 +399,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -424,7 +424,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -448,7 +448,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -476,7 +476,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -499,7 +499,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -528,7 +528,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -555,7 +555,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{", "}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -582,7 +582,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
           ["<|START|>", "<|END|>"],
           replacement
         );
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -605,7 +605,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{{{{", "}}}}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -633,7 +633,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         const outputs: string[] = [];
         const transformer = setupTransformer(["{{{{{", "}}}}}"], replacement);
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -662,7 +662,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
           ["aaaaaaaaaa{", "}aaaaaaaaaa"],
           replacement
         );
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
@@ -688,7 +688,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
           ["aaaaaaaaaa{", "}aaaaaaaaaa"],
           replacement
         );
-        const controller = createMockTransformStreamDefaultController(outputs);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);

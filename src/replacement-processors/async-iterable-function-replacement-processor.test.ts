@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { createMockSearchStrategy } from "../../test/utilities.ts";
-import { createAsyncIterableFunctionReplacementProcessor, AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor.ts";
+import { mockSearchStrategyFactory } from "../../test/utilities.ts";
+import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor.ts";
 
 describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("yields stream content chunk-by-chunk without buffering", async () => {
-    const mockStrategy = createMockSearchStrategy(
+    const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " world" }
@@ -20,7 +20,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
       }
     });
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: async () => readableStream
     });
@@ -40,7 +40,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   });
 
   it("handles multiple matches with different stream replacements", async () => {
-    const mockStrategy = createMockSearchStrategy(
+    const mockStrategy = mockSearchStrategyFactory(
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " and " },
       { isMatch: true, content: "OLD" }
@@ -62,7 +62,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
       });
     };
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: streamFactory
     });
@@ -76,7 +76,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   });
 
   it("handles empty stream replacement", async () => {
-    const mockStrategy = createMockSearchStrategy(
+    const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " world" }
@@ -88,7 +88,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
       }
     });
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: async () => emptyStream
     });
@@ -102,7 +102,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   });
 
   it("handles stream replacement with match context and index", async () => {
-    const mockStrategy = createMockSearchStrategy({ isMatch: true, content: "MATCH" });
+    const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH" });
 
     const streamFactory = async (matchedContent: string, index: number) => {
       return new ReadableStream({
@@ -113,7 +113,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
       });
     };
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: streamFactory
     });
@@ -155,7 +155,7 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
       }
     });
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: async () => readableStream
     });
@@ -176,13 +176,13 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
 
 describe("flush", () => {
   it("returns buffered content when called", async () => {
-    const mockStrategy = createMockSearchStrategy({
+    const mockStrategy = mockSearchStrategyFactory({
       isMatch: false,
       content: "text "
     });
     mockStrategy.flush.mockReturnValue("OL");
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: async () => new ReadableStream()
     });
@@ -197,9 +197,9 @@ describe("flush", () => {
   });
 
   it("returns empty string when no buffered content", async () => {
-    const mockStrategy = createMockSearchStrategy();
+    const mockStrategy = mockSearchStrategyFactory();
 
-    const processor = createAsyncIterableFunctionReplacementProcessor({
+    const processor = new AsyncIterableFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: async () => new ReadableStream()
     });
@@ -209,25 +209,5 @@ describe("flush", () => {
     }
     const flushed = processor.flush();
     expect(flushed).toBe("");
-  });
-
-  it("should support deprecated constructor syntax", async () => {
-    const mockStrategy = createMockSearchStrategy(
-      { isMatch: true, content: "OLD" }
-    );
-    const processor = new AsyncIterableFunctionReplacementProcessor({
-      searchStrategy: mockStrategy,
-      replacement: async () => new ReadableStream({
-        start(controller) {
-          controller.enqueue("NEW");
-          controller.close();
-        }
-      })
-    });
-    const outputChunks: string[] = [];
-    for await (const chunk of processor.processChunk("OLD")) {
-      outputChunks.push(chunk);
-    }
-    expect(outputChunks).toEqual(["NEW"]);
   });
 });

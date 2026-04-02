@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createRegexSearchStrategy, RegexSearchStrategy } from "./search-strategy.ts";
+import { RegexSearchStrategy } from "./search-strategy.ts";
 import type { MatchResult } from "../types.ts";
 import validateInput from "./input-validation.ts";
 
@@ -13,7 +13,7 @@ function getValue(result: MatchResult<RegExpExecArray>): string {
 describe("RegexSearchStrategy", () => {
   it("should validate input regex", () => {
     const someRegex = /test-regex/;
-    createRegexSearchStrategy(someRegex);
+    new RegexSearchStrategy(someRegex);
     expect(validateInput).toHaveBeenCalledWith(someRegex);
   });
 
@@ -435,7 +435,7 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = createRegexSearchStrategy(pattern);
+        const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
         const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
@@ -482,7 +482,7 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = createRegexSearchStrategy(pattern);
+        const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
         const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
@@ -946,7 +946,7 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = createRegexSearchStrategy(pattern);
+        const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
         const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
@@ -1005,7 +1005,7 @@ describe("RegexSearchStrategy", () => {
     testCases.forEach(
       ({ name, pattern, chunks, expectedYields, expectedFlush }) => {
         test(name, () => {
-          const strategy = createRegexSearchStrategy(pattern);
+          const strategy = new RegexSearchStrategy(pattern);
           const state = strategy.createState();
           const results: MatchResult<RegExpExecArray>[] = [];
           for (const chunk of chunks) {
@@ -1061,7 +1061,7 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = createRegexSearchStrategy(pattern);
+        const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
         const results: MatchResult<RegExpExecArray>[] = [];
         for (const chunk of chunks) {
@@ -1077,7 +1077,7 @@ describe("RegexSearchStrategy", () => {
 
   describe("cancellation scenarios", () => {
     it("has no remainder when cancelling with no matches", () => {
-      const strategy = createRegexSearchStrategy(/{{.+?}}/s);
+      const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
       const outputs: string[] = [];
@@ -1090,7 +1090,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("has no remainder when cancelling with only buffered partial match (mid first anchor)", () => {
-      const strategy = createRegexSearchStrategy(/{{.+?}}/s);
+      const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
       const outputs: string[] = [];
@@ -1104,7 +1104,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("has appropriate flush when cancelling after a match, with matches remaining", () => {
-      const strategy = createRegexSearchStrategy(/{{.+?}}/s);
+      const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
       const outputs: MatchResult<RegExpExecArray>[] = [];
@@ -1122,16 +1122,5 @@ describe("RegexSearchStrategy", () => {
       ]);
       expect(strategy.flush(state)).toBe(" and {{ something more }}");
     });
-  });
-
-  it("should support deprecated constructor syntax", () => {
-    const strategy = new RegexSearchStrategy(/OLD/);
-    const state = strategy.createState();
-    const results = [...strategy.processChunk("Hello OLD world", state)];
-    expect(results).toEqual([
-      { isMatch: false, content: "Hello " },
-      { isMatch: true, content: expect.arrayContaining(["OLD"]) },
-      { isMatch: false, content: " world" },
-    ]);
   });
 });

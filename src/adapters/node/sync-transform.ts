@@ -10,10 +10,10 @@ import type { SyncProcessor } from "../../replacement-processors/types.js";
  * @example
  * ```typescript
  * import { ReplaceContentTransform } from "replace-content-transformer/node";
- * import { createStaticReplacementProcessor } from "replace-content-transformer";
+ * import { StaticReplacementProcessor } from "replace-content-transformer";
  * 
  * const transform = new ReplaceContentTransform(
- *   createStaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
+ *   new StaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
  * );
  * 
  * readableStream.pipe(transform).pipe(writableStream);

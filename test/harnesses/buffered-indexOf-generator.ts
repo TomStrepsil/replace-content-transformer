@@ -1,4 +1,4 @@
-import { createReplaceContentTransformer } from "../../src/adapters/web/index.ts";
+import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
 import { BufferedIndexOfCanonicalAsGeneratorSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const BufferedIndexOfGeneratorHarness = {
@@ -21,5 +21,5 @@ export const BufferedIndexOfGeneratorHarness = {
     strategy
   }: {
     strategy: BufferedIndexOfCanonicalAsGeneratorSearchStrategy;
-  }) => createReplaceContentTransformer(strategy)
+  }) => new ReplaceContentTransformer(strategy)
 };

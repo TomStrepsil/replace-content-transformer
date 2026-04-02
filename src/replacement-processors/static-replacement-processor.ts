@@ -1,12 +1,11 @@
 import {
   ReplacementProcessorBase,
-  createProcessorBase,
   type ReplacementProcessorOptions
 } from "./replacement-processor.base.ts";
 import { type SyncProcessor } from "./types.ts";
 
 /**
- * Configuration options for {@link createStaticReplacementProcessor}.
+ * Configuration options for {@link StaticReplacementProcessor}.
  * 
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
@@ -20,7 +19,7 @@ export type StaticReplacementProcessorOptions<
 };
 
 /**
- * Creates a replacement processor that replaces all matches with a static string value.
+ * A replacement processor that replaces all matches with a static string value.
  * 
  * This is the simplest and most performant processor, suitable when all matches
  * should be replaced with the same constant value. It processes chunks synchronously
@@ -31,56 +30,38 @@ export type StaticReplacementProcessorOptions<
  * 
  * @example
  * ```typescript
- * import { createStaticReplacementProcessor, createSearchStrategy } from 'replace-content-transformer';
- * import { createReplaceContentTransformer } from 'replace-content-transformer/web';
+ * import { StaticReplacementProcessor, searchStrategyFactory } from 'replace-content-transformer';
+ * import { ReplaceContentTransformer } from 'replace-content-transformer/web';
  * 
- * const processor = createStaticReplacementProcessor({
- *   searchStrategy: createSearchStrategy('{{placeholder}}'),
+ * const processor = new StaticReplacementProcessor({
+ *   searchStrategy: searchStrategyFactory('{{placeholder}}'),
  *   replacement: 'Hello, World!'
  * });
  * 
- * const transformer = createReplaceContentTransformer(processor);
+ * const transformer = new ReplaceContentTransformer(processor);
  * const stream = new TransformStream(transformer);
  * ```
- */
-export function createStaticReplacementProcessor<TState, TMatch = string>({
-  searchStrategy,
-  replacement
-}: StaticReplacementProcessorOptions<TState, TMatch>): SyncProcessor {
-  const { searchState, flush } = createProcessorBase(searchStrategy);
-
-  return {
-    *processChunk(chunk: string): Generator<string, void, undefined> {
-      for (const { isMatch, content } of searchStrategy.processChunk(
-        chunk,
-        searchState
-      )) {
-        yield isMatch ? replacement : content;
-      }
-    },
-    flush
-  };
-}
-
-/**
- * @deprecated Use {@link createStaticReplacementProcessor} instead.
  */
 export class StaticReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements SyncProcessor {
-  #processor: SyncProcessor;
+  private readonly replacement: string;
 
-  constructor(options: StaticReplacementProcessorOptions<TState, TMatch>) {
-    super(options);
-    this.#processor = createStaticReplacementProcessor(options);
+  constructor({
+    searchStrategy,
+    replacement
+  }: StaticReplacementProcessorOptions<TState, TMatch>) {
+    super({ searchStrategy });
+    this.replacement = replacement;
   }
 
   *processChunk(chunk: string): Generator<string, void, undefined> {
-    yield* this.#processor.processChunk(chunk);
-  }
-
-  flush(): string {
-    return this.#processor.flush();
+    for (const { isMatch, content } of this.searchStrategy.processChunk(
+      chunk,
+      this.searchState
+    )) {
+      yield isMatch ? this.replacement : content;
+    }
   }
 }

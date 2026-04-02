@@ -4,17 +4,17 @@ import {
   AsyncReplaceContentTransformer,
 } from "./async-transformer.ts";
 import {
-  createMockTransformStreamDefaultController,
-  createMockAsyncProcessor
+  mockTransformStreamDefaultControllerFactory,
+  mockAsyncProcessorFactory
 } from "../../../test/utilities.ts";
 
 describe("AsyncReplaceContentTransformer", () => {
   it("delegates to processor and enqueues output", async () => {
-    const mockProcessor = createMockAsyncProcessor("ABC", "abc!");
+    const mockProcessor = mockAsyncProcessorFactory("ABC", "abc!");
 
     const transformer = createAsyncReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
-    const controller = createMockTransformStreamDefaultController(outputs);
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
     await transformer.transform!("abc", controller);
 
@@ -24,14 +24,14 @@ describe("AsyncReplaceContentTransformer", () => {
   });
 
   it("skips processing when abort signal is set prior to transformation", async () => {
-    const mockProcessor = createMockAsyncProcessor("transformed");
+    const mockProcessor = mockAsyncProcessorFactory("transformed");
     const abortController = new AbortController();
     const transformer = createAsyncReplaceContentTransformer(
       mockProcessor,
       abortController.signal
     );
     const outputs: string[] = [];
-    const controller = createMockTransformStreamDefaultController(outputs);
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
     abortController.abort();
 
     await transformer.transform!("input", controller);
@@ -42,7 +42,7 @@ describe("AsyncReplaceContentTransformer", () => {
 
   it("stops processing mid-transformation when abort signal is set", async () => {
     const abortController = new AbortController();
-    const mockProcessor = createMockAsyncProcessor(() => {
+    const mockProcessor = mockAsyncProcessorFactory(() => {
       abortController.abort();
       return "PART1";
     }, "PART2");
@@ -51,7 +51,7 @@ describe("AsyncReplaceContentTransformer", () => {
       abortController.signal
     );
     const outputs: string[] = [];
-    const controller = createMockTransformStreamDefaultController(outputs);
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
     await transformer.transform!("input", controller);
 
@@ -61,11 +61,11 @@ describe("AsyncReplaceContentTransformer", () => {
   });
 
   it("flush enqueues flushed content", () => {
-    const mockProcessor = createMockAsyncProcessor();
+    const mockProcessor = mockAsyncProcessorFactory();
 
     const transformer = createAsyncReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
-    const controller = createMockTransformStreamDefaultController(outputs);
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
     transformer.flush!(controller);
 
@@ -75,10 +75,10 @@ describe("AsyncReplaceContentTransformer", () => {
 
   it("cancel stops enqueuing mid-transformation at next yield boundary", async () => {
     const transformer = createAsyncReplaceContentTransformer(
-      createMockAsyncProcessor("PART1", "PART2", "PART3")
+      mockAsyncProcessorFactory("PART1", "PART2", "PART3")
     );
     const outputs: string[] = [];
-    const controller = createMockTransformStreamDefaultController(outputs);
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
     controller.enqueue = vi.fn().mockImplementation((chunk: string) => {
       outputs.push(chunk);
@@ -93,10 +93,10 @@ describe("AsyncReplaceContentTransformer", () => {
   });
 
   it("cancel before transform prevents processing", async () => {
-    const mockProcessor = createMockAsyncProcessor("OUTPUT");
+    const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
     const transformer = createAsyncReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
-    const controller = createMockTransformStreamDefaultController(outputs);
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
     transformer.cancel!("test");
     await transformer.transform!("input", controller);
@@ -106,16 +106,16 @@ describe("AsyncReplaceContentTransformer", () => {
   });
 
   it("supports deprecated constructor syntax with factory-equivalent behavior", async () => {
-    const legacyProcessor = createMockAsyncProcessor("ABC", "abc!");
-    const factoryProcessor = createMockAsyncProcessor("ABC", "abc!");
+    const legacyProcessor = mockAsyncProcessorFactory("ABC", "abc!");
+    const factoryProcessor = mockAsyncProcessorFactory("ABC", "abc!");
     const legacyTransformer = new AsyncReplaceContentTransformer(legacyProcessor);
     const factoryTransformer = createAsyncReplaceContentTransformer(factoryProcessor);
     const legacyOutputs: string[] = [];
     const factoryOutputs: string[] = [];
     const legacyController =
-      createMockTransformStreamDefaultController(legacyOutputs);
+      mockTransformStreamDefaultControllerFactory(legacyOutputs);
     const factoryController =
-      createMockTransformStreamDefaultController(factoryOutputs);
+      mockTransformStreamDefaultControllerFactory(factoryOutputs);
 
     await legacyTransformer.transform("abc", legacyController);
     await factoryTransformer.transform!("abc", factoryController);

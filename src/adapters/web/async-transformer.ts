@@ -30,7 +30,7 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * const ac = new AbortController();
  *
  * const transformer = createAsyncReplaceContentTransformer(
- *   createAsyncFunctionReplacementProcessor({
+ *   new AsyncFunctionReplacementProcessor({
  *     searchStrategy,
  *     replacement: async (match) => {
  *       const res = await fetch(`/api/${match}`, { signal: ac.signal });
@@ -48,7 +48,7 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * ```typescript
  * // Sequential async replacement (e.g. KV store lookup per match)
  * const transformer = createAsyncReplaceContentTransformer(
- *   createAsyncFunctionReplacementProcessor({
+ *   new AsyncFunctionReplacementProcessor({
  *     searchStrategy,
  *     replacement: async (match) => {
  *       return (await kv.get(match)) ?? "";
@@ -58,7 +58,7 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  *
  * // Async iterable replacement (e.g. streaming fetch body into output)
  * const transformer = createAsyncReplaceContentTransformer(
- *   createAsyncIterableFunctionReplacementProcessor({
+ *   new AsyncIterableFunctionReplacementProcessor({
  *     searchStrategy,
  *     replacement: async (match) => {
  *       const res = await fetch(`/api/${match}`);

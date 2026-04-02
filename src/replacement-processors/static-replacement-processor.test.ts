@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { createMockSearchStrategy } from "../../test/utilities.ts";
-import { createStaticReplacementProcessor, StaticReplacementProcessor } from "./static-replacement-processor.ts";
+import { mockSearchStrategyFactory } from "../../test/utilities.ts";
+import { StaticReplacementProcessor } from "./static-replacement-processor.ts";
 
 describe("StaticReplacementProcessor", () => {
   const mockInput = "test input";
 
   it("yields input directly when search strategy finds no match", () => {
-    const mockStrategy = createMockSearchStrategy({
+    const mockStrategy = mockSearchStrategyFactory({
       isMatch: false,
       content: "test output"
     });
 
-    const processor = createStaticReplacementProcessor({
+    const processor = new StaticReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: "NEW"
     });
@@ -26,13 +26,13 @@ describe("StaticReplacementProcessor", () => {
   });
 
   it("yields content before match and replacement when complete match found", () => {
-    const mockStrategy = createMockSearchStrategy(
+    const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " world" }
     );
 
-    const processor = createStaticReplacementProcessor({
+    const processor = new StaticReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: "NEW"
     });
@@ -47,7 +47,7 @@ describe("StaticReplacementProcessor", () => {
   });
 
   it("handles multiple replacements in single chunk", () => {
-    const mockStrategy = createMockSearchStrategy(
+    const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "OLD" },
       { isMatch: false, content: " " },
@@ -55,7 +55,7 @@ describe("StaticReplacementProcessor", () => {
       { isMatch: false, content: " world" }
     );
 
-    const processor = createStaticReplacementProcessor({
+    const processor = new StaticReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: "NEW"
     });
@@ -70,13 +70,13 @@ describe("StaticReplacementProcessor", () => {
   });
 
   it("buffers incomplete match at chunk boundary", () => {
-    const mockStrategy = createMockSearchStrategy({
+    const mockStrategy = mockSearchStrategyFactory({
       isMatch: false,
       content: "Hello wor"
     });
     mockStrategy.flush.mockReturnValue("ld");
 
-    const processor = createStaticReplacementProcessor({
+    const processor = new StaticReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: "NEW"
     });
@@ -93,12 +93,12 @@ describe("StaticReplacementProcessor", () => {
   });
 
   it("handles replacement at start of chunk", () => {
-    const mockStrategy = createMockSearchStrategy(
+    const mockStrategy = mockSearchStrategyFactory(
       { isMatch: true, content: "Hello" },
       { isMatch: false, content: " world" }
     );
 
-    const processor = createStaticReplacementProcessor({
+    const processor = new StaticReplacementProcessor({
       searchStrategy: mockStrategy,
       replacement: "NEW"
     });
@@ -114,13 +114,13 @@ describe("StaticReplacementProcessor", () => {
 
   describe("flush", () => {
     it("returns buffered content", () => {
-      const mockStrategy = createMockSearchStrategy({
+      const mockStrategy = mockSearchStrategyFactory({
         isMatch: false,
         content: "test "
       });
       mockStrategy.flush.mockReturnValue("input");
 
-      const processor = createStaticReplacementProcessor({
+      const processor = new StaticReplacementProcessor({
         searchStrategy: mockStrategy,
         replacement: "NEW"
       });
@@ -135,17 +135,5 @@ describe("StaticReplacementProcessor", () => {
       expect(mockStrategy.processChunk).toHaveBeenCalledWith(mockInput, {});
       expect(mockStrategy.flush).toHaveBeenCalledWith({});
     });
-  });
-
-  it("should support deprecated constructor syntax", () => {
-    const mockStrategy = createMockSearchStrategy(
-      { isMatch: true, content: "OLD" }
-    );
-    const processor = new StaticReplacementProcessor({
-      searchStrategy: mockStrategy,
-      replacement: "NEW"
-    });
-    const outputChunks = [...processor.processChunk("OLD")];
-    expect(outputChunks).toEqual(["NEW"]);
   });
 });

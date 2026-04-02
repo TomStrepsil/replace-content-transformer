@@ -1,20 +1,18 @@
 import type { MatchResult, SearchStrategy } from "../types.ts";
 import StringBufferStrategyBase, {
-  type StringBufferState,
-  createStringBufferState,
-  flushStringBuffer
+  type StringBufferState
 } from "../string-buffer-strategy-base.ts";
 
 /**
- * State object for {@link createLoopedIndexOfAnchoredSearchStrategy}.
+ * State object for {@link LoopedIndexOfAnchoredSearchStrategy}.
  */
-export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
+type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
 };
 
 /**
- * Creates a high-performance search strategy for finding sequential string patterns (anchor sequences)
+ * A high-performance search strategy for finding sequential string patterns (anchor sequences)
  * using smart partial matching to avoid unnecessary buffering.
  *
  * Similar to {@link BufferedIndexOfAnchoredSearchStrategy} but uses intelligent partial matching
@@ -32,110 +30,86 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * - Minimal overhead for partial match detection
  * - Optimal for streams with sparse or no matches
  */
-export function createLoopedIndexOfAnchoredSearchStrategy(
-  needles: string[]
-): SearchStrategy<LoopedIndexOfAnchoredSearchState> {
-  return {
-    createState(): LoopedIndexOfAnchoredSearchState {
-      return { ...createStringBufferState(), currentNeedleIndex: 0 };
-    },
-
-    *processChunk(
-      haystack: string,
-      state: LoopedIndexOfAnchoredSearchState
-    ): Generator<MatchResult, void, undefined> {
-      haystack = state.buffer + haystack;
-      const length = haystack.length;
-      let position = 0;
-      let matchStartPosition;
-      try {
-        while (position < length) {
-          const currentNeedle = needles[state.currentNeedleIndex];
-          const index = haystack.indexOf(currentNeedle, position);
-          if (index === -1) {
-            if (state.currentNeedleIndex === 0) {
-              for (
-                let partialLength = currentNeedle.length - 1;
-                partialLength >= 1;
-                partialLength--
-              ) {
-                const haystackSuffix = haystack.slice(-partialLength);
-                const needlePrefix = currentNeedle.slice(0, partialLength);
-                if (haystackSuffix === needlePrefix) {
-                  const beforePartial = haystack.slice(position, -partialLength);
-                  position = length - partialLength;
-                  if (beforePartial) {
-                    yield { isMatch: false, content: beforePartial };
-                  }
-                  return;
-                }
-              }
-
-              const nonMatch = haystack.slice(position);
-              position = length;
-              yield { isMatch: false, content: nonMatch };
-            }
-            return;
-          }
-
-          if (state.currentNeedleIndex === 0) {
-            if (index > position) {
-              const nonMatch = haystack.slice(position, index);
-              position = index;
-              yield { isMatch: false, content: nonMatch };
-            }
-            matchStartPosition = index;
-          }
-
-          position = index + currentNeedle.length;
-          state.currentNeedleIndex =
-            (state.currentNeedleIndex + 1) % needles.length;
-          if (state.currentNeedleIndex === 0) {
-            yield {
-              isMatch: true,
-              content: haystack.slice(matchStartPosition, position)
-            };
-          }
-        }
-      } finally {
-        const isMidMatch = state.currentNeedleIndex > 0;
-        state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
-      }
-    },
-
-    flush(state: LoopedIndexOfAnchoredSearchState): string {
-      state.currentNeedleIndex = 0;
-      return flushStringBuffer(state);
-    }
-  };
-}
-
-/**
- * @deprecated Use {@link createLoopedIndexOfAnchoredSearchStrategy} instead.
- */
 export class LoopedIndexOfAnchoredSearchStrategy
   extends StringBufferStrategyBase
   implements SearchStrategy<LoopedIndexOfAnchoredSearchState>
 {
-  #strategy: SearchStrategy<LoopedIndexOfAnchoredSearchState>;
+  private readonly needles: string[];
 
   constructor(needles: string[]) {
     super();
-    this.#strategy = createLoopedIndexOfAnchoredSearchStrategy(needles);
+    this.needles = needles;
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {
-    return this.#strategy.createState();
+    return { ...super.createState(), currentNeedleIndex: 0 };
   }
 
   *processChunk(
     haystack: string,
     state: LoopedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
-    yield* this.#strategy.processChunk(haystack, state);
+    haystack = state.buffer + haystack;
+    const length = haystack.length;
+    let position = 0;
+    let matchStartPosition;
+    try {
+      while (position < length) {
+        const currentNeedle = this.needles[state.currentNeedleIndex];
+        const index = haystack.indexOf(currentNeedle, position);
+        if (index === -1) {
+          if (state.currentNeedleIndex === 0) {
+            for (
+              let partialLength = currentNeedle.length - 1;
+              partialLength >= 1;
+              partialLength--
+            ) {
+              const haystackSuffix = haystack.slice(-partialLength);
+              const needlePrefix = currentNeedle.slice(0, partialLength);
+              if (haystackSuffix === needlePrefix) {
+                const beforePartial = haystack.slice(position, -partialLength);
+                position = length - partialLength;
+                if (beforePartial) {
+                  yield { isMatch: false, content: beforePartial };
+                }
+                return;
+              }
+            }
+
+            const nonMatch = haystack.slice(position);
+            position = length;
+            yield { isMatch: false, content: nonMatch };
+          }
+          return;
+        }
+
+        if (state.currentNeedleIndex === 0) {
+          if (index > position) {
+            const nonMatch = haystack.slice(position, index);
+            position = index;
+            yield { isMatch: false, content: nonMatch };
+          }
+          matchStartPosition = index;
+        }
+
+        position = index + currentNeedle.length;
+        state.currentNeedleIndex =
+          (state.currentNeedleIndex + 1) % this.needles.length;
+        if (state.currentNeedleIndex === 0) {
+          yield {
+            isMatch: true,
+            content: haystack.slice(matchStartPosition, position)
+          };
+        }
+      }
+    } finally {
+      const isMidMatch = state.currentNeedleIndex > 0;
+      state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
+    }
   }
 
   flush(state: LoopedIndexOfAnchoredSearchState): string {
-    return this.#strategy.flush(state);
+    state.currentNeedleIndex = 0;
+    return super.flush(state);
   }
 }

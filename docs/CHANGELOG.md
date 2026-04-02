@@ -7,35 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Added a `typecheck` npm script
-- Added factory functions for all replacement processors: `createStaticReplacementProcessor`, `createFunctionReplacementProcessor`, `createAsyncFunctionReplacementProcessor`, `createIterableFunctionReplacementProcessor`, `createAsyncIterableFunctionReplacementProcessor`
-- Added factory functions for search strategies: `createStringAnchorSearchStrategy`, `createRegexSearchStrategy`
-
-### Changed
-
-- Refactored the entire public API to prefer `create*` factory functions over class constructors, returning plain objects implementing the same interfaces — classes are retained as deprecated wrappers
-- Renamed `searchStrategyFactory` to `createSearchStrategy`, for consistency with the factory function naming convention
-- Updated the async transformer implementation and typings to align with [the WHATWG Streams spec](https://streams.spec.whatwg.org/#transformer-api), including a compatibility type for `cancel()` while platform typings catch up
-- Updated all README code examples and documentation to use factory functions
-- Updated release workflow dependencies to latest versions
-- Updated release-process documentation to match the current "Create Draft Release" workflow name
-- Updated development dependencies to latest versions
-
-### Deprecated
-
-- Deprecated all replacement processor classes (`StaticReplacementProcessor`, `FunctionReplacementProcessor`, `AsyncFunctionReplacementProcessor`, `IterableFunctionReplacementProcessor`, `AsyncIterableFunctionReplacementProcessor`) in favour of corresponding `create*` factory functions
-- Deprecated search strategy classes (`StringAnchorSearchStrategy`, `RegexSearchStrategy`) in favour of `createStringAnchorSearchStrategy` and `createRegexSearchStrategy`
-- Deprecated the WHATWG `/web` class constructors `ReplaceContentTransformer` and `AsyncReplaceContentTransformer` in favour of `createReplaceContentTransformer` and `createAsyncReplaceContentTransformer`
-- Deprecated `searchStrategyFactory` in favour of `createSearchStrategy`
-
-### Fixed
-
-- Clarified README guidance for `promise`-valued replacements, back-pressure trade-offs, and cancellation with shared `AbortController`s
-- Added WHATWG `Transformer.cancel()` support for async web transformers so stream cancellation stops further enqueues at the next async yield boundary
-- Fixed minor documentation issues in the README and search strategy docs
-
 ## [1.0.0] - 2026-01-23
 
 ### Changed

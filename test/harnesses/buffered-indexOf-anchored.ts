@@ -1,5 +1,5 @@
-import { createReplaceContentTransformer } from "../../src/adapters/web/sync-transformer.ts";
-import { createFunctionReplacementProcessor } from "../../src/index.ts";
+import { ReplaceContentTransformer } from "../../src/adapters/web/sync-transformer.ts";
+import { FunctionReplacementProcessor } from "../../src/index.ts";
 import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/buffered-indexOf-anchored/search-strategy.ts";
 
 export const BufferedIndexOfAnchoredHarness = {
@@ -20,8 +20,8 @@ export const BufferedIndexOfAnchoredHarness = {
     strategy: BufferedIndexOfAnchoredSearchStrategy;
     replacement: (match: string, index: number) => string;
   }) =>
-    createReplaceContentTransformer(
-      createFunctionReplacementProcessor({
+    new ReplaceContentTransformer(
+      new FunctionReplacementProcessor({
         searchStrategy: strategy,
         replacement
       })

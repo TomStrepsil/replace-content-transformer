@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { AsyncReplaceContentTransform } from "./async-transform";
 import { Writable } from "node:stream";
-import { createMockAsyncProcessor } from "../../../test/utilities";
+import { mockAsyncProcessorFactory } from "../../../test/utilities";
 
 describe("ReplaceContentTransform (async)", () => {
   it("delegates to processor and writes output to stream", async () => {
-    const mockProcessor = createMockAsyncProcessor("ABC", "abc!");
+    const mockProcessor = mockAsyncProcessorFactory("ABC", "abc!");
 
     const transform = new AsyncReplaceContentTransform(mockProcessor);
     const outputs: string[] = [];
@@ -26,7 +26,7 @@ describe("ReplaceContentTransform (async)", () => {
   });
 
   it("flush writes flushed content to stream", async () => {
-    const mockProcessor = createMockAsyncProcessor();
+    const mockProcessor = mockAsyncProcessorFactory();
 
     const transform = new AsyncReplaceContentTransform(mockProcessor);
     const outputs: string[] = [];
