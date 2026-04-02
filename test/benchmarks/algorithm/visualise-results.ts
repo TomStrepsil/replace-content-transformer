@@ -851,6 +851,8 @@ async function main() {
   if (args.length === 0 || args.includes("--help")) {
     console.log(`
 Usage:
+  cd test/benchmarks/algorithm
+
   # Terminal visualization (single run)
   node --experimental-strip-types visualise-results.ts <file.json>
 
