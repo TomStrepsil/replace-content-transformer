@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a `typecheck` npm script
+
+### Changed
+
+- Updated the async transformer implementation and typings to align with [the WHATWG Streams spec](https://streams.spec.whatwg.org/#transformer-api), including a compatibility type for `cancel()` while platform typings catch up
+- Updated release workflow dependencies to latest versions
+- Updated release-process documentation to match the current "Create Draft Release" workflow name
+- Updated development dependencies to latest versions
+
+### Fixed
+
+- Clarified README guidance for `promise`-valued replacements, back-pressure trade-offs, and cancellation with shared `AbortController`s
+- Added WHATWG `Transformer.cancel()` support for async web transformers so stream cancellation stops further enqueues at the next async yield boundary
+- Fixed minor documentation issues in the README and search strategy docs
+
 ## [1.0.0] - 2026-01-23
 
 ### Changed
@@ -62,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Used a GitHub app for `CHANGELOG.md` updates in release pipeline
 - Ensured squash merges are recognised when determining semver etc.
 
-### Added
+### Added
 
 - Issue templates
 - "CodeQL" badge for [`README.md`](../README.md)
