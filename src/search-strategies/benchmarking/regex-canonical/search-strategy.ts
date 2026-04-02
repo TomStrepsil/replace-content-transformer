@@ -1,3 +1,5 @@
+import type { Transformer } from "node:stream/web";
+
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
 export class RegexReplaceContentTransformer implements Transformer<string> {
   private partialChunk: string;

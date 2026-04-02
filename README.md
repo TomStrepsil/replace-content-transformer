@@ -77,10 +77,6 @@ const asyncTransformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-> [!IMPORTANT]
-> If you import from `replace-content-transformer/web` in a Node TypeScript project, include either `"DOM"` or `"WebWorker"` in `compilerOptions.lib`.
-> The published `/web` type declarations reference the WHATWG stream globals (`Transformer`, `TransformStreamDefaultController`, etc.), so Node-only lib settings such as `"lib": ["ES2022"]` can fail type-checking even though the runtime itself supports Web Streams.
-
 > [!NOTE]
 > The WHATWG spec includes `Transformer.cancel` with an optional `reason` parameter for async transformers.
 > Some TypeScript type sources still lag this part of the spec (including current Node docs/types), so the public
