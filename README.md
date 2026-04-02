@@ -57,22 +57,22 @@ See [Design](#-design) on composable parts to import and combine.
 
 ### WHATWG Transformer
 
-Factory functions are available from the `/web` import path, for both synchronous and asynchronous replacement use-cases:
+Constructors are available from the `/web` import path, for both synchronous and asynchronous replacement use-cases:
 
 ```js
 import {
-  createReplaceContentTransformer,
-  createAsyncReplaceContentTransformer
+  ReplaceContentTransformer,
+  AsyncReplaceContentTransformer
 } from "replace-content-transformer/web";
 ```
 
-Each factory accepts a "stream processor" and optional `AbortSignal`, and returns a [`Transformer`](https://streams.spec.whatwg.org/#transformer-api) object:
+The constructors expect a "stream processor" and optional `AbortSignal` as arguments:
 
 ```ts
-const syncTransformer = createReplaceContentTransformer(
+const syncTransformer = new ReplaceContentTransformer(
   processor: SyncProcessor, stopReplacingSignal?: AbortSignal
 );
-const asyncTransformer = createAsyncReplaceContentTransformer(
+const asyncTransformer = new AsyncReplaceContentTransformer(
   processor: AsyncProcessor, stopReplacingSignal?: AbortSignal
 );
 ```
@@ -105,10 +105,10 @@ import {
   StaticReplacementProcessor,
   searchStrategyFactory
 } from "replace-content-transformer";
-import { createReplaceContentTransformer } from "replace-content-transformer/web";
+import { ReplaceContentTransformer } from "replace-content-transformer/web";
 
 // {{needle}} replaced by "12345"
-const transformer = createReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new StaticReplacementProcessor({
     searchStrategy: searchStrategyFactory("{{needle}}"),
     replacement: "12345"
@@ -120,7 +120,7 @@ const transformer = createReplaceContentTransformer(
 
 ```typescript
 // {{anything between braces}} replaced by "54321"
-const transformer = createReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new StaticReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: "54321"
@@ -136,7 +136,7 @@ Use a function for dynamic replacement, perhaps based on the original content:
 import { FunctionReplacementProcessor } from "replace-content-transformer";
 
 // "{{this}} and {{that}}" becomes "this was match 0 and that was match 1"
-const transformer = createReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: (match: string, index: number) =>
@@ -154,7 +154,7 @@ const transformer = createReplaceContentTransformer(
 // `class="anything old-button"` becomes `class="anything new-button"`
 // `class="old-button something else"` becomes `class="new-button something else"`
 // `class="cold-button"` remains `class="cold-button"`
-const transformer = createReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(
       /class="(?<before>[^"]*?\b)old-button(?<after>\b[^"]*?)"/
@@ -178,7 +178,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // `<img src="file://image.png">` becomes "<img src="data:image/png;base64,...>"
-const transformer = createAsyncReplaceContentTransformer(
+const transformer = new AsyncReplaceContentTransformer(
   new AsyncFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
     replacement: async (imgTag: string) =>
@@ -203,7 +203,7 @@ Can alternatively use the non-async `FunctionReplacementProcessor` to process `P
 
 ```typescript
 // `<link href="https://example.com/css" rel="stylesheet" />` becomes `<style>{content of sheet}</style>`
-const transformer = createReplaceContentTransformer<Promise<string>>(
+const transformer = new ReplaceContentTransformer<Promise<string>>(
   new FunctionReplacementProcessor<Promise<string>>({
     searchStrategy: searchStrategyFactory([
       "<link",
@@ -251,7 +251,7 @@ Interpolate a sequence into the stream:
 import { IterableFunctionReplacementProcessor } from "replace-content-transformer";
 
 // "1 2 3 4 5" becomes "1 2 3.1 3.2 3.3 4 5"
-const transformer = createReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new IterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory("3 "),
     replacement: () => [...Array(3)].map((_, i) => `3.${i + 1} `)
@@ -267,7 +267,7 @@ Interpolate [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/
 import { AsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
 
 // `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
-const transformer = createAsyncReplaceContentTransformer(
+const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     replacement: async (match: string) => {
@@ -289,7 +289,7 @@ Recursive replacement, with controlled depth:
 const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformerFactory(currentDepth: number) {
-  return createAsyncReplaceContentTransformer(
+  return new AsyncReplaceContentTransformer(
     new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
       replacement: async (match: string) => {
@@ -317,7 +317,7 @@ To abort replacement after a certain number of replacements (or, for any other r
 
 ```ts
 const abortController = new AbortController();
-const transformer = createAsyncReplaceContentTransformer(
+const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match, index) => {
@@ -343,7 +343,7 @@ For `fetch` uses cases, with cancellation external to the replacement function, 
 
 ```ts
 const abortController = new AbortController();
-const transformer = createAsyncReplaceContentTransformer(
+const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match) => {

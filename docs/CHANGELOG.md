@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Used a GitHub app for `CHANGELOG.md` updates in release pipeline
 - Ensured squash merges are recognised when determining semver etc.
 
-### Added
+### Added
 
 - Issue templates
 - "CodeQL" badge for [`README.md`](../README.md)

@@ -1,21 +1,18 @@
 import { describe, it, expect } from "vitest";
-import {
-  createReplaceContentTransformer,
-  ReplaceContentTransformer,
-} from "./sync-transformer.ts";
+import { ReplaceContentTransformer } from "./sync-transformer.ts";
 import {
   mockTransformStreamDefaultControllerFactory,
   mockSyncProcessorFactory
 } from "../../../test/utilities.ts";
 
-describe("ReplaceContentTransformer", () => {
+describe("ReplaceContentTransformer (sync)", () => {
   it("delegates to processor and enqueues output", () => {
     const mockProcessor = mockSyncProcessorFactory("ABC", "abc!");
-    const transformer = createReplaceContentTransformer(mockProcessor);
+    const transformer = new ReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.transform!("abc", controller);
+    transformer.transform("abc", controller);
 
     expect(outputs).toContain("ABC");
     expect(outputs).toContain("abc!");
@@ -25,7 +22,7 @@ describe("ReplaceContentTransformer", () => {
   it("skips processing when abort signal is set prior to transformation", () => {
     const mockProcessor = mockSyncProcessorFactory("transformed");
     const abortController = new AbortController();
-    const transformer = createReplaceContentTransformer(
+    const transformer = new ReplaceContentTransformer(
       mockProcessor,
       abortController.signal
     );
@@ -33,7 +30,7 @@ describe("ReplaceContentTransformer", () => {
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
     abortController.abort();
 
-    transformer.transform!("input", controller);
+    transformer.transform("input", controller);
 
     expect(outputs).toEqual(["input"]);
     expect(mockProcessor.processChunk).not.toHaveBeenCalled();
@@ -45,14 +42,14 @@ describe("ReplaceContentTransformer", () => {
       abortController.abort();
       return "PART1";
     }, "PART2");
-    const transformer = createReplaceContentTransformer(
+    const transformer = new ReplaceContentTransformer(
       mockProcessor,
       abortController.signal
     );
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.transform!("input", controller);
+    transformer.transform("input", controller);
 
     expect(outputs).toContain("PART1");
     expect(outputs).not.toContain("PART2");
@@ -62,11 +59,11 @@ describe("ReplaceContentTransformer", () => {
   it("flush enqueues flushed content", () => {
     const mockProcessor = mockSyncProcessorFactory();
 
-    const transformer = createReplaceContentTransformer(mockProcessor);
+    const transformer = new ReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.flush!(controller);
+    transformer.flush(controller);
 
     expect(outputs).toContain("<FLUSHED>");
     expect(mockProcessor.flush).toHaveBeenCalled();
@@ -79,13 +76,13 @@ describe("ReplaceContentTransformer", () => {
       Promise.resolve("ASYNC_RESULT_2")
     );
 
-    const transformer = createReplaceContentTransformer<Promise<string>>(
+    const transformer = new ReplaceContentTransformer<Promise<string>>(
       mockProcessor
     );
     const outputs: Array<string | Promise<string>> = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.transform!("input", controller);
+    transformer.transform("input", controller);
 
     expect(outputs).toHaveLength(3);
     expect(outputs[0]).toBeInstanceOf(Promise);
@@ -99,32 +96,10 @@ describe("ReplaceContentTransformer", () => {
   });
 
   it("does not expose cancel", () => {
-    const transformer = createReplaceContentTransformer(
+    const transformer = new ReplaceContentTransformer(
       mockSyncProcessorFactory()
     );
 
     expect("cancel" in transformer).toBe(false);
-  });
-
-  it("supports deprecated constructor syntax with factory-equivalent behavior", () => {
-    const legacyProcessor = mockSyncProcessorFactory("ABC", "abc!");
-    const factoryProcessor = mockSyncProcessorFactory("ABC", "abc!");
-    const legacyTransformer = new ReplaceContentTransformer(legacyProcessor);
-    const factoryTransformer = createReplaceContentTransformer(factoryProcessor);
-    const legacyOutputs: string[] = [];
-    const factoryOutputs: string[] = [];
-    const legacyController =
-      mockTransformStreamDefaultControllerFactory(legacyOutputs);
-    const factoryController =
-      mockTransformStreamDefaultControllerFactory(factoryOutputs);
-
-    legacyTransformer.transform("abc", legacyController);
-    factoryTransformer.transform!("abc", factoryController);
-    legacyTransformer.flush(legacyController);
-    factoryTransformer.flush!(factoryController);
-
-    expect(factoryOutputs).toEqual(legacyOutputs);
-    expect(legacyProcessor.processChunk).toHaveBeenCalledWith("abc");
-    expect(factoryProcessor.processChunk).toHaveBeenCalledWith("abc");
   });
 });

@@ -1,3 +1,4 @@
+import { ReplaceContentTransformerBase } from "./transformer-base.ts";
 import type { AsyncProcessor } from "../../replacement-processors/types.ts";
 
 /**
@@ -47,7 +48,7 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * @example
  * ```typescript
  * // Sequential async replacement (e.g. KV store lookup per match)
- * const transformer = createAsyncReplaceContentTransformer(
+ * const transformer = new AsyncReplaceContentTransformer(
  *   new AsyncFunctionReplacementProcessor({
  *     searchStrategy,
  *     replacement: async (match) => {
@@ -57,7 +58,7 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * );
  *
  * // Async iterable replacement (e.g. streaming fetch body into output)
- * const transformer = createAsyncReplaceContentTransformer(
+ * const transformer = new AsyncReplaceContentTransformer(
  *   new AsyncIterableFunctionReplacementProcessor({
  *     searchStrategy,
  *     replacement: async (match) => {
@@ -68,69 +69,70 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * );
  * ```
  */
-export function createAsyncReplaceContentTransformer(
-  processor: AsyncProcessor,
-  stopReplacingSignal?: AbortSignal,
-): CancellableTransformer<string, string> {
-  let cancelled = false;
-
-  return {
-    async transform(chunk, controller) {
-      if (stopReplacingSignal?.aborted) {
-        controller.enqueue(chunk);
-        return;
-      }
-
-      for await (const output of processor.processChunk(chunk)) {
-        if (cancelled) return;
-        controller.enqueue(output);
-
-        if (stopReplacingSignal?.aborted) {
-          break;
-        }
-      }
-    },
-
-    flush(controller) {
-      const flushed = processor.flush();
-      if (flushed) {
-        controller.enqueue(flushed);
-      }
-    },
-
-    cancel() {
-      cancelled = true;
-    },
-  };
-}
-
-/**
- * @deprecated Use {@link createAsyncReplaceContentTransformer} instead.
- */
-export class AsyncReplaceContentTransformer
-  implements Transformer<string, string>
+export class AsyncReplaceContentTransformer<T = string>
+  extends ReplaceContentTransformerBase<T>
+  implements CancellableTransformer<string, T | string>
 {
-  #transformer: CancellableTransformer<string, string>;
+  protected processor: AsyncProcessor;
+  #stopReplacingSignal?: AbortSignal;
+  #cancelled = false;
 
   constructor(processor: AsyncProcessor, stopReplacingSignal?: AbortSignal) {
-    this.#transformer = createAsyncReplaceContentTransformer(
-      processor,
-      stopReplacingSignal,
-    );
+    super();
+    this.#stopReplacingSignal = stopReplacingSignal;
+    this.processor = processor;
   }
 
-  transform(
+  async transform(
     chunk: string,
-    controller: TransformStreamDefaultController<string>,
+    controller: TransformStreamDefaultController<string>
   ) {
-    return this.#transformer.transform!(chunk, controller);
+    if (this.#stopReplacingSignal?.aborted) {
+      controller.enqueue(chunk);
+      return;
+    }
+
+    for await (const output of this.processor.processChunk(chunk)) {
+      if (this.#cancelled) return;
+
+      controller.enqueue(output);
+
+      if (this.#stopReplacingSignal?.aborted) {
+        break;
+      }
+    }
   }
 
-  flush(controller: TransformStreamDefaultController<string>) {
-    return this.#transformer.flush!(controller);
-  }
-
-  cancel(reason?: unknown) {
-    return this.#transformer.cancel!(reason);
+  /**
+   * Called by the stream infrastructure when the readable side is cancelled or
+   * the writable side is aborted. Sets an internal flag so that an in-flight
+   * async {@link AsyncReplaceContentTransformer.transform | transform()} can
+   * stop enqueuing at the next yield boundary.
+   *
+   * **External resource cancellation** — `cancel()` cannot reach into a
+   * pending replacement function (e.g. an in-flight `fetch`). To cancel
+   * those, share an `AbortController` between your replacement function and
+   * the code that tears down the stream:
+   *
+   * ```typescript
+   * const ac = new AbortController();
+   *
+   * const transformer = new AsyncReplaceContentTransformer(
+   *   new AsyncFunctionReplacementProcessor({
+   *     searchStrategy,
+   *     replacement: async (match) => {
+   *       const res = await fetch(`/api/${match}`, { signal: ac.signal });
+   *       return res.text();
+   *     }
+   *   })
+   * );
+   *
+   * // To cancel everything:
+   * ac.abort();                       // cancels in-flight fetches
+   * await readable.cancel("done");    // tears down the stream → cancel() called
+   * ```
+   */
+  cancel() {
+    this.#cancelled = true;
   }
 }

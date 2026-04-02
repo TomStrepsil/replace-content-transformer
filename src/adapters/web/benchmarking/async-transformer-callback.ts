@@ -1,20 +1,27 @@
+import { ReplaceContentTransformerBase } from "../transformer-base.ts";
 import type { AsyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
 
-export function createAsyncReplaceContentTransformerCallback(
-  processor: AsyncCallbackProcessor,
-): Transformer<string, string> {
-  return {
-    async transform(chunk, controller) {
-      await processor.processChunk(chunk, (output) =>
-        controller.enqueue(output)
-      );
-    },
+export class AsyncReplaceContentTransformerCallback extends ReplaceContentTransformerBase {
+  protected processor: AsyncCallbackProcessor;
 
-    flush(controller) {
-      const flushed = processor.flush();
-      if (flushed) {
-        controller.enqueue(flushed);
-      }
-    },
-  };
+  constructor(processor: AsyncCallbackProcessor) {
+    super();
+    this.processor = processor;
+  }
+
+  async transform(
+    chunk: string,
+    controller: TransformStreamDefaultController<string>
+  ) {
+    await this.processor.processChunk(chunk, (output) =>
+      controller.enqueue(output)
+    );
+  }
+
+  flush(controller: TransformStreamDefaultController<string>) {
+    const flushed = this.processor.flush();
+    if (flushed) {
+      controller.enqueue(flushed);
+    }
+  }
 }

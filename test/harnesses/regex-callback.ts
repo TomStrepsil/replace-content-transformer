@@ -1,4 +1,4 @@
-import { createReplaceContentTransformerCallback } from "../../src/adapters/web/benchmarking/sync-transformer-callback.ts";
+import { ReplaceContentTransformerCallback } from "../../src/adapters/web/benchmarking/sync-transformer-callback.ts";
 import { RegexCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const RegexCallbackHarness = {
@@ -22,5 +22,5 @@ export const RegexCallbackHarness = {
     strategy
   }: {
     strategy: RegexCallbackSearchStrategy;
-  }) => createReplaceContentTransformerCallback(strategy)
+  }) => new ReplaceContentTransformerCallback(strategy)
 };
