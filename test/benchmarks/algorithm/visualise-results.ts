@@ -9,6 +9,8 @@
  * 3. Time-series charts tracking performance across multiple runs
  *
  * Usage:
+ *   cd test/benchmarks/algorithm
+ * 
  *   # Single run terminal chart
  *   node --experimental-strip-types visualise-results.ts results/comparison-2025-11-07.json
  *
