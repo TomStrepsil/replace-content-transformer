@@ -78,10 +78,10 @@ const asyncTransformer = new AsyncReplaceContentTransformer(
 ```
 
 > [!NOTE]
-> The WHATWG spec includes `Transformer.cancel(reason)`, and this library implements it for async transformers.
-> Some TypeScript type sources still lag this part of the spec (including current Node docs/types). This project uses
-> a local compatibility type for `cancel` to keep behaviour spec-aligned across runtimes. Tracking issue:
-> https://github.com/nodejs/node/issues/62540
+> The WHATWG spec includes `Transformer.cancel` with an optional `reason` parameter for async transformers.
+> Some TypeScript type sources still lag this part of the spec (including current Node docs/types), so the public
+> TypeScript signatures in this project focus on matching widely-available types while keeping runtime behaviour
+> spec-aligned across runtimes. Tracking issue: https://github.com/nodejs/node/issues/62540
 
 The `SyncProcessor` and `AsyncProcessor`s available are described in [Replacement Processors](#-replacement-processors).
 
