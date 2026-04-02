@@ -2,16 +2,6 @@ import { ReplaceContentTransformerBase } from "./transformer-base.ts";
 import type { AsyncProcessor } from "../../replacement-processors/types.ts";
 
 /**
- * Compatibility type for the WHATWG `Transformer.cancel` callback.
- *
- * Spec reference: https://streams.spec.whatwg.org/#callbackdef-transformercancelcallback
- * Tracking Node docs/types mismatch: https://github.com/nodejs/node/issues/62540
- */
-type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
-  cancel?: (reason?: unknown) => void | PromiseLike<void>;
-};
-
-/**
  * Creates an asynchronous transformer for the WHATWG Streams API that replaces content in streaming text.
  *
  * Uses `for await` to consume the processor's async generator, ensuring each async replacement
@@ -45,7 +35,7 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  */
 export class AsyncReplaceContentTransformer
   extends ReplaceContentTransformerBase<string>
-  implements CancellableTransformer<string, string>
+  implements Transformer<string, string>
 {
   protected processor: AsyncProcessor;
   #stopReplacingSignal?: AbortSignal;
