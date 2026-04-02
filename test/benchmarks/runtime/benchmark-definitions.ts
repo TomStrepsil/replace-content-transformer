@@ -1,11 +1,13 @@
 import {
-  createStaticReplacementProcessor,
-  createFunctionReplacementProcessor,
-  createAsyncFunctionReplacementProcessor,
-  createAsyncIterableFunctionReplacementProcessor,
+  StaticReplacementProcessor,
+  FunctionReplacementProcessor,
+  AsyncFunctionReplacementProcessor,
+  AsyncIterableFunctionReplacementProcessor
 } from "../../../src/replacement-processors/index.ts";
-import type { SyncProcessor, AsyncProcessor } from "../../../src/replacement-processors/types.ts";
-import { createStringAnchorSearchStrategy } from "../../../src/search-strategies/index.ts";
+import {
+  StringAnchorSearchStrategy,
+  type StringAnchorSearchState as SearchState
+} from "../../../src/search-strategies/index.ts";
 
 /**
  * Core benchmark definitions - categorized object
@@ -16,7 +18,11 @@ export interface BenchmarkDefinition {
   name: string;
   description: string;
   setup: () => {
-    processor: SyncProcessor | AsyncProcessor;
+    processor:
+      | StaticReplacementProcessor<SearchState>
+      | FunctionReplacementProcessor<SearchState>
+      | AsyncFunctionReplacementProcessor<SearchState>
+      | AsyncIterableFunctionReplacementProcessor<SearchState>;
     input: string[];
   };
   validate: (result: string) => void;
@@ -35,8 +41,8 @@ export const benchmarkDefinitions: {
       description:
         "Single pattern replacement in single chunk - foundational performance",
       setup: () => ({
-        processor: createStaticReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new StaticReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: "NEW"
         }),
         input: ["Hello OLD world OLD test OLD content"]
@@ -51,8 +57,8 @@ export const benchmarkDefinitions: {
       name: "Simple text without replacement - baseline streaming performance",
       description: "Fast path validation - no matches found",
       setup: () => ({
-        processor: createStaticReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy([
+        processor: new StaticReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy([
             "NOTFOUND"
           ]),
           replacement: "NEW"
@@ -70,8 +76,8 @@ export const benchmarkDefinitions: {
       name: "Multiple replacements single chunk - baseline streaming performance",
       description: "Scaling performance with multiple matches",
       setup: () => ({
-        processor: createStaticReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new StaticReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: "NEW"
         }),
         input: ["OLD".repeat(10) + "content" + "OLD".repeat(10)]
@@ -89,8 +95,8 @@ export const benchmarkDefinitions: {
       description:
         "Function replacement with match indexing - new feature performance baseline",
       setup: () => ({
-        processor: createFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new FunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: (matchedContent: string, index: number) => `NEW-${index}`
         }),
         input: ["Hello OLD world OLD test OLD content"]
@@ -113,8 +119,8 @@ export const benchmarkDefinitions: {
       name: "Cross-boundary pattern matching - buffering overhead measurement",
       description: "Multi-chunk scenario with pattern spanning boundaries",
       setup: () => ({
-        processor: createStaticReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy([
+        processor: new StaticReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy([
             "BOUNDARY"
           ]),
           replacement: "REPLACED"
@@ -134,8 +140,8 @@ export const benchmarkDefinitions: {
       description:
         "Multi-chunk scenario with partial matches requiring buffering",
       setup: () => ({
-        processor: createStaticReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy([
+        processor: new StaticReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy([
             "NOTFOUND"
           ]),
           replacement: "REPLACED"
@@ -166,8 +172,8 @@ export const benchmarkDefinitions: {
         const singleLong = precomputedInput.join("");
 
         return () => ({
-          processor: createStaticReplacementProcessor({
-            searchStrategy: createStringAnchorSearchStrategy([
+          processor: new StaticReplacementProcessor({
+            searchStrategy: new StringAnchorSearchStrategy([
               "NOTFOUND"
             ]),
             replacement: "NEW"
@@ -194,8 +200,8 @@ export const benchmarkDefinitions: {
         );
 
         return () => ({
-          processor: createStaticReplacementProcessor({
-            searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+          processor: new StaticReplacementProcessor({
+            searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
             replacement: "NEW"
           }),
           input: precomputedInput
@@ -226,8 +232,8 @@ export const benchmarkDefinitions: {
         );
 
         return () => ({
-          processor: createStaticReplacementProcessor({
-            searchStrategy: createStringAnchorSearchStrategy([
+          processor: new StaticReplacementProcessor({
+            searchStrategy: new StringAnchorSearchStrategy([
               "NOTFOUND"
             ]),
             replacement: "NEW"
@@ -272,8 +278,8 @@ export const benchmarkDefinitions: {
         }
 
         return () => ({
-          processor: createStaticReplacementProcessor({
-            searchStrategy: createStringAnchorSearchStrategy([
+          processor: new StaticReplacementProcessor({
+            searchStrategy: new StringAnchorSearchStrategy([
               pattern
             ]),
             replacement: "REPLACED"
@@ -303,8 +309,8 @@ export const benchmarkDefinitions: {
       description:
         "Sync baseline - verify no performance regression from async feature",
       setup: () => ({
-        processor: createStaticReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new StaticReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: "NEW"
         }),
         input: ["Replace OLD and OLD and OLD content"]
@@ -320,8 +326,8 @@ export const benchmarkDefinitions: {
       name: "processChunkSync with sync function replacement",
       description: "Sync function baseline - verify function call overhead",
       setup: () => ({
-        processor: createFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new FunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: (content, index) => `NEW-${index}`
         }),
         input: ["Replace OLD and OLD and OLD content"]
@@ -341,8 +347,8 @@ export const benchmarkDefinitions: {
       description:
         "Measure overhead of async generator with string replacement",
       setup: () => ({
-        processor: createAsyncFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new AsyncFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: async () => "NEW"
         }),
         input: ["Replace OLD and OLD and OLD content"]
@@ -359,8 +365,8 @@ export const benchmarkDefinitions: {
       description:
         "Measure overhead of awaiting sync function in async generator",
       setup: () => ({
-        processor: createAsyncFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new AsyncFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: async (content, index) => `NEW-${index}`
         }),
         input: ["Replace OLD and OLD and OLD content"]
@@ -379,8 +385,8 @@ export const benchmarkDefinitions: {
       name: "processChunk with async function (Promise.resolve)",
       description: "Measure true async replacement with Promise.resolve",
       setup: () => ({
-        processor: createAsyncFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new AsyncFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: async (content, index) => {
             await Promise.resolve();
             return `NEW-${index}`;
@@ -402,8 +408,8 @@ export const benchmarkDefinitions: {
       name: "processChunk with async function (immediate microtask)",
       description: "Measure async replacement returning immediate Promise",
       setup: () => ({
-        processor: createAsyncFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new AsyncFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: async (content, index) => {
             return Promise.resolve(`NEW-${index}`);
           }
@@ -424,8 +430,8 @@ export const benchmarkDefinitions: {
       name: "processChunk with async iterable replacement (single stream)",
       description: "Measure streaming replacement with ReadableStream",
       setup: () => ({
-        processor: createAsyncIterableFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new AsyncIterableFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: async () => {
             return new ReadableStream({
               start(controller) {
@@ -447,8 +453,8 @@ export const benchmarkDefinitions: {
       name: "processChunk with async iterable replacement (multi-chunk stream)",
       description: "Measure streaming replacement with chunked ReadableStream",
       setup: () => ({
-        processor: createAsyncIterableFunctionReplacementProcessor({
-          searchStrategy: createStringAnchorSearchStrategy(["OLD"]),
+        processor: new AsyncIterableFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
           replacement: async (content, index) => {
             return new ReadableStream({
               start(controller) {
@@ -479,10 +485,19 @@ export const benchmarkDefinitions: {
 export function executeBenchmark(definition: BenchmarkDefinition) {
   const { processor, input } = definition.setup();
 
+  if (
+    !(processor instanceof StaticReplacementProcessor) &&
+    !(processor instanceof FunctionReplacementProcessor)
+  ) {
+    throw new Error(
+      "executeBenchmark requires StaticReplacementProcessor or FunctionReplacementProcessor"
+    );
+  }
+
   const outputChunks: string[] = [];
 
   for (const inputChunk of input) {
-    for (const chunk of (processor as SyncProcessor).processChunk(inputChunk)) {
+    for (const chunk of processor.processChunk(inputChunk)) {
       outputChunks.push(chunk);
     }
   }
@@ -501,12 +516,19 @@ export function executeBenchmark(definition: BenchmarkDefinition) {
 export async function executeBenchmarkAsync(definition: BenchmarkDefinition) {
   const { processor, input } = definition.setup();
 
+  if (
+    !(processor instanceof AsyncFunctionReplacementProcessor) &&
+    !(processor instanceof AsyncIterableFunctionReplacementProcessor)
+  ) {
+    throw new Error(
+      "executeBenchmarkAsync requires AsyncFunctionReplacementProcessor or AsyncIterableFunctionReplacementProcessor"
+    );
+  }
+
   const outputChunks: string[] = [];
 
   for (const inputChunk of input) {
-    for await (const chunk of (processor as AsyncProcessor).processChunk(
-      inputChunk
-    )) {
+    for await (const chunk of processor.processChunk(inputChunk)) {
       outputChunks.push(chunk);
     }
   }
