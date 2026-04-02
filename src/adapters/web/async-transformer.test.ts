@@ -80,7 +80,7 @@ describe("AsyncReplaceContentTransformer", () => {
     controller.enqueue = vi.fn().mockImplementation((chunk: string) => {
       outputs.push(chunk);
       if (chunk === "PART1") {
-        transformer.cancel!("test-reason");
+        transformer.cancel();
       }
     });
 
@@ -95,7 +95,7 @@ describe("AsyncReplaceContentTransformer", () => {
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.cancel!("test");
+    transformer.cancel();
     await transformer.transform!("input", controller);
 
     expect(outputs).toEqual([]);
