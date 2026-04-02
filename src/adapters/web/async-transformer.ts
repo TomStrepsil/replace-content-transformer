@@ -113,7 +113,7 @@ export class AsyncReplaceContentTransformer
    * @param reason Optional cancellation reason from the stream infrastructure.
    * Accepted for WHATWG callback compatibility and intentionally unused.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reason is a required part of the WHATWG callback signature, but unused in this implementation
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- an optional reason is part of the WHATWG callback signature; accepted for compatibility and unused in this implementation
   cancel(reason?: unknown): void {
     this.#cancelled = true;
   }
