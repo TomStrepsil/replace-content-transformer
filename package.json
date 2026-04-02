@@ -60,14 +60,12 @@
   ],
   "sideEffects": false,
   "engines": {
-    "node": ">=18",
-    "bun": ">=1.0.0",
-    "deno": ">=1.40.0"
+    "node": ">=18"
   },
   "scripts": {
     "prepublishOnly": "npm run build",
-    "build": "rimraf lib && node ./node_modules/typescript/bin/tsc -p tsconfig.build.json",
-    "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "build": "rimraf lib && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run --coverage",
     "test:watch": "vitest",
