@@ -77,7 +77,13 @@ const asyncTransformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-The `SyncProcessor` and `AsyncProcessors` available are described in [Replacement Processors](#-replacement-processors).
+> [!NOTE]
+> The WHATWG spec includes `Transformer.cancel` with an optional `reason` parameter for async transformers.
+> Some TypeScript type sources still lag this part of the spec (including current Node docs/types), so the public
+> TypeScript signatures in this project focus on matching widely-available types while keeping runtime behaviour
+> spec-aligned across runtimes. Tracking issue: https://github.com/nodejs/node/issues/62540
+
+The `SyncProcessor` and `AsyncProcessor`s available are described in [Replacement Processors](#-replacement-processors).
 
 These processors take `searchStrategy` (see [Search Strategies](#-search-strategies)) and `replacement` constructor options.
 
@@ -205,10 +211,12 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses, due to the WHATWG Streams API's native support for enqueueing any JavaScript value, including promises, which will be awaited by downstream consumers.
+Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses.
 
 > [!WARNING]
-> This subverts [back-pressure control](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure), and may conflict with a desired [highWaterMark](https://developer.mozilla.org/en-US/docs/Web/API/CountQueuingStrategy/highWaterMark); the replacement function can't slow down production based on consumer speed. However, it allows for early discovery in the input stream.
+> The WHATWG Streams API allows enqueueing any JavaScript value. Downstream consumers receive `Promise` objects and must explicitly `await` them.
+> 
+> Because the replacement function runs synchronously for all matches in a chunk, all async operations (e.g. `fetch` calls) are initiated eagerly — the consumer cannot pace their creation. Back-pressure still operates between input chunks, but within a single chunk, concurrency is uncontrolled. This is the trade-off for early discovery in the input stream.
 
 ```typescript
 // `<link href="https://example.com/css" rel="stylesheet" />` becomes `<style>{content of sheet}</style>`

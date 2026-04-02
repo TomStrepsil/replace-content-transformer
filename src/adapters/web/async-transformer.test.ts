@@ -5,7 +5,7 @@ import {
   mockAsyncProcessorFactory
 } from "../../../test/utilities.ts";
 
-describe("ReplaceContentTransformer (async)", () => {
+describe("AsyncReplaceContentTransformer", () => {
   it("delegates to processor and enqueues output", async () => {
     const mockProcessor = mockAsyncProcessorFactory("ABC", "abc!");
 
@@ -57,7 +57,7 @@ describe("ReplaceContentTransformer (async)", () => {
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
   });
 
-  it("flush enqueues flushed content", () => {
+  it("enqueues content when flush is called", () => {
     const mockProcessor = mockAsyncProcessorFactory();
 
     const transformer = new AsyncReplaceContentTransformer(mockProcessor);
@@ -69,4 +69,39 @@ describe("ReplaceContentTransformer (async)", () => {
     expect(outputs).toContain("<FLUSHED>");
     expect(mockProcessor.flush).toHaveBeenCalled();
   });
+
+  it("stops enqueuing mid-transformation at next yield boundary when cancelled", async () => {
+    const transformer = new AsyncReplaceContentTransformer(
+      mockAsyncProcessorFactory("PART1", "PART2", "PART3")
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    controller.enqueue = vi.fn().mockImplementation((chunk: string) => {
+      outputs.push(chunk);
+      if (chunk === "PART1") {
+        transformer.cancel();
+      }
+    });
+
+    await transformer.transform!("input", controller);
+
+    expect(outputs).toEqual(["PART1"]);
+  });
+
+  it.each([undefined, "test reason"])(
+    "stops processing before transform when cancelled",
+    async (reason) => {
+      const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
+      const transformer = new AsyncReplaceContentTransformer(mockProcessor);
+      const outputs: string[] = [];
+      const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+      transformer.cancel(reason);
+      await transformer.transform!("input", controller);
+
+      expect(outputs).toEqual([]);
+      expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    }
+  );
 });
