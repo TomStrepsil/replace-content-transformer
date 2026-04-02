@@ -43,9 +43,9 @@ type CancellableTransformer<I = unknown, O = unknown> = Transformer<I, O> & {
  * );
  * ```
  */
-export class AsyncReplaceContentTransformer<T = string>
-  extends ReplaceContentTransformerBase<T>
-  implements CancellableTransformer<string, T | string>
+export class AsyncReplaceContentTransformer
+  extends ReplaceContentTransformerBase<string>
+  implements CancellableTransformer<string, string>
 {
   protected processor: AsyncProcessor;
   #stopReplacingSignal?: AbortSignal;
