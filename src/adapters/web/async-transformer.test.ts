@@ -57,7 +57,7 @@ describe("AsyncReplaceContentTransformer", () => {
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
   });
 
-  it("flush enqueues flushed content", () => {
+  it("enqueues content when flush is called", () => {
     const mockProcessor = mockAsyncProcessorFactory();
 
     const transformer = new AsyncReplaceContentTransformer(mockProcessor);
@@ -70,7 +70,7 @@ describe("AsyncReplaceContentTransformer", () => {
     expect(mockProcessor.flush).toHaveBeenCalled();
   });
 
-  it("cancel stops enqueuing mid-transformation at next yield boundary", async () => {
+  it("stops enqueuing mid-transformation at next yield boundary when cancelled", async () => {
     const transformer = new AsyncReplaceContentTransformer(
       mockAsyncProcessorFactory("PART1", "PART2", "PART3")
     );
@@ -89,7 +89,7 @@ describe("AsyncReplaceContentTransformer", () => {
     expect(outputs).toEqual(["PART1"]);
   });
 
-  it("cancel before transform prevents processing", async () => {
+  it("stops processing before transform when cancelled", async () => {
     const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
     const transformer = new AsyncReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
