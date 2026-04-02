@@ -89,16 +89,19 @@ describe("AsyncReplaceContentTransformer", () => {
     expect(outputs).toEqual(["PART1"]);
   });
 
-  it("stops processing before transform when cancelled", async () => {
-    const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
-    const transformer = new AsyncReplaceContentTransformer(mockProcessor);
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+  it.each([undefined, "test reason"])(
+    "stops processing before transform when cancelled",
+    async (reason) => {
+      const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
+      const transformer = new AsyncReplaceContentTransformer(mockProcessor);
+      const outputs: string[] = [];
+      const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.cancel();
-    await transformer.transform!("input", controller);
+      transformer.cancel(reason);
+      await transformer.transform!("input", controller);
 
-    expect(outputs).toEqual([]);
-    expect(mockProcessor.processChunk).toHaveBeenCalled();
-  });
+      expect(outputs).toEqual([]);
+      expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -83,7 +83,7 @@ const asyncTransformer = new AsyncReplaceContentTransformer(
 > a local compatibility type for `cancel` to keep behaviour spec-aligned across runtimes. Tracking issue:
 > https://github.com/nodejs/node/issues/62540
 
-The `SyncProcessor` and `AsyncProcessors` available are described in [Replacement Processors](#-replacement-processors).
+The `SyncProcessor` and `AsyncProcessor`s available are described in [Replacement Processors](#-replacement-processors).
 
 These processors take `searchStrategy` (see [Search Strategies](#-search-strategies)) and `replacement` constructor options.
 

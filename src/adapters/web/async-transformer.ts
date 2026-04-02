@@ -61,6 +61,10 @@ export class AsyncReplaceContentTransformer<T = string>
     chunk: string,
     controller: TransformStreamDefaultController<string>
   ) {
+    if (this.#cancelled) {
+      return;
+    }
+
     if (this.#stopReplacingSignal?.aborted) {
       controller.enqueue(chunk);
       return;
@@ -105,8 +109,12 @@ export class AsyncReplaceContentTransformer<T = string>
    * ac.abort();                       // cancels in-flight fetches
    * await readable.cancel("done");    // tears down the stream → cancel() called
    * ```
+   *
+   * @param reason Optional cancellation reason from the stream infrastructure.
+   * Accepted for WHATWG callback compatibility and intentionally unused.
    */
-  cancel() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reason is a required part of the WHATWG callback signature, but unused in this implementation
+  cancel(reason?: unknown): void {
     this.#cancelled = true;
   }
 }
