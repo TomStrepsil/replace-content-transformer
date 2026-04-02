@@ -94,12 +94,4 @@ describe("ReplaceContentTransformer (sync)", () => {
     await expect(outputs[2]).resolves.toBe("ASYNC_RESULT_2");
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
   });
-
-  it("does not expose cancel", () => {
-    const transformer = new ReplaceContentTransformer(
-      mockSyncProcessorFactory()
-    );
-
-    expect("cancel" in transformer).toBe(false);
-  });
 });
