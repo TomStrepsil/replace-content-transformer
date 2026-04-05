@@ -570,7 +570,7 @@ npm run test:watch
 # Run tests with coverage
 npm run test:ci
 
-# Run benchmarks ("looped indexOf anchored" search strategy, on Node runtime)
+# Run algorithm benchmarks ("looped indexOf anchored" search strategy, on Node runtime)
 npm run bench
 
 # Run runtime benchmarks (as above, but across Node, Deno and Bun, where installed)
@@ -578,6 +578,12 @@ npm run bench:runtimes
 
 # Run algorithm benchmarks (comparing algorithms - most not exported, for comparison)
 npm run bench:algorithms
+
+# Prepare markdown for a PR summary, comparing local algorithms and runtimes performance against remote HEAD of main.
+# fast = node, public algorithms
+# full = node/bun/deno, public + benchmark algorithms
+npm run bench:pr-summary:fast
+npm run bench:pr-summary:full
 
 # Lint code
 npm run lint
@@ -612,7 +618,7 @@ npm run build
   - Edge cases (empty content, incomplete patterns, LaTeX-like nested braces)
   - Real-world scenarios (HTML templating, cross-boundary matches)
 
-All tests run across multiple runtimes (Node.js, Bun, Deno) in CI. See [Benchmarks](./test/benchmarks/README.md) for performance analysis.
+Cross-runtime performance suites are available via local benchmark scripts. See [Benchmarks](./test/benchmarks/README.md) for comparison workflows.
 
 ## 🌐 Compatibility
 

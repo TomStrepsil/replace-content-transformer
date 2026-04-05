@@ -127,3 +127,43 @@ Stream processing performance with the same code across different JavaScript eng
 - Runtime benchmarks focus on **engine differences** (same code, different engines)
 - All benchmarks run in the workspace context with access to `../../src/` for imports
 - Scripts use `--experimental-strip-types` on Node, for TypeScript execution without compilation
+
+## Branch Comparison Snapshot
+
+Use one command to compare current working tree (Ref A) against a base ref (Ref B) and generate PR-ready markdown. Uses git worktrees to pull refs to temporary sub-directories.
+
+### Fast PR mode
+
+Runs only public algorithms (`regex` and `looped-indexOf`) and Node runtime:
+
+```bash
+npm run bench:pr-summary:fast
+```
+
+### Full mode
+
+Runs all benchmark algorithms across all available runtimes:
+
+```bash
+npm run bench:pr-summary:full
+```
+
+Defaults:
+
+- `REF_A=HEAD`
+- `REF_B=origin/main`
+
+Override refs as needed:
+
+```bash
+REF_B=main npm run bench:pr-summary:full
+```
+
+Output is written to:
+
+- `test/benchmarks/pr-comparison.md` (fast mode)
+- `test/benchmarks/pr-comparison.full.md` (full mode)
+
+Intermediate JSON files are written to a temporary directory and deleted automatically.
+
+On an M4 MacBook Air, full mode currently takes about 11 minutes, while fast mode takes about 5 minutes.

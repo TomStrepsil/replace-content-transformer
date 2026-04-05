@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a `typecheck` npm script
+- Added branch comparison and PR summary creation scripts to the benchmarking
 
 ### Changed
 
@@ -25,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed minor documentation issues in the README and search strategy docs
 - Fixed the type for the `AsyncReplaceContentTransformer`, this only outputs `string` unlike the sync version which can also output `Promise<string>`
 - Removed `"bun": ">=1.0.0", "deno": ">=1.40.0"` from `package.json` "engines" field, since not valid here
+
+### Removed
+
+- Removed the `bench` alias for `bench:node` script
 
 ## [1.1.0] - 2026-03-22
 

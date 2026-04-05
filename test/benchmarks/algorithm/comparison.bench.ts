@@ -2,6 +2,26 @@ import { bench, group, run } from "mitata";
 import * as harnesses from "../../harnesses/index.ts";
 import type { BaseHarness } from "../../harnesses/types.ts";
 
+const cliArgs = (() => {
+  if (typeof process !== "undefined" && Array.isArray(process.argv)) {
+    return process.argv;
+  }
+  if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
+    return globalThis.Deno.args ?? [];
+  }
+  if (typeof globalThis !== "undefined" && "Bun" in globalThis) {
+    return globalThis.Bun.argv ?? [];
+  }
+  return [];
+})();
+
+const hasArg = (flag: string) => cliArgs.includes(flag);
+const getArgValue = (flag: string) => {
+  const index = cliArgs.indexOf(flag);
+  if (index === -1 || index + 1 >= cliArgs.length) return null;
+  return cliArgs[index + 1];
+};
+
 function createMockController(outputs: string[]) {
   return {
     enqueue: (chunk: string) => {
@@ -404,7 +424,7 @@ for (const scenario of scenarios) {
             for (const chunk of scenario.chunks) {
               await transformer.transform!(chunk, controller);
             }
-            transformer.flush!(controller);
+            transformer.flush(controller);
           }
         };
       });
@@ -412,7 +432,19 @@ for (const scenario of scenarios) {
   });
 }
 
-const useJson = process.argv.includes("--json");
+const useJson = hasArg("--json");
+const filterPattern = getArgValue("--filter");
+
+let filterRegex: RegExp | undefined;
+if (filterPattern) {
+  try {
+    filterRegex = new RegExp(filterPattern, "i");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`Invalid --filter regex: ${message}\n`);
+    process.exit(1);
+  }
+}
 
 if (!useJson) {
   console.log("🚀 Algorithm Comparison Benchmark\n");
@@ -425,6 +457,7 @@ if (!useJson) {
 
 if (useJson) {
   run({
+    ...(filterRegex ? { filter: filterRegex } : {}),
     format: {
       json: {
         debug: false,
@@ -433,5 +466,5 @@ if (useJson) {
     }
   });
 } else {
-  run();
+  run(filterRegex ? { filter: filterRegex } : undefined);
 }

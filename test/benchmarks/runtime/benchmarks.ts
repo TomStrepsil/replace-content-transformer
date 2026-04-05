@@ -17,6 +17,7 @@ import {
  * - Bun: bun run test/benchmarks/runtime-comparison/benchmarks.ts
  * - Deno: deno run --allow-read --allow-write --allow-env --allow-sys test/benchmarks/runtime-comparison/benchmarks.ts
  * - Node: node --experimental-strip-types test/benchmarks/runtime-comparison/benchmarks.ts
+ * - JSON (slim, CI default): add --json
  */
 
 const runtime = (() => {
@@ -25,17 +26,21 @@ const runtime = (() => {
   return "Node.js";
 })();
 
-const isJsonMode = (() => {
-  if (typeof process !== "undefined" && process.argv?.includes("--json"))
-    return true;
+const cliArgs = (() => {
+  if (typeof process !== "undefined" && Array.isArray(process.argv)) {
+    return process.argv;
+  }
   if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
-    return globalThis.Deno.args?.includes("--json");
+    return globalThis.Deno.args ?? [];
   }
   if (typeof globalThis !== "undefined" && "Bun" in globalThis) {
-    return globalThis.Bun.argv?.includes("--json");
+    return globalThis.Bun.argv ?? [];
   }
-  return false;
+  return [];
 })();
+
+const hasArg = (flag: string) => cliArgs.includes(flag);
+const isJsonMode = hasArg("--json");
 
 if (!isJsonMode) {
   console.log(`🚀 Running benchmarks on ${runtime}`);
@@ -104,7 +109,14 @@ bench(`Runtime: ${runtime}`, () => {
 });
 
 if (isJsonMode) {
-  run({ format: "json" });
+  run({
+    format: {
+      json: {
+        samples: false,
+        debug: false
+      }
+    }
+  });
 } else {
   run();
 }

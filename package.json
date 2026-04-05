@@ -72,6 +72,8 @@
     "bench": "npm run bench:node -w test/benchmarks",
     "bench:runtimes": "npm run bench:runtimes -w test/benchmarks",
     "bench:algorithms": "npm run bench:algorithms -w test/benchmarks",
+    "bench:pr-summary:fast": "npm run bench:pr-summary:fast -w test/benchmarks",
+    "bench:pr-summary:full": "npm run bench:pr-summary:full -w test/benchmarks",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prepare": "simple-git-hooks"

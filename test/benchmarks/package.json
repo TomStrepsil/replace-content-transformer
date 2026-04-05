@@ -5,7 +5,6 @@
   "type": "module",
   "description": "Benchmark tooling and harnesses for replace-content-transformer",
   "scripts": {
-    "bench": "node --experimental-strip-types runtime/benchmarks.ts",
     "bench:bun": "bun run runtime/benchmarks.ts",
     "bench:deno": "deno run --allow-read --allow-write --allow-env --allow-sys runtime/benchmarks.ts",
     "bench:node": "node --experimental-strip-types runtime/benchmarks.ts",
@@ -13,7 +12,10 @@
     "bench:algorithms": "node --experimental-strip-types algorithm/comparison.bench.ts",
     "bench:algorithms:json": "./algorithm/run.sh",
     "bench:algorithms:json:succinct": "./algorithm/run-succinct.sh",
-    "bench:algorithms:visualise": "node --experimental-strip-types algorithm/visualise-results.ts"
+    "bench:algorithms:visualise": "node --experimental-strip-types algorithm/visualise-results.ts",
+    "bench:compare-branches": "./comparison/compare-branches.sh",
+    "bench:pr-summary:fast": "MODE=fast bash ./comparison/create-pr-summary.sh",
+    "bench:pr-summary:full": "bash ./comparison/create-pr-summary-full.sh"
   },
   "devDependencies": {
     "mitata": "^1.0.10"
