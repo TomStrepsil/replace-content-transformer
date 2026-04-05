@@ -129,6 +129,9 @@ Stream processing performance with the same code across different JavaScript eng
 
 Use one command to compare current working tree (Ref A) against a base ref (Ref B) and generate PR-ready markdown. Uses git worktrees to pull refs to temporary sub-directories.
 
+> [!WARNING]
+> These commands assume all runtimes are installed.  Prefix `REQUIRE_ALL_RUNTIMES=0` to compare Node only.
+
 ```bash
 REF_B=<some ref> npm run bench:compare-branches
 ```
