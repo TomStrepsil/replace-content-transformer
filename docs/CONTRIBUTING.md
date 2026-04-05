@@ -80,7 +80,21 @@ Ensure all tests pass:
 npm test
 ```
 
-### 5. Run Linter
+### 5. Check Benchmark Variance
+
+Check for performance variance against the main:
+
+```bash
+REQUIRE_CLEAN=0 npm run bench:compare-branches
+```
+
+If any significant change, prepare a summary for the pull request:
+
+```bash
+npm run bench:pr-summary:fast
+```
+
+### 6. Run Linter
 
 Check code quality:
 
@@ -88,7 +102,7 @@ Check code quality:
 npm run lint
 ```
 
-### 6. Commit Your Changes
+### 7. Commit Your Changes
 
 Write clear, descriptive commit messages:
 
@@ -97,7 +111,7 @@ git add .
 git commit -m "add support for unicode normalization"
 ```
 
-### 7. Keep Your Branch Updated
+### 8. Keep Your Branch Updated
 
 Regularly sync with upstream:
 
@@ -106,7 +120,7 @@ git fetch upstream
 git merge upstream/main
 ```
 
-### 8. Push to Your Fork
+### 9. Push to Your Fork
 
 ```bash
 git push origin feature/your-feature-name
