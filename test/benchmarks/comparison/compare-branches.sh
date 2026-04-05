@@ -4,12 +4,13 @@ set -euo pipefail
 
 # Benchmark Branch/Commit Comparison Contract Runner
 #
-# Ref A (candidate) always benchmarks the current working tree — benchmark
-# scripts, harnesses, and src/ are all taken from the current branch.
+# Ref A (candidate) is inferred automatically:
+# - If REF_A is omitted (or resolves to current HEAD), benchmark current working tree.
+# - If REF_A resolves to a different commit/ref, benchmark an isolated ref worktree.
 #
 # Ref B (base) is checked out in an isolated worktree for its src/ only.
-# The current branch's test/benchmarks/ and test/harnesses/ are overlaid
-# onto that worktree so that benchmark scripts evolve independently of old refs.
+# The current branch's test/benchmarks/ is overlaid onto that worktree so that
+# benchmark scripts evolve independently of old refs.
 #
 # Usage:
 #   ./test/benchmarks/comparison/compare-branches.sh
@@ -17,8 +18,9 @@ set -euo pipefail
 #   REF_B=<commit-hash> ./test/benchmarks/comparison/compare-branches.sh
 #
 # Optional env vars:
-#   REF_A               default: HEAD  (resolved from current working tree; not a worktree)
-#   REF_B               default: main  (base ref, checked out as isolated worktree)
+#   REF_A               default: HEAD
+#                       omitted -> working tree; supplied non-HEAD ref -> isolated worktree
+#   REF_B               default: origin/main  (base ref, checked out as isolated worktree)
 #   REF_A_LABEL         default: ref-a
 #   REF_B_LABEL         default: ref-b
 #   OUTPUT_DIR          default: test/benchmarks/results/branch-comparisons/<timestamp>
@@ -31,8 +33,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BENCH_DIR_REL="test/benchmarks"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
+REF_A_WAS_SET=0
+if [[ -n "${REF_A+x}" ]]; then
+  REF_A_WAS_SET=1
+fi
+
 REF_A="${REF_A:-HEAD}"
-REF_B="${REF_B:-main}"
+REF_B="${REF_B:-origin/main}"
 REF_A_LABEL="${REF_A_LABEL:-ref-a}"
 REF_B_LABEL="${REF_B_LABEL:-ref-b}"
 REQUIRE_CLEAN="${REQUIRE_CLEAN:-1}"
@@ -41,9 +48,25 @@ RUNTIMES="${RUNTIMES:-node,bun,deno}"
 ALGORITHM_SCOPE="${ALGORITHM_SCOPE:-all}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/test/benchmarks/results/branch-comparisons/$TIMESTAMP}"
 
+if [[ "$REF_A_WAS_SET" == "0" ]]; then
+  REF_A_SOURCE_RESOLVED="working-tree"
+else
+  HEAD_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+  REF_A_RESOLVED_SHA="$(git -C "$ROOT_DIR" rev-parse "$REF_A" 2>/dev/null || true)"
+  if [[ -z "$REF_A_RESOLVED_SHA" ]]; then
+    echo "ERROR: unable to resolve REF_A '$REF_A'" >&2
+    exit 1
+  fi
+  if [[ "$REF_A_RESOLVED_SHA" == "$HEAD_SHA" ]]; then
+    REF_A_SOURCE_RESOLVED="working-tree"
+  else
+    REF_A_SOURCE_RESOLVED="ref"
+  fi
+fi
+
 mkdir -p "$OUTPUT_DIR/logs"
 
-if [[ "$REQUIRE_CLEAN" == "1" ]] && [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" ]]; then
+if [[ "$REQUIRE_CLEAN" == "1" ]] && [[ "$REF_A_SOURCE_RESOLVED" == "working-tree" ]] && [[ -n "$(git -C "$ROOT_DIR" status --porcelain)" ]]; then
   echo "ERROR: working tree is dirty; set REQUIRE_CLEAN=0 to override" >&2
   exit 1
 fi
@@ -63,30 +86,54 @@ if [[ "$REQUIRE_ALL_RUNTIMES" == "1" ]]; then
   require_cmd deno
 fi
 
-# Only the base ref (REF_B) needs a worktree. The candidate (REF_A) always
-# runs directly from ROOT_DIR so that uncommitted changes are included and
-# the latest benchmark scripts are used.
+REF_A_WORKTREE=""
 REF_B_WORKTREE="$(mktemp -d "$ROOT_DIR/.tmp-bench-base-XXXXXX")"
 cleanup() {
+  if [[ -n "$REF_A_WORKTREE" ]]; then
+    git -C "$ROOT_DIR" worktree remove --force "$REF_A_WORKTREE" >/dev/null 2>&1 || true
+    rm -rf "$REF_A_WORKTREE" >/dev/null 2>&1 || true
+  fi
   git -C "$ROOT_DIR" worktree remove --force "$REF_B_WORKTREE" >/dev/null 2>&1 || true
   rm -rf "$REF_B_WORKTREE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
+if [[ "$REF_A_SOURCE_RESOLVED" == "ref" ]]; then
+  REF_A_WORKTREE="$(mktemp -d "$ROOT_DIR/.tmp-bench-candidate-XXXXXX")"
+  git -C "$ROOT_DIR" worktree add --detach "$REF_A_WORKTREE" "$REF_A" >/dev/null
+fi
+
 git -C "$ROOT_DIR" worktree add --detach "$REF_B_WORKTREE" "$REF_B" >/dev/null
 
-# Overlay the current branch's benchmark scripts onto the base worktree.
-echo "Overlaying current benchmark scripts onto base ref worktree"
-rm -rf "$REF_B_WORKTREE/test/benchmarks"
-cp -r "$ROOT_DIR/test/benchmarks" "$REF_B_WORKTREE/test/"
-rm -rf "$REF_B_WORKTREE/test/benchmarks/results"
+overlay_benchmark_scripts() {
+  local target_repo="$1"
+  rm -rf "$target_repo/test/benchmarks"
+  cp -r "$ROOT_DIR/test/benchmarks" "$target_repo/test/"
+  rm -rf "$target_repo/test/benchmarks/results"
+}
 
-REF_A_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
+if [[ "$REF_A_SOURCE_RESOLVED" == "ref" ]]; then
+  echo "Overlaying current benchmark scripts onto candidate ref worktree"
+  overlay_benchmark_scripts "$REF_A_WORKTREE"
+fi
+
+echo "Overlaying current benchmark scripts onto base ref worktree"
+overlay_benchmark_scripts "$REF_B_WORKTREE"
+
+if [[ "$REF_A_SOURCE_RESOLVED" == "ref" ]]; then
+  CANDIDATE_REPO_DIR="$REF_A_WORKTREE"
+  REF_A_SHA="$(git -C "$REF_A_WORKTREE" rev-parse --short HEAD)"
+  REF_A_NAME="$(git -C "$REF_A_WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")"
+else
+  CANDIDATE_REPO_DIR="$ROOT_DIR"
+  REF_A_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
+  REF_A_NAME="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")"
+fi
+
 REF_B_SHA="$(git -C "$REF_B_WORKTREE" rev-parse --short HEAD)"
-REF_A_NAME="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")"
 REF_B_NAME="$(git -C "$REF_B_WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")"
 
-echo "Candidate (Ref A): $REF_A ($REF_A_SHA) [$REF_A_NAME]"
+echo "Candidate (Ref A): $REF_A ($REF_A_SHA) [$REF_A_NAME] [source=$REF_A_SOURCE_RESOLVED]"
 echo "Base      (Ref B):  $REF_B ($REF_B_SHA) [$REF_B_NAME]"
 echo "Output: $OUTPUT_DIR"
 
@@ -171,7 +218,7 @@ run_benchmarks() {
   done
 }
 
-run_benchmarks "$ROOT_DIR" "$REF_A_LABEL"
+run_benchmarks "$CANDIDATE_REPO_DIR" "$REF_A_LABEL"
 run_benchmarks "$REF_B_WORKTREE" "$REF_B_LABEL"
 
 SUMMARY_JSON="$OUTPUT_DIR/summary.json"
@@ -207,7 +254,8 @@ cat > "$OUTPUT_DIR/metadata.json" <<EOF
     "resolvedName": "$REF_B_NAME"
   },
   "requireClean": $REQUIRE_CLEAN,
-  "requireAllRuntimes": $REQUIRE_ALL_RUNTIMES
+  "requireAllRuntimes": $REQUIRE_ALL_RUNTIMES,
+  "refASource": "$REF_A_SOURCE_RESOLVED"
 }
 EOF
 
