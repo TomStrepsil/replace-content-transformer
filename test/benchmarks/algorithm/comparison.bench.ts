@@ -433,7 +433,7 @@ for (const scenario of scenarios) {
             const outputs: string[] = [];
             const controller = createMockController(outputs);
             for (const chunk of scenario.chunks) {
-              await transformer.transform!(chunk, controller);
+              await transformer.transform(chunk, controller);
             }
             transformer.flush(controller);
           }

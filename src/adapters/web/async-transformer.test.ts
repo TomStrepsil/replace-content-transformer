@@ -84,7 +84,7 @@ describe("AsyncReplaceContentTransformer", () => {
       }
     });
 
-    await transformer.transform!("input", controller);
+    await transformer.transform("input", controller);
 
     expect(outputs).toEqual(["PART1"]);
   });
@@ -98,7 +98,7 @@ describe("AsyncReplaceContentTransformer", () => {
       const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
       transformer.cancel(reason);
-      await transformer.transform!("input", controller);
+      await transformer.transform("input", controller);
 
       expect(outputs).toEqual([]);
       expect(mockProcessor.processChunk).not.toHaveBeenCalled();
