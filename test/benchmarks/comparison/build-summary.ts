@@ -2,9 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 type MaybeBenchmarkData = {
+  layout?: Array<{
+    name?: string | null;
+  }>;
   benchmarks?: Array<{
     name?: string;
     alias?: string;
+    group?: number;
     runs?: Array<{
       stats?: {
         avg?: number;
@@ -47,6 +51,7 @@ if (!outDir || !refALabel || !refBLabel || !summaryJsonPath) {
 const readJson = <T>(p: string): T => JSON.parse(fs.readFileSync(p, "utf8"));
 const maybeRead = <T>(p: string): T | null => (fs.existsSync(p) ? readJson<T>(p) : null);
 const hzFromAvgNs = (avgNs: number) => (avgNs > 0 ? 1_000_000_000 / avgNs : 0);
+const SETUP_COST_GROUP_NAME = "Setup Cost (strategy + transformer creation)";
 
 function summarizeDeltas(rows: Array<{ deltaPct: number }>) {
   if (!rows.length) {
@@ -60,9 +65,25 @@ function summarizeDeltas(rows: Array<{ deltaPct: number }>) {
   return { count: rows.length, avgDeltaPct, medianDeltaPct, betterCount, worseCount };
 }
 
-function aggregateByBenchmarkName(data: MaybeBenchmarkData) {
+function isSetupCostBenchmark(
+  data: MaybeBenchmarkData,
+  benchmark: NonNullable<MaybeBenchmarkData["benchmarks"]>[number]
+) {
+  const groupIndex = benchmark.group;
+  if (typeof groupIndex !== "number") return false;
+  const groupName = data.layout?.[groupIndex]?.name;
+  return groupName === SETUP_COST_GROUP_NAME;
+}
+
+function aggregateByBenchmarkName(
+  data: MaybeBenchmarkData,
+  options: { includeSetupCost: boolean }
+) {
   const map = new Map<string, { totalAvgNs: number; count: number }>();
   for (const b of data.benchmarks || []) {
+    const isSetup = isSetupCostBenchmark(data, b);
+    if (options.includeSetupCost !== isSetup) continue;
+
     const name = b.alias || b.name;
     if (!name || name.includes("Runtime:")) continue;
     const run = b.runs && b.runs[0];
@@ -88,9 +109,13 @@ function aggregateByBenchmarkName(data: MaybeBenchmarkData) {
   return averaged;
 }
 
-function compareMitataBenchmarks(candidate: MaybeBenchmarkData, base: MaybeBenchmarkData) {
-  const candidateMap = aggregateByBenchmarkName(candidate);
-  const baseMap = aggregateByBenchmarkName(base);
+function compareMitataBenchmarks(
+  candidate: MaybeBenchmarkData,
+  base: MaybeBenchmarkData,
+  options: { includeSetupCost: boolean }
+) {
+  const candidateMap = aggregateByBenchmarkName(candidate, options);
+  const baseMap = aggregateByBenchmarkName(base, options);
 
   const rows: ComparisonRow[] = [];
   for (const [name, candidateRow] of candidateMap.entries()) {
@@ -116,7 +141,7 @@ function compareMitataBenchmarks(candidate: MaybeBenchmarkData, base: MaybeBench
 }
 
 function compareRuntime(candidate: MaybeBenchmarkData, base: MaybeBenchmarkData) {
-  return compareMitataBenchmarks(candidate, base);
+  return compareMitataBenchmarks(candidate, base, { includeSetupCost: false });
 }
 
 const refAAlg = readJson<MaybeBenchmarkData>(path.join(outDir, `${refALabel}.algorithm.json`));
@@ -134,7 +159,17 @@ for (const runtime of runtimeKeys) {
   }
 }
 
-const algorithm = compareMitataBenchmarks(refAAlg, refBAlg);
+const algorithmScenarios = compareMitataBenchmarks(refAAlg, refBAlg, {
+  includeSetupCost: false
+});
+const algorithmSetupCost = compareMitataBenchmarks(refAAlg, refBAlg, {
+  includeSetupCost: true
+});
+
+const algorithm = {
+  ...algorithmScenarios,
+  setupCost: algorithmSetupCost
+};
 
 const summary = {
   generatedAt: new Date().toISOString(),

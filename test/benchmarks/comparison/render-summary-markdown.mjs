@@ -74,6 +74,9 @@ const summarizeRows = (rows) => {
 };
 
 const algorithmRows = Array.isArray(summary.algorithm?.rows) ? summary.algorithm.rows : [];
+const setupCostRows = Array.isArray(summary.algorithm?.setupCost?.rows)
+  ? summary.algorithm.setupCost.rows
+  : [];
 const publicBenchmarkNames = new Set(["looped indexof anchored", "regex"]);
 const isPublicBenchmark = (row) =>
   publicBenchmarkNames.has(String(row.benchmark || "").trim().toLowerCase());
@@ -100,6 +103,10 @@ const publicAlgorithmSummaryRows = [rowsToSummaryTable("public", publicAlgorithm
   .join("\n");
 
 const benchmarkingAlgorithmSummaryRows = [rowsToSummaryTable("benchmarking", benchmarkingAlgorithmRows)]
+  .map((line) => line)
+  .join("\n");
+
+const setupCostSummaryRows = [rowsToSummaryTable("setup-cost", setupCostRows)]
   .map((line) => line)
   .join("\n");
 
@@ -144,6 +151,18 @@ const md = [
   "| Algorithm | Delta | Signal |",
   "| --- | ---: | --- |",
   rowsToAlgorithmTable(benchmarkingAlgorithmRows) || "| (none) | +0.00% | Within noise |",
+  "",
+  "## Setup Cost (strategy + transformer creation)",
+  "",
+  "| Scope | Benchmarks | Geomean speedup | Signal | Median delta | P10..P90 delta | Better rows | Worse rows |",
+  "| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |",
+  setupCostRows.length
+    ? setupCostSummaryRows
+    : "| setup-cost | 0 | +0.00% | Within noise | +0.00% | +0.00% .. +0.00% | 0 | 0 |",
+  "",
+  "| Harness | Delta | Signal |",
+  "| --- | ---: | --- |",
+  rowsToAlgorithmTable(setupCostRows) || "| (none) | +0.00% | Within noise |",
   "",
   "## Runtime Performance",
   "",
