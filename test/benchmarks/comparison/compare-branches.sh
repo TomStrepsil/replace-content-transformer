@@ -26,7 +26,6 @@ set -euo pipefail
 #   REF_B_LABEL         default: ref-b
 #   OUTPUT_DIR          default: test/benchmarks/results/branch-comparisons/<timestamp>
 #   REQUIRE_CLEAN       default: 1 (fail if current repo is dirty)
-#   REQUIRE_ALL_RUNTIMES default: 1 (fail if bun/deno/node unavailable)
 #   RUNTIMES            default: node,bun,deno
 #   ALGORITHM_SCOPE     default: public (all|public)
 
@@ -44,7 +43,6 @@ REF_B="${REF_B:-origin/main}"
 REF_A_LABEL="${REF_A_LABEL:-ref-a}"
 REF_B_LABEL="${REF_B_LABEL:-ref-b}"
 REQUIRE_CLEAN="${REQUIRE_CLEAN:-1}"
-REQUIRE_ALL_RUNTIMES="${REQUIRE_ALL_RUNTIMES:-1}"
 RUNTIMES="${RUNTIMES:-node,bun,deno}"
 ALGORITHM_SCOPE="${ALGORITHM_SCOPE:-public}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/test/benchmarks/results/branch-comparisons/$TIMESTAMP}"
@@ -87,9 +85,28 @@ require_cmd() {
 
 require_cmd git
 require_cmd node
-if [[ "$REQUIRE_ALL_RUNTIMES" == "1" ]]; then
-  require_cmd bun
-  require_cmd deno
+
+RUNTIME_LIST=()
+IFS=',' read -r -a requested_runtimes <<< "$RUNTIMES"
+for runtime in "${requested_runtimes[@]}"; do
+  runtime="${runtime// /}"
+  [[ -z "$runtime" ]] && continue
+
+  case "$runtime" in
+    node|bun|deno)
+      require_cmd "$runtime"
+      RUNTIME_LIST+=("$runtime")
+      ;;
+    *)
+      echo "ERROR: unsupported runtime '$runtime' (expected: node|bun|deno)" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ ${#RUNTIME_LIST[@]} -eq 0 ]]; then
+  echo "ERROR: RUNTIMES must include at least one of: node,bun,deno" >&2
+  exit 1
 fi
 
 REF_A_WORKTREE=""
@@ -206,17 +223,9 @@ run_benchmarks() {
   run_algorithm_json "$bench_dir" "$alg_json" "$OUTPUT_DIR/logs/${label}.algorithm.stderr.log"
 
   local runtime
-  IFS=',' read -r -a runtime_list <<< "$RUNTIMES"
-  for runtime in "${runtime_list[@]}"; do
-    runtime="${runtime// /}"
-    [[ -z "$runtime" ]] && continue
-    if command -v "$runtime" >/dev/null 2>&1; then
-      echo "Running runtime JSON benchmark for $label ($runtime)"
-      run_runtime_json "$bench_dir" "$runtime" "$OUTPUT_DIR/${label}.runtime.${runtime}.json" "$OUTPUT_DIR/logs/${label}.runtime.${runtime}.stderr.log"
-    elif [[ "$REQUIRE_ALL_RUNTIMES" == "1" ]]; then
-      echo "ERROR: runtime '$runtime' required but not available" >&2
-      exit 1
-    fi
+  for runtime in "${RUNTIME_LIST[@]}"; do
+    echo "Running runtime JSON benchmark for $label ($runtime)"
+    run_runtime_json "$bench_dir" "$runtime" "$OUTPUT_DIR/${label}.runtime.${runtime}.json" "$OUTPUT_DIR/logs/${label}.runtime.${runtime}.stderr.log"
   done
 }
 
@@ -256,7 +265,7 @@ cat > "$OUTPUT_DIR/metadata.json" <<EOF
     "resolvedName": "$REF_B_NAME"
   },
   "requireClean": $REQUIRE_CLEAN,
-  "requireAllRuntimes": $REQUIRE_ALL_RUNTIMES,
+  "runtimes": "$RUNTIMES",
   "refASource": "$REF_A_SOURCE_RESOLVED"
 }
 EOF

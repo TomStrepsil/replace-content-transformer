@@ -16,13 +16,11 @@ set -euo pipefail
 #   REF_B             Base ref to compare against (default: origin/main)
 #   MODE              fast|full (default: fast)
 #   BENCH_OUTPUT      Output markdown path (default: test/benchmarks/pr-comparison.md)
-#   REQUIRE_ALL_RUNTIMES  Fail if any runtime unavailable (default: 0)
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 REF_B="${REF_B:-origin/main}"
 MODE="${MODE:-fast}"
-REQUIRE_ALL_RUNTIMES="${REQUIRE_ALL_RUNTIMES:-0}"
 BENCH_OUTPUT="${BENCH_OUTPUT:-$ROOT_DIR/test/benchmarks/pr-comparison.md}"
 
 USER_RUNTIMES="${RUNTIMES:-}"
@@ -32,7 +30,6 @@ case "$MODE" in
   fast)
     RUNTIMES="${USER_RUNTIMES:-node}"
     ALGORITHM_SCOPE="${USER_ALGORITHM_SCOPE:-public}"
-    REQUIRE_ALL_RUNTIMES="${REQUIRE_ALL_RUNTIMES:-0}"
     ;;
   full)
     RUNTIMES="${USER_RUNTIMES:-node,bun,deno}"
@@ -57,7 +54,6 @@ trap cleanup EXIT
   ALGORITHM_SCOPE="$ALGORITHM_SCOPE" \
   OUTPUT_DIR="$TEMP_DIR" \
   REQUIRE_CLEAN=0 \
-  REQUIRE_ALL_RUNTIMES="$REQUIRE_ALL_RUNTIMES" \
   bash ./test/benchmarks/comparison/compare-branches.sh
 )
 

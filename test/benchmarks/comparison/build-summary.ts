@@ -49,10 +49,26 @@ const [
   summaryJsonPath
 ] = process.argv.slice(2);
 
-if (!outDir || !refALabel || !refBLabel || !summaryJsonPath) {
+const requiredArgs = {
+  outDir,
+  refALabel,
+  refBLabel,
+  refA,
+  refASha,
+  refB,
+  refBSha,
+  summaryJsonPath
+};
+
+const missingArgs = Object.entries(requiredArgs)
+  .filter(([, value]) => !value)
+  .map(([name]) => name);
+
+if (missingArgs.length > 0) {
   process.stderr.write(
     "Usage: node --experimental-strip-types test/benchmarks/comparison/build-summary.ts <outDir> <refALabel> <refBLabel> <refA> <refASha> <refB> <refBSha> <summaryJsonPath>\n"
   );
+  process.stderr.write(`Missing required args: ${missingArgs.join(", ")}\n`);
   process.exit(1);
 }
 

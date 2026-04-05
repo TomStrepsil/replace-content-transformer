@@ -130,7 +130,7 @@ Stream processing performance with the same code across different JavaScript eng
 Use one command to compare current working tree (Ref A) against a base ref (Ref B) and generate PR-ready markdown. Uses git worktrees to pull refs to temporary sub-directories.  The `src/` and `test/harnesses/` will be compared between branches - the harnesses need to have a compatible interface for the benchmarking code.
 
 > [!WARNING]
-> These commands assume all runtimes are installed.  Prefix `REQUIRE_ALL_RUNTIMES=0` to compare Node only.
+> This will compare Node, Bun and Deno runtimes by default. Prefix RUNTIMES=node,bun to limit to Node & Bun, etc.
 
 ```bash
 REF_B=<some ref> npm run bench:compare-branches
@@ -146,7 +146,7 @@ npm run bench:pr-summary:fast
 
 ### Full mode
 
-Runs all benchmark algorithms across all available runtimes:
+Runs all benchmark algorithms across the configured runtimes (default: `node,bun,deno`):
 
 ```bash
 npm run bench:pr-summary:full
