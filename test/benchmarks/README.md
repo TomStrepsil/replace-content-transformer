@@ -127,7 +127,7 @@ Stream processing performance with the same code across different JavaScript eng
 
 ## Branch Comparison Snapshot
 
-Use one command to compare current working tree (Ref A) against a base ref (Ref B) and generate PR-ready markdown. Uses git worktrees to pull refs to temporary sub-directories.
+Use one command to compare current working tree (Ref A) against a base ref (Ref B) and generate PR-ready markdown. Uses git worktrees to pull refs to temporary sub-directories.  The `src/` and `test/harnesses/` will be compared between branches - the harnesses need to have a compatible interface for the benchmarking code.
 
 > [!WARNING]
 > These commands assume all runtimes are installed.  Prefix `REQUIRE_ALL_RUNTIMES=0` to compare Node only.
