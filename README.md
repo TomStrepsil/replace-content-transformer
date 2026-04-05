@@ -570,7 +570,7 @@ npm run test:watch
 # Run tests with coverage
 npm run test:ci
 
-# Run algorithm benchmarks ("looped indexOf anchored" search strategy, on Node runtime)
+# Run benchmark ("looped indexOf anchored" search strategy, on Node runtime)
 npm run bench
 
 # Run runtime benchmarks (as above, but across Node, Deno and Bun, where installed)
