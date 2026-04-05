@@ -168,3 +168,6 @@ Output is written to:
 Intermediate JSON files are written to a temporary directory and deleted automatically.
 
 On an M4 MacBook Air, full mode currently takes about 11 minutes, while fast mode takes about 5 minutes.
+
+> [!NOTE]
+> The above commands assume a clean working tree, if there are changes yet to be committed, prefix with `REQUIRE_CLEAN=0`
