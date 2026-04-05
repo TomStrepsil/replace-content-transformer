@@ -85,7 +85,7 @@ npm test
 Check for performance variance against the main:
 
 ```bash
-REQUIRE_CLEAN=0 npm run bench:compare-branches
+REQUIRE_CLEAN=0 npm run -w test/benchmarks bench:compare-branches
 ```
 
 If any significant change, prepare a summary for the pull request:
