@@ -132,6 +132,10 @@ Stream processing performance with the same code across different JavaScript eng
 
 Use one command to compare current working tree (Ref A) against a base ref (Ref B) and generate PR-ready markdown. Uses git worktrees to pull refs to temporary sub-directories.
 
+```bash
+npm run bench:compare-branches REF_B=<some ref>
+```
+
 ### Fast PR mode
 
 Runs only public algorithms (`regex` and `looped-indexOf`) and Node runtime:
