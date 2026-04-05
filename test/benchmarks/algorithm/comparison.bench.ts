@@ -15,22 +15,67 @@ const cliArgs = (() => {
   return [];
 })();
 
+function writeStderr(message: string) {
+  if (typeof process !== "undefined" && process.stderr) {
+    process.stderr.write(message);
+    return;
+  }
+
+  if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
+    try {
+      globalThis.Deno.stderr.writeSync(new TextEncoder().encode(message));
+      return;
+    } catch {
+      // Fall through to console fallback.
+    }
+  }
+
+  if (typeof console !== "undefined" && typeof console.error === "function") {
+    console.error(message.trimEnd());
+  }
+}
+
+function exitWithError(message: string, code = 1): never {
+  writeStderr(message);
+
+  if (typeof process !== "undefined" && typeof process.exit === "function") {
+    process.exit(code);
+  }
+
+  if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
+    globalThis.Deno.exit(code);
+  }
+
+  throw new Error(message.trim());
+}
+
 const hasArg = (flag: string) => cliArgs.includes(flag);
-const getArgValue = (flag: string) => {
-  const index = cliArgs.indexOf(flag);
-  if (index === -1 || index + 1 >= cliArgs.length) return null;
-  return cliArgs[index + 1];
-};
+function getAlgorithmScopeFromEnv(): "all" | "public" {
+  const readScope = (): string | undefined => {
+    if (typeof process !== "undefined" && process.env) {
+      return process.env.ALGORITHM_SCOPE;
+    }
 
-const MAX_FILTER_PATTERN_LENGTH = 256;
+    if (typeof globalThis !== "undefined" && "Deno" in globalThis) {
+      try {
+        return globalThis.Deno.env.get("ALGORITHM_SCOPE");
+      } catch {
+        return undefined;
+      }
+    }
 
-// Reject high-risk regex features that are not needed for benchmark-name filtering.
-function isPotentiallyUnsafeRegexPattern(pattern: string): boolean {
-  if (/\\[1-9]/.test(pattern)) return true; // Backreferences
-  if (/\(\?<([=!])/.test(pattern)) return true; // Lookbehind assertions
-  if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]/.test(pattern))
-    return true; // Nested quantifier-like patterns
-  return false;
+    return undefined;
+  };
+
+  const rawScope = readScope();
+  const scope = (rawScope || "public").trim().toLowerCase();
+  if (scope === "all" || scope === "public") {
+    return scope;
+  }
+
+  exitWithError(
+    `Invalid ALGORITHM_SCOPE '${rawScope}'. Expected 'all' or 'public'.\n`
+  );
 }
 
 function createMockController(outputs: string[]) {
@@ -363,10 +408,13 @@ const scenarios: BenchmarkScenario[] = [
   }
 ];
 
+const PUBLIC_HARNESS_NAMES = new Set(["Looped IndexOf Anchored", "Regex"]);
+
 // Benchmark setup costs (strategy + transformer creation)
 // Uses first scenario as representative example
 group("Setup Cost (strategy + transformer creation)", async () => {
   const representativeScenario = scenarios[0]; // "Single chunk, multiple patterns"
+  const algorithmScope = getAlgorithmScopeFromEnv();
 
   for (const harness of Object.values(harnesses) as BaseHarness[]) {
     const {
@@ -376,6 +424,10 @@ group("Setup Cost (strategy + transformer creation)", async () => {
       isAsync,
       isStateful
     } = harness;
+
+    if (algorithmScope === "public" && !PUBLIC_HARNESS_NAMES.has(name)) {
+      continue;
+    }
 
     const benchReplacement = isAsync
       ? async (match: string) =>
@@ -399,6 +451,8 @@ group("Setup Cost (strategy + transformer creation)", async () => {
 
 for (const scenario of scenarios) {
   group(scenario.name, async () => {
+    const algorithmScope = getAlgorithmScopeFromEnv();
+
     for (const harness of Object.values(harnesses) as BaseHarness[]) {
       const {
         name,
@@ -407,6 +461,10 @@ for (const scenario of scenarios) {
         isAsync,
         isStateful
       } = harness;
+
+      if (algorithmScope === "public" && !PUBLIC_HARNESS_NAMES.has(name)) {
+        continue;
+      }
 
       const benchReplacement = isAsync
         ? async (match: string) => Promise.resolve(scenario.replacement(match))
@@ -444,31 +502,11 @@ for (const scenario of scenarios) {
 }
 
 const useJson = hasArg("--json");
-const filterPattern = getArgValue("--filter");
 
-let filterRegex: RegExp | undefined;
-if (filterPattern) {
-  if (filterPattern.length > MAX_FILTER_PATTERN_LENGTH) {
-    process.stderr.write(
-      `Invalid --filter regex: pattern too long (max ${MAX_FILTER_PATTERN_LENGTH} chars).\n`
-    );
-    process.exit(1);
-  }
-
-  if (isPotentiallyUnsafeRegexPattern(filterPattern)) {
-    process.stderr.write(
-      "Invalid --filter regex: pattern uses restricted constructs.\n"
-    );
-    process.exit(1);
-  }
-
-  try {
-    filterRegex = new RegExp(filterPattern, "i");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`Invalid --filter regex: ${message}\n`);
-    process.exit(1);
-  }
+if (hasArg("--filter")) {
+  exitWithError(
+    "The --filter argument has been removed. Use ALGORITHM_SCOPE=public or ALGORITHM_SCOPE=all.\n"
+  );
 }
 
 if (!useJson) {
@@ -482,7 +520,6 @@ if (!useJson) {
 
 if (useJson) {
   run({
-    ...(filterRegex ? { filter: filterRegex } : {}),
     format: {
       json: {
         debug: false,
@@ -491,5 +528,5 @@ if (useJson) {
     }
   });
 } else {
-  run(filterRegex ? { filter: filterRegex } : undefined);
+  run();
 }

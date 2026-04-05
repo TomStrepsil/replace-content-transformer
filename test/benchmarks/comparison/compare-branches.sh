@@ -27,7 +27,7 @@ set -euo pipefail
 #   REQUIRE_CLEAN       default: 1 (fail if current repo is dirty)
 #   REQUIRE_ALL_RUNTIMES default: 1 (fail if bun/deno/node unavailable)
 #   RUNTIMES            default: node,bun,deno
-#   ALGORITHM_SCOPE     default: all (all|public)
+#   ALGORITHM_SCOPE     default: public (all|public)
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BENCH_DIR_REL="test/benchmarks"
@@ -45,8 +45,13 @@ REF_B_LABEL="${REF_B_LABEL:-ref-b}"
 REQUIRE_CLEAN="${REQUIRE_CLEAN:-1}"
 REQUIRE_ALL_RUNTIMES="${REQUIRE_ALL_RUNTIMES:-1}"
 RUNTIMES="${RUNTIMES:-node,bun,deno}"
-ALGORITHM_SCOPE="${ALGORITHM_SCOPE:-all}"
+ALGORITHM_SCOPE="${ALGORITHM_SCOPE:-public}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/test/benchmarks/results/branch-comparisons/$TIMESTAMP}"
+
+if [[ "$ALGORITHM_SCOPE" != "all" && "$ALGORITHM_SCOPE" != "public" ]]; then
+  echo "ERROR: invalid ALGORITHM_SCOPE '$ALGORITHM_SCOPE' (expected: all|public)" >&2
+  exit 1
+fi
 
 if [[ "$REF_A_WAS_SET" == "0" ]]; then
   REF_A_SOURCE_RESOLVED="working-tree"
@@ -150,11 +155,7 @@ run_algorithm_json() {
   (
     cd "$bench_dir"
     # Contract requirement: algorithm analysis is captured directly from the benchmark entrypoint.
-    if [[ "$ALGORITHM_SCOPE" == "public" ]]; then
-      node --experimental-strip-types algorithm/comparison.bench.ts --json --filter '^(Looped IndexOf Anchored|Regex)$' >"$out_json" 2>"$err_log"
-    else
-      node --experimental-strip-types algorithm/comparison.bench.ts --json >"$out_json" 2>"$err_log"
-    fi
+    ALGORITHM_SCOPE="$ALGORITHM_SCOPE" node --experimental-strip-types algorithm/comparison.bench.ts --json >"$out_json" 2>"$err_log"
   )
   validate_json "$out_json"
 }
