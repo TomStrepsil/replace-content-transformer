@@ -22,9 +22,15 @@ const getArgValue = (flag: string) => {
   return cliArgs[index + 1];
 };
 
-// Escape special characters in a string so it can be used safely inside a RegExp.
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const MAX_FILTER_PATTERN_LENGTH = 256;
+
+// Reject high-risk regex features that are not needed for benchmark-name filtering.
+function isPotentiallyUnsafeRegexPattern(pattern: string): boolean {
+  if (/\\[1-9]/.test(pattern)) return true; // Backreferences
+  if (/\(\?<([=!])/.test(pattern)) return true; // Lookbehind assertions
+  if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]/.test(pattern))
+    return true; // Nested quantifier-like patterns
+  return false;
 }
 
 function createMockController(outputs: string[]) {
@@ -442,8 +448,22 @@ const filterPattern = getArgValue("--filter");
 
 let filterRegex: RegExp | undefined;
 if (filterPattern) {
+  if (filterPattern.length > MAX_FILTER_PATTERN_LENGTH) {
+    process.stderr.write(
+      `Invalid --filter regex: pattern too long (max ${MAX_FILTER_PATTERN_LENGTH} chars).\n`
+    );
+    process.exit(1);
+  }
+
+  if (isPotentiallyUnsafeRegexPattern(filterPattern)) {
+    process.stderr.write(
+      "Invalid --filter regex: pattern uses restricted constructs.\n"
+    );
+    process.exit(1);
+  }
+
   try {
-    filterRegex = new RegExp(escapeRegExp(filterPattern), "i");
+    filterRegex = new RegExp(filterPattern, "i");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Invalid --filter regex: ${message}\n`);
