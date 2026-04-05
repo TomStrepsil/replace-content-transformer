@@ -86,9 +86,6 @@ Buffered IndexOf Anchored (Async)     24.19 ns/iter  23.88 ns    █
 Compare performance across different JavaScript runtimes (Node.js, Bun, Deno):
 
 ```bash
-# Run on default runtime (Node.js)
-npm run bench
-
 # Run on specific runtimes (if available...)
 npm run bench:node
 npm run bench:bun
