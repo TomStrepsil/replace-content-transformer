@@ -15,6 +15,14 @@ type MaybeBenchmarkData = {
       };
     }>;
   }>;
+  context?: {
+    cpu?: {
+      name?: string;
+      freq?: number;
+    };
+    arch?: string;
+    runtime?: string;
+  };
 };
 
 type ComparisonRow = {
@@ -144,6 +152,17 @@ function compareRuntime(candidate: MaybeBenchmarkData, base: MaybeBenchmarkData)
   return compareMitataBenchmarks(candidate, base, { includeSetupCost: false });
 }
 
+function extractSystemContext(data: MaybeBenchmarkData | null) {
+  if (!data || !data.context) return null;
+  const { cpu, arch, runtime } = data.context;
+  return {
+    cpu: cpu?.name || "unknown",
+    freq: cpu?.freq || 0,
+    arch: arch || "unknown",
+    runtime: runtime || "unknown"
+  };
+}
+
 const refAAlg = readJson<MaybeBenchmarkData>(path.join(outDir, `${refALabel}.algorithm.json`));
 const refBAlg = readJson<MaybeBenchmarkData>(path.join(outDir, `${refBLabel}.algorithm.json`));
 
@@ -171,12 +190,15 @@ const algorithm = {
   setupCost: algorithmSetupCost
 };
 
+const systemContext = extractSystemContext(refAAlg);
+
 const summary = {
   generatedAt: new Date().toISOString(),
   refA: { label: refALabel, ref: refA, sha: refASha },
   refB: { label: refBLabel, ref: refB, sha: refBSha },
   algorithm,
-  runtimes: runtimeComparisons
+  runtimes: runtimeComparisons,
+  system: systemContext
 };
 
 fs.writeFileSync(summaryJsonPath, JSON.stringify(summary, null, 2));

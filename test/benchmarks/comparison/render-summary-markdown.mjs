@@ -23,6 +23,7 @@ if (!fs.existsSync(summaryAbs)) {
 const summary = JSON.parse(fs.readFileSync(summaryAbs, "utf8"));
 
 const formatPct = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+const formatGHz = (freq) => `${freq.toFixed(2)} GHz`;
 const noiseFloorPct = 2;
 
 const signalLabel = (deltaPct) => {
@@ -117,9 +118,14 @@ const runtimeRowsFixed = Object.entries(summary.runtimes || {})
   })
   .join("\n");
 
+const systemInfo = summary.system
+  ? `${summary.system.cpu}${summary.system.freq ? ` @ ${formatGHz(summary.system.freq)}` : ""}${summary.system.arch ? ` [${summary.system.arch}]` : ""}${summary.system.runtime ? ` - ${summary.system.runtime}` : ""}`
+  : "(unknown)";
+
 const md = [
   "# Branch Benchmark Comparison",
   "",
+  `- System: ${systemInfo}`,
   `- Ref A: ${summary.refA?.ref || "(unknown)"} (${summary.refA?.sha || "?"})`,
   `- Ref B: ${summary.refB?.ref || "(unknown)"} (${summary.refB?.sha || "?"})`,
   `- Generated: ${summary.generatedAt || "(unknown)"}`,

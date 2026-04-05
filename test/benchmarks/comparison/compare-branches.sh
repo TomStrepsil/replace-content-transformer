@@ -8,9 +8,10 @@ set -euo pipefail
 # - If REF_A is omitted (or resolves to current HEAD), benchmark current working tree.
 # - If REF_A resolves to a different commit/ref, benchmark an isolated ref worktree.
 #
-# Ref B (base) is checked out in an isolated worktree for its src/ only.
+# Ref B (base) is checked out as a full isolated worktree.
 # The current branch's test/benchmarks/ is overlaid onto that worktree so that
-# benchmark scripts evolve independently of old refs.
+# benchmark scripts evolve independently of old refs while the rest of the repo
+# reflects REF_B.
 #
 # Usage:
 #   ./test/benchmarks/comparison/compare-branches.sh
