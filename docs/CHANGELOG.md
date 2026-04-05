@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a `typecheck` npm script
-- Added branch comparison and PR summary creation scripts to the benchmarking
+- Added branch comparison and PR summary creation scripts to the benchmarking workspace
 
 ### Changed
 
