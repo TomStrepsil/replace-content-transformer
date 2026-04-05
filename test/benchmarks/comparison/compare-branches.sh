@@ -76,8 +76,6 @@ trap cleanup EXIT
 git -C "$ROOT_DIR" worktree add --detach "$REF_B_WORKTREE" "$REF_B" >/dev/null
 
 # Overlay the current branch's benchmark scripts onto the base worktree.
-# Harnesses and src/ both come from the base ref so they stay API-aligned.
-# This means only the comparison logic and runner evolve independently.
 echo "Overlaying current benchmark scripts onto base ref worktree"
 rm -rf "$REF_B_WORKTREE/test/benchmarks"
 cp -r "$ROOT_DIR/test/benchmarks" "$REF_B_WORKTREE/test/"
