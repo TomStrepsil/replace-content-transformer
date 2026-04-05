@@ -94,6 +94,8 @@ If any significant change, prepare a summary for the pull request:
 npm run bench:pr-summary:fast
 ```
 
+Please add within a `<details>` block.
+
 ### 6. Run Linter
 
 Check code quality:
