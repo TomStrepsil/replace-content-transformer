@@ -22,6 +22,11 @@ const getArgValue = (flag: string) => {
   return cliArgs[index + 1];
 };
 
+// Escape special characters in a string so it can be used safely inside a RegExp.
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function createMockController(outputs: string[]) {
   return {
     enqueue: (chunk: string) => {
@@ -438,7 +443,7 @@ const filterPattern = getArgValue("--filter");
 let filterRegex: RegExp | undefined;
 if (filterPattern) {
   try {
-    filterRegex = new RegExp(filterPattern, "i");
+    filterRegex = new RegExp(escapeRegExp(filterPattern), "i");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Invalid --filter regex: ${message}\n`);
