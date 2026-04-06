@@ -36,12 +36,13 @@ describe("ReplaceContentTransformer (sync)", () => {
     expect(mockProcessor.processChunk).not.toHaveBeenCalled();
   });
 
-  it("stops processing mid-transformation when abort signal is set", () => {
+  it("stops processing mid-transformation when abort signal is set, and flushes remaining content", () => {
     const abortController = new AbortController();
     const mockProcessor = mockSyncProcessorFactory(() => {
       abortController.abort();
       return "PART1";
     }, "PART2");
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
     const transformer = new ReplaceContentTransformer(
       mockProcessor,
       abortController.signal
@@ -51,9 +52,27 @@ describe("ReplaceContentTransformer (sync)", () => {
 
     transformer.transform("input", controller);
 
-    expect(outputs).toContain("PART1");
-    expect(outputs).not.toContain("PART2");
+    expect(outputs).toEqual(["PART1", "<FLUSHED>"]);
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
+    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes at most once after abort across multiple subsequent chunks", () => {
+    const mockProcessor = mockSyncProcessorFactory("OUT");
+    const abortController = new AbortController();
+    const transformer = new ReplaceContentTransformer(
+      mockProcessor,
+      abortController.signal
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    abortController.abort();
+    transformer.transform("first", controller);
+    transformer.transform("second", controller);
+
+    expect(outputs).toEqual(["first", "second"]);
+    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
   });
 
   it("flush enqueues flushed content", () => {
@@ -62,6 +81,7 @@ describe("ReplaceContentTransformer (sync)", () => {
     const transformer = new ReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
 
     transformer.flush(controller);
 

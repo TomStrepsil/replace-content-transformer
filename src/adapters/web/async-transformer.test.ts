@@ -37,12 +37,13 @@ describe("AsyncReplaceContentTransformer", () => {
     expect(mockProcessor.processChunk).not.toHaveBeenCalled();
   });
 
-  it("stops processing mid-transformation when abort signal is set", async () => {
+  it("stops processing mid-transformation when abort signal is set, and flushes remaining content", async () => {
     const abortController = new AbortController();
     const mockProcessor = mockAsyncProcessorFactory(() => {
       abortController.abort();
       return "PART1";
     }, "PART2");
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
     const transformer = new AsyncReplaceContentTransformer(
       mockProcessor,
       abortController.signal
@@ -52,13 +53,34 @@ describe("AsyncReplaceContentTransformer", () => {
 
     await transformer.transform("input", controller);
 
-    expect(outputs).toContain("PART1");
-    expect(outputs).not.toContain("PART2");
+    expect(outputs).toEqual(["PART1", "<FLUSHED>"]);
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
+    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes at most once after abort across multiple subsequent chunks", async () => {
+    const mockProcessor = mockAsyncProcessorFactory("OUT");
+    const abortController = new AbortController();
+    const transformer = new AsyncReplaceContentTransformer(
+      mockProcessor,
+      abortController.signal
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    mockProcessor.flush.mockReturnValue("");
+
+    abortController.abort();
+    await transformer.transform("first", controller);
+    await transformer.transform("second", controller);
+
+    expect(outputs).toEqual(["first", "second"]);
+    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
   });
 
   it("enqueues content when flush is called", () => {
     const mockProcessor = mockAsyncProcessorFactory();
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
 
     const transformer = new AsyncReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];

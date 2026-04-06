@@ -29,6 +29,18 @@ export class ReplaceContentTransformer<
 > extends ReplaceContentTransformerBase<T> {
   protected processor: SyncProcessor<T>;
   #stopReplacingSignal?: AbortSignal;
+  #didFlushAfterAbort = false;
+
+  #flushAfterAbortIfNeeded(
+    controller: TransformStreamDefaultController<T | string>
+  ) {
+    if (this.#didFlushAfterAbort || !this.#stopReplacingSignal?.aborted) {
+      return;
+    }
+
+    this.#didFlushAfterAbort = true;
+    this.flush(controller);
+  }
 
   constructor(processor: SyncProcessor<T>, stopReplacingSignal?: AbortSignal) {
     super();
@@ -41,6 +53,7 @@ export class ReplaceContentTransformer<
     controller: TransformStreamDefaultController<T | string>
   ) {
     if (this.#stopReplacingSignal?.aborted) {
+      this.#flushAfterAbortIfNeeded(controller);
       controller.enqueue(chunk);
       return;
     }
@@ -52,5 +65,7 @@ export class ReplaceContentTransformer<
         break;
       }
     }
+
+    this.#flushAfterAbortIfNeeded(controller);
   }
 }

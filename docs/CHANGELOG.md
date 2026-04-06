@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed minor documentation issues in the README and search strategy docs
 - Fixed the type for the `AsyncReplaceContentTransformer`, this only outputs `string` unlike the sync version which can also output `Promise<string>`
 - Removed `"bun": ">=1.0.0", "deno": ">=1.40.0"` from `package.json` "engines" field, since not valid here
+- Ensured that mid-chunk enacting of the `stopReplacingSignal` causes buffered content to appear in-order, rather than at the end of the stream
 
 ## [1.1.0] - 2026-03-22
 
