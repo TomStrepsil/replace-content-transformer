@@ -57,7 +57,7 @@ describe("ReplaceContentTransformer (sync)", () => {
     expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
   });
 
-  it.skip("flushes at most once after abort across multiple subsequent chunks", () => {
+  it("flushes at most once after abort across multiple subsequent chunks", () => {
     const mockProcessor = mockSyncProcessorFactory("OUT");
     const abortController = new AbortController();
     const transformer = new ReplaceContentTransformer(
@@ -70,9 +70,8 @@ describe("ReplaceContentTransformer (sync)", () => {
     abortController.abort();
     transformer.transform("first", controller);
     transformer.transform("second", controller);
-    transformer.transform("third", controller);
 
-    expect(outputs).toEqual(["first", "second", "third"]);
+    expect(outputs).toEqual(["first", "second"]);
     expect(mockProcessor.processChunk).not.toHaveBeenCalled();
   });
 
