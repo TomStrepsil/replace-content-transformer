@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.ts";
 import { AsyncReplaceContentTransformer } from "./async-transformer.ts";
 import { http, HttpResponse } from "msw";
@@ -106,10 +106,75 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       new TransformStream(transformer)
     );
 
-    const resultPromise = text(transformedStream);
-
-    await expect(resultPromise).resolves.toEqual(
+    expect(text(transformedStream)).resolves.toEqual(
       `<div>Operation Cancelled</div><div><esi:include src="https://example.com/some-not-attempted-fragment" /></div>`
     );
+  });
+
+  it("flushes the unprocessed remainder of a chunk when abort is signaled mid-transform", async () => {
+    const abortController = new AbortController();
+    const transformer = new AsyncReplaceContentTransformer(
+      new AsyncIterableFunctionReplacementProcessor({
+        searchStrategy: new StringAnchorSearchStrategy(["{{x}}"]),
+        replacement: async () => {
+          abortController.abort();
+          return (async function* () {
+            yield "REPLACED";
+          })();
+        }
+      }),
+      abortController.signal
+    );
+
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("{{x}}-tail"));
+        controller.enqueue(encoder.encode(" next"));
+        controller.close();
+      }
+    });
+
+    const transformed = readable
+      .pipeThrough(new TextDecoderStream())
+      .pipeThrough(new TransformStream(transformer));
+
+    await expect(text(transformed)).resolves.toBe("REPLACED-tail next");
+  });
+
+  it("stops discovering additional matches in the current chunk after mid-transform abort", async () => {
+    const abortController = new AbortController();
+    const replacement = vi
+      .fn()
+      .mockImplementation((match: string) => match.toUpperCase());
+
+    const transformer = new AsyncReplaceContentTransformer(
+      new AsyncIterableFunctionReplacementProcessor({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async (match: string) => {
+          abortController.abort();
+          return (async function* () {
+            yield replacement(match);
+          })();
+        }
+      }),
+      abortController.signal
+    );
+
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("{{a}}{{b}}{{c}}"));
+        controller.enqueue(encoder.encode(" next"));
+        controller.close();
+      }
+    });
+
+    const transformed = readable
+      .pipeThrough(new TextDecoderStream())
+      .pipeThrough(new TransformStream(transformer));
+
+    await expect(text(transformed)).resolves.toBe("{{A}}{{b}}{{c}} next");
+    expect(replacement).toHaveBeenCalledTimes(1);
   });
 });

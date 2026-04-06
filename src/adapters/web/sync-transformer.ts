@@ -52,5 +52,9 @@ export class ReplaceContentTransformer<
         break;
       }
     }
+
+    if (this.#stopReplacingSignal?.aborted) {
+      this.flush(controller);
+    }
   }
 }

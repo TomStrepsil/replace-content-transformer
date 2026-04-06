@@ -69,6 +69,10 @@ export class AsyncReplaceContentTransformer
         break;
       }
     }
+
+    if (this.#stopReplacingSignal?.aborted) {
+      this.flush(controller);
+    }
   }
 
   /**

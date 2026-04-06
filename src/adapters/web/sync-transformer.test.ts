@@ -36,7 +36,7 @@ describe("ReplaceContentTransformer (sync)", () => {
     expect(mockProcessor.processChunk).not.toHaveBeenCalled();
   });
 
-  it("stops processing mid-transformation when abort signal is set", () => {
+  it("stops processing mid-transformation when abort signal is set, and flushes remaining content", () => {
     const abortController = new AbortController();
     const mockProcessor = mockSyncProcessorFactory(() => {
       abortController.abort();
@@ -51,9 +51,9 @@ describe("ReplaceContentTransformer (sync)", () => {
 
     transformer.transform("input", controller);
 
-    expect(outputs).toContain("PART1");
-    expect(outputs).not.toContain("PART2");
+    expect(outputs).toEqual(["PART1", "<FLUSHED>"]);
     expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
+    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
   });
 
   it("flush enqueues flushed content", () => {
