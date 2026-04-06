@@ -106,7 +106,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       new TransformStream(transformer)
     );
 
-    expect(text(transformedStream)).resolves.toEqual(
+    await expect(text(transformedStream)).resolves.toEqual(
       `<div>Operation Cancelled</div><div><esi:include src="https://example.com/some-not-attempted-fragment" /></div>`
     );
   });
