@@ -43,6 +43,7 @@ describe("AsyncReplaceContentTransformer", () => {
       abortController.abort();
       return "PART1";
     }, "PART2");
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
     const transformer = new AsyncReplaceContentTransformer(
       mockProcessor,
       abortController.signal
@@ -57,8 +58,29 @@ describe("AsyncReplaceContentTransformer", () => {
     expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
   });
 
+  it("flushes at most once after abort across multiple subsequent chunks", async () => {
+    const mockProcessor = mockAsyncProcessorFactory("OUT");
+    const abortController = new AbortController();
+    const transformer = new AsyncReplaceContentTransformer(
+      mockProcessor,
+      abortController.signal
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    mockProcessor.flush.mockReturnValue("");
+
+    abortController.abort();
+    await transformer.transform("first", controller);
+    await transformer.transform("second", controller);
+
+    expect(outputs).toEqual(["first", "second"]);
+    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
+  });
+
   it("enqueues content when flush is called", () => {
     const mockProcessor = mockAsyncProcessorFactory();
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
 
     const transformer = new AsyncReplaceContentTransformer(mockProcessor);
     const outputs: string[] = [];

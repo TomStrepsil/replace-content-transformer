@@ -1,10 +1,56 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { text } from "node:stream/consumers";
 import { ReplaceContentTransformer } from "./sync-transformer.ts";
 import { FunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor.ts";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.ts";
 
 describe("ReplaceContentTransformer + StringAnchorSearchStrategy + stopReplacingSignal", () => {
+  it("passes through new chunks after abort set between chunks when no buffered remainder exists", async () => {
+    const abortController = new AbortController();
+    const replacement = (match: string) => match.toUpperCase();
+    const transformer = new ReplaceContentTransformer(
+      new FunctionReplacementProcessor({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement
+      }),
+      abortController.signal
+    );
+
+    const stream = new TransformStream(transformer);
+    const writer = stream.writable.getWriter();
+    const outputPromise = text(stream.readable);
+
+    await writer.write("plain ");
+    abortController.abort();
+    await writer.write("text");
+    await writer.close();
+
+    await expect(outputPromise).resolves.toBe("plain text");
+  });
+
+  it("flushes buffered partial content before passthrough when abort is set between chunks", async () => {
+    const abortController = new AbortController();
+    const replacement = (match: string) => match.toUpperCase();
+    const transformer = new ReplaceContentTransformer(
+      new FunctionReplacementProcessor({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement
+      }),
+      abortController.signal
+    );
+
+    const stream = new TransformStream(transformer);
+    const writer = stream.writable.getWriter();
+    const outputPromise = text(stream.readable);
+
+    await writer.write("{{a");
+    abortController.abort();
+    await writer.write("}} next");
+    await writer.close();
+
+    await expect(outputPromise).resolves.toBe("{{a}} next");
+  });
+
   it("flushes the unprocessed remainder of a chunk when abort is signaled mid-transform", async () => {
     const abortController = new AbortController();
     const transformer = new ReplaceContentTransformer(

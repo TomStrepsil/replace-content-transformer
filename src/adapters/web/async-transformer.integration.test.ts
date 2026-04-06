@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.ts";
 import { AsyncReplaceContentTransformer } from "./async-transformer.ts";
 import { http, HttpResponse } from "msw";
@@ -7,6 +7,60 @@ import { text } from "node:stream/consumers";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.ts";
 
 describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
+  it("passes through new chunks after abort set between chunks when no buffered remainder exists", async () => {
+    const abortController = new AbortController();
+    const replacement = (match: string) => match.toUpperCase();
+    const transformer = new AsyncReplaceContentTransformer(
+      new AsyncIterableFunctionReplacementProcessor({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async (match: string) => {
+          return (async function* () {
+            yield replacement(match);
+          })();
+        }
+      }),
+      abortController.signal
+    );
+
+    const stream = new TransformStream(transformer);
+    const writer = stream.writable.getWriter();
+    const outputPromise = text(stream.readable);
+
+    await writer.write("plain ");
+    abortController.abort();
+    await writer.write("text");
+    await writer.close();
+
+    await expect(outputPromise).resolves.toBe("plain text");
+  });
+
+  it("flushes buffered partial content before passthrough when abort is set between chunks", async () => {
+    const abortController = new AbortController();
+    const replacement = (match: string) => match.toUpperCase();
+    const transformer = new AsyncReplaceContentTransformer(
+      new AsyncIterableFunctionReplacementProcessor({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async (match: string) => {
+          return (async function* () {
+            yield replacement(match);
+          })();
+        }
+      }),
+      abortController.signal
+    );
+
+    const stream = new TransformStream(transformer);
+    const writer = stream.writable.getWriter();
+    const outputPromise = text(stream.readable);
+
+    await writer.write("{{a");
+    abortController.abort();
+    await writer.write("}} next");
+    await writer.close();
+
+    await expect(outputPromise).resolves.toBe("{{a}} next");
+  });
+
   it("should support streaming ReadableStream into the output", async () => {
     const fragmentUrl = "https://example.com/fragment";
     server.use(

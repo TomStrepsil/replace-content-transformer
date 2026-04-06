@@ -27,6 +27,7 @@ describe("ReplaceContentTransform (async)", () => {
 
   it("flush writes flushed content to stream", async () => {
     const mockProcessor = mockAsyncProcessorFactory();
+    mockProcessor.flush.mockReturnValue("<FLUSHED>");
 
     const transform = new AsyncReplaceContentTransform(mockProcessor);
     const outputs: string[] = [];

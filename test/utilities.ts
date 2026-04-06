@@ -38,7 +38,7 @@ function mockSyncProcessorFactory<T extends string | Promise<string> = string>(.
         yield chunk;
       }
     }),
-    flush: vi.fn().mockReturnValue("<FLUSHED>")
+    flush: vi.fn().mockReturnValue("")
   };
 }
 
@@ -53,7 +53,7 @@ function mockAsyncProcessorFactory(...output: (string | (() => string))[]) {
         yield chunk;
       }
     }),
-    flush: vi.fn().mockReturnValue("<FLUSHED>")
+    flush: vi.fn().mockReturnValue("")
   };
 }
 

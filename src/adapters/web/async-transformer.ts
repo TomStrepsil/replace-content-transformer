@@ -40,6 +40,18 @@ export class AsyncReplaceContentTransformer
   protected processor: AsyncProcessor;
   #stopReplacingSignal?: AbortSignal;
   #cancelled = false;
+  #didFlushAfterAbort = false;
+
+  #flushAfterAbortIfNeeded(
+    controller: TransformStreamDefaultController<string>
+  ) {
+    if (this.#didFlushAfterAbort || !this.#stopReplacingSignal?.aborted) {
+      return;
+    }
+
+    this.#didFlushAfterAbort = true;
+    this.flush(controller);
+  }
 
   constructor(processor: AsyncProcessor, stopReplacingSignal?: AbortSignal) {
     super();
@@ -56,6 +68,7 @@ export class AsyncReplaceContentTransformer
     }
 
     if (this.#stopReplacingSignal?.aborted) {
+      this.#flushAfterAbortIfNeeded(controller);
       controller.enqueue(chunk);
       return;
     }
@@ -70,9 +83,7 @@ export class AsyncReplaceContentTransformer
       }
     }
 
-    if (this.#stopReplacingSignal?.aborted) {
-      this.flush(controller);
-    }
+    this.#flushAfterAbortIfNeeded(controller);
   }
 
   /**
