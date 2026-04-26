@@ -9,6 +9,17 @@ export type ReplacementProcessorOptions<TState, TMatch> = {
 };
 
 /**
+ * Context passed to replacement callbacks.
+ *
+ * @property matchIndex - Zero-based ordinal for the current match in the stream.
+ * @property streamIndices - Absolute stream offsets as [startIndex, endIndex], where endIndex is exclusive.
+ */
+export type ReplacementContext = {
+  matchIndex: number;
+  streamIndices: [startIndex: number, endIndex: number];
+};
+
+/**
  * Base class for replacement processors.
  * Uses separate generics for state and match to avoid type casts.
  */

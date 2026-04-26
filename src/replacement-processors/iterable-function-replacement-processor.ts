@@ -1,5 +1,6 @@
 import {
   ReplacementProcessorBase,
+  type ReplacementContext,
   type ReplacementProcessorOptions
 } from "./replacement-processor.base.ts";
 import { type SyncProcessor } from "./types.ts";
@@ -17,12 +18,10 @@ export type IterableFunctionReplacementProcessorOptions<
   /**
    * Function called for each match that returns an iterable of replacement strings.
    *
-   * @param match - The matched content (type inferred from search strategy)
-   * @param matchIndex - Zero-based index of this match
-   * @param streamIndices - [startIndex, endIndex] of the match in the stream (endIndex is exclusive)
+   * @param context - The match context
    * @returns An iterable of replacement strings
    */
-  replacement: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Iterable<string>;
+  replacement: (match: TMatch, context: ReplacementContext) => Iterable<string>;
 };
 
 /**
@@ -48,7 +47,7 @@ export type IterableFunctionReplacementProcessorOptions<
  *
  * const processor = new IterableFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{list}}'),
- *   replacement: (match, matchIndex) => ['Item 1', 'Item 2', 'Item 3']
+ *   replacement: () => ['Item 1', 'Item 2', 'Item 3']
  * });
  *
  * const transformer = new ReplaceContentTransformer(processor);
@@ -58,7 +57,7 @@ export type IterableFunctionReplacementProcessorOptions<
  * ```typescript
  * const processor = new IterableFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{repeat}}'),
- *   replacement: function* (match, matchIndex) {
+ *   replacement: function* (_match, { matchIndex }) {
  *     for (let i = 0; i < 5; i++) {
  *       yield `Iteration ${i}\n`;
  *     }
@@ -70,7 +69,7 @@ export class IterableFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements SyncProcessor {
-  private readonly replacementFn: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Iterable<string>;
+  private readonly replacementFn: (match: TMatch, context: ReplacementContext) => Iterable<string>;
   private matchIndex: number = 0;
 
   constructor({
@@ -90,11 +89,10 @@ export class IterableFunctionReplacementProcessor<
         yield result.content;
         continue;
       }
-      yield* this.replacementFn(
-        result.content,
-        this.matchIndex++,
-        result.streamIndices
-      );
+      yield* this.replacementFn(result.content, {
+        matchIndex: this.matchIndex++,
+        streamIndices: result.streamIndices
+      });
     }
   }
 }

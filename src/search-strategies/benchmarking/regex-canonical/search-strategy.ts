@@ -1,16 +1,17 @@
 import type { Transformer } from "node:stream/web";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
 
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
 export class RegexReplaceContentTransformer implements Transformer<string> {
   private partialChunk: string;
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
   private readonly openRegex: RegExp;
   private readonly partialAtEndRegex: RegExp;
   private matchIndex: number = 0;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     openRegex: RegExp,
     partialAtEndRegex: RegExp
   ) {
@@ -50,7 +51,10 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
   }
 
   replaceTag(match: string, p1: string, offset: number) {
-    let replacement = this.replacement(match, this.matchIndex++);
+    let replacement = this.replacement(match, {
+      matchIndex: this.matchIndex++,
+      streamIndices: [offset, offset + match.length]
+    });
     if (replacement === undefined) {
       replacement = "";
     }

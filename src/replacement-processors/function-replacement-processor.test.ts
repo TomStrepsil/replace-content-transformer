@@ -129,7 +129,7 @@ describe("FunctionReplacementProcessor", () => {
         outputChunks.push(chunk);
       }
 
-      expect(replacementFn).toHaveBeenCalledWith("MATCH", 0, [6, 11]);
+      expect(replacementFn).toHaveBeenCalledWith("MATCH", { matchIndex: 0, streamIndices: [6, 11] });
       expect(outputChunks).toEqual(["Hello ", "RESULT", " world"]);
     });
 
@@ -164,8 +164,8 @@ describe("FunctionReplacementProcessor", () => {
         outputChunks.push(chunk);
       }
 
-      expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, [0, 5]);
-      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, [5, 10]);
+      expect(replacementFn).toHaveBeenNthCalledWith(1, "MATCH", { matchIndex: 0, streamIndices: [0, 5] });
+      expect(replacementFn).toHaveBeenNthCalledWith(2, "MATCH", { matchIndex: 1, streamIndices: [5, 10] });
     });
 
     it("continues processing after match to find subsequent matches", () => {

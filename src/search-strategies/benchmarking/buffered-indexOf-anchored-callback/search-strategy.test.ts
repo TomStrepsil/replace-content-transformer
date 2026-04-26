@@ -319,12 +319,12 @@ describe("BufferedIndexOfAnchoredCallbackSearchStrategy", () => {
       expect(flushed).toBe("}");
     });
 
-    it("handles replacement function with index parameter", () => {
+    it("handles replacement function with match context", () => {
       const replacements: string[] = [];
       const strategy = new BufferedIndexOfAnchoredCallbackSearchStrategy(
-        (match, index) => {
-          replacements.push(`Match${index}`);
-          return `[${index}]`;
+        (match, context) => {
+          replacements.push(`Match${context.matchIndex}`);
+          return `[${context.matchIndex}]`;
         },
         ["{{", "}}"]
       );

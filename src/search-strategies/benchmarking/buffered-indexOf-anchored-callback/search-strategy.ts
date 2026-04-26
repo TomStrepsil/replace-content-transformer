@@ -1,15 +1,16 @@
 import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
 
 export class BufferedIndexOfAnchoredCallbackSearchStrategy
   implements SyncCallbackProcessor
 {
   private partialChunk: string;
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private readonly delimiters: string[];
   private matchIndex: number = 0;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     delimiters: string[]
   ) {
     this.replacement = replacement;
@@ -57,7 +58,10 @@ export class BufferedIndexOfAnchoredCallbackSearchStrategy
 
       const matchEnd = currentPos;
       const match = chunk.substring(startIndex, matchEnd);
-      const replacement = this.replacement(match, this.matchIndex++);
+      const replacement = this.replacement(match, {
+        matchIndex: this.matchIndex++,
+        streamIndices: [startIndex, matchEnd]
+      });
       enqueue(replacement);
       position = matchEnd;
     }

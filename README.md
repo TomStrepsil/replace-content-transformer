@@ -139,7 +139,10 @@ import { FunctionReplacementProcessor } from "replace-content-transformer";
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (match: string, matchIndex: number) =>
+    replacement: (
+      match: string,
+      { matchIndex }: { matchIndex: number }
+    ) =>
       `${match.slice(2, -2)} was match ${matchIndex}`
   })
 );
@@ -151,7 +154,14 @@ Access the character indices of the match, relative to the start of the stream:
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (match: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) =>
+    replacement: (
+      match: string,
+      {
+        streamIndices
+      }: {
+        streamIndices: [startIndex: number, endIndex: number];
+      }
+    ) =>
       `${match.slice(2, -2)}, found from ${streamIndices[0]} to ${streamIndices[1]}`
   })
 );
@@ -173,7 +183,7 @@ const transformer = new ReplaceContentTransformer(
     searchStrategy: searchStrategyFactory(
       /class="(?<before>[^"]*?\b)old-button(?<after>\b[^"]*?)"/
     ),
-    replacement: (match: RegExpExecArray) => {
+    replacement: (match: RegExpExecArray, _context) => {
       const { before, after } = match.groups;
       return `class="${before}new-button${after}"`;
     }
@@ -198,7 +208,7 @@ import { fileURLToPath } from "node:url";
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
-    replacement: async (imgTag: string) =>
+    replacement: async (imgTag: string, _context) =>
       `<img src="data:image/png;base64,${(
         await fs.readFile(
           path.join(
@@ -229,7 +239,7 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
       'rel="stylesheet"',
       "/>"
     ]),
-    replacement: async (match: string): Promise<string> => {
+    replacement: async (match: string, _context): Promise<string> => {
       const {
         groups: { url }
       } = /href="(?<url>[^"]+)"/.exec(match)!;
@@ -246,7 +256,7 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
 ```typescript
 const maxConcurrent = 5;
 const active = new Set<Promise<string>>();
-const replacement = async (match: string): Promise<string> => {
+const replacement = async (match: string, _context): Promise<string> => {
   if (active.size >= maxConcurrent) {
     await Promise.race(active);
   }
@@ -271,7 +281,7 @@ import { IterableFunctionReplacementProcessor } from "replace-content-transforme
 const transformer = new ReplaceContentTransformer(
   new IterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory("3 "),
-    replacement: () => [...Array(3)].map((_, i) => `3.${i + 1} `)
+    replacement: (_match, _context) => [...Array(3)].map((_, i) => `3.${i + 1} `)
   })
 );
 ```
@@ -287,7 +297,7 @@ import { AsyncIterableFunctionReplacementProcessor } from "replace-content-trans
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
-    replacement: async (match: string) => {
+    replacement: async (match: string, _context) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -309,7 +319,7 @@ function transformerFactory(currentDepth: number) {
   return new AsyncReplaceContentTransformer(
     new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
-      replacement: async (match: string) => {
+      replacement: async (match: string, _context) => {
         const {
           groups: { url }
         } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -337,7 +347,7 @@ const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match, matchIndex) => {
+    replacement: async (match, { matchIndex }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -363,7 +373,7 @@ const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match) => {
+    replacement: async (match, _context) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -407,7 +417,7 @@ function transformFactory(currentDepth: number) {
   return new AsyncReplaceContentTransform(
     new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
-      replacement: async (match: string) => {
+      replacement: async (match: string, _context) => {
         const {
           groups: { url }
         } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -532,7 +542,7 @@ flush(): string {
 There are 5 stream processors to select from, rather than the system figuring out the optimum based on supplied options. See [Replacement Processors](./src/replacement-processors/README.md) for detailed usage guidance.
 
 - **`StaticReplacementProcessor`** - Yields static strings
-- **`FunctionReplacementProcessor`** - Yields function results, passing the match and a match index / sequence number
+- **`FunctionReplacementProcessor`** - Yields function results, passing match as first parameter and context object `{ matchIndex, streamIndices }` as second parameter
 - **`IterableFunctionReplacementProcessor`** - Allows a function to return an iterable, flattened with [`yield*`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*)
 - **`AsyncFunctionReplacementProcessor`** - Allows an async function, as an async generators with [`for await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of)
 - **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterables with `yield* await` (assumption that async iterator is itself accessed via a Promise)

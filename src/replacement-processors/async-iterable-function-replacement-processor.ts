@@ -1,5 +1,6 @@
 import {
   ReplacementProcessorBase,
+  type ReplacementContext,
   type ReplacementProcessorOptions
 } from "./replacement-processor.base.ts";
 import { type AsyncProcessor } from "./types.ts";
@@ -17,12 +18,10 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
   /**
    * Async function called for each match that returns an async iterable of replacement strings.
    * 
-   * @param match - The matched content (type inferred from search strategy)
-   * @param matchIndex - Zero-based index of this match
-   * @param streamIndices - [startIndex, endIndex] of the match in the stream (endIndex is exclusive)
+   * @param context - The match context
    * @returns Promise resolving to an async iterable of replacement strings
    */
-  replacement: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<AsyncIterable<string>>;
+  replacement: (match: TMatch, context: ReplacementContext) => Promise<AsyncIterable<string>>;
 };
 
 /**
@@ -50,7 +49,7 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
  * 
  * const processor = new AsyncIterableFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{stream}}'),
- *   replacement: async function* (match, matchIndex) {
+ *   replacement: async function* (_match, { matchIndex }) {
  *     const response = await fetch(`/api/stream/${matchIndex}`);
  *     const reader = response.body.getReader();
  *     
@@ -70,7 +69,7 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
  * ```typescript
  * const processor = new AsyncIterableFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{users}}'),
- *   replacement: async function* (match, matchIndex) {
+ *   replacement: async function* () {
  *     let page = 0;
  *     let hasMore = true;
  *     
@@ -92,7 +91,7 @@ export class AsyncIterableFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
-  private readonly replacementFn: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => Promise<AsyncIterable<string>>;
+  private readonly replacementFn: (match: TMatch, context: ReplacementContext) => Promise<AsyncIterable<string>>;
   private matchIndex: number = 0;
 
   constructor({
@@ -112,11 +111,10 @@ export class AsyncIterableFunctionReplacementProcessor<
         yield result.content;
         continue;
       }
-      yield* await this.replacementFn(
-        result.content,
-        this.matchIndex++,
-        result.streamIndices
-      );
+      yield* await this.replacementFn(result.content, {
+        matchIndex: this.matchIndex++,
+        streamIndices: result.streamIndices
+      });
     }
   }
 }

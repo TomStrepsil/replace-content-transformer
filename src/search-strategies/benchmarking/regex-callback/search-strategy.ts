@@ -1,16 +1,17 @@
 import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
 import createPartialMatchRegex from "regex-partial-match";
 
 export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {
   private partialChunk: string;
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
   private readonly openRegex: RegExp;
   private readonly partialAtEndRegex: RegExp;
   private matchIndex: number = 0;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     needle: RegExp
   ) {
     this.replacement = replacement;
@@ -44,7 +45,10 @@ export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {
   }
 
   private replaceTag(match: string, p1: string, offset: number): string {
-    let replacement = this.replacement(match, this.matchIndex++);
+    let replacement = this.replacement(match, {
+      matchIndex: this.matchIndex++,
+      streamIndices: [offset, offset + match.length]
+    });
     if (replacement === undefined) {
       replacement = "";
     }

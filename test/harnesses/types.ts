@@ -1,6 +1,8 @@
+import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+
 type ReplacementFunction = (
   match: string,
-  index: number
+  context: ReplacementContext
 ) => string | Promise<string>;
 
 export type BaseHarness = {

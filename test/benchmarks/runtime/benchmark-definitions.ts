@@ -8,6 +8,7 @@ import {
   StringAnchorSearchStrategy
 } from "../../../src/search-strategies/index.ts";
 import type { LoopedIndexOfAnchoredSearchState as SearchState } from "../../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
+import type { ReplacementContext } from "../../../src/replacement-processors/replacement-processor.base.ts";
 
 /**
  * Core benchmark definitions - categorized object
@@ -97,7 +98,7 @@ export const benchmarkDefinitions: {
       setup: () => ({
         processor: new FunctionReplacementProcessor({
           searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: (matchedContent: string, index: number) => `NEW-${index}`
+          replacement: (_match: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
         }),
         input: ["Hello OLD world OLD test OLD content"]
       }),
@@ -328,7 +329,7 @@ export const benchmarkDefinitions: {
       setup: () => ({
         processor: new FunctionReplacementProcessor({
           searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: (content, index) => `NEW-${index}`
+          replacement: (_match: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
         }),
         input: ["Replace OLD and OLD and OLD content"]
       }),
@@ -367,7 +368,7 @@ export const benchmarkDefinitions: {
       setup: () => ({
         processor: new AsyncFunctionReplacementProcessor({
           searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (content, index) => `NEW-${index}`
+          replacement: async (_match: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
         }),
         input: ["Replace OLD and OLD and OLD content"]
       }),
@@ -387,9 +388,9 @@ export const benchmarkDefinitions: {
       setup: () => ({
         processor: new AsyncFunctionReplacementProcessor({
           searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (content, index) => {
+          replacement: async (_match: string, { matchIndex }: ReplacementContext) => {
             await Promise.resolve();
-            return `NEW-${index}`;
+            return `NEW-${matchIndex}`;
           }
         }),
         input: ["Replace OLD and OLD and OLD content"]
@@ -410,8 +411,8 @@ export const benchmarkDefinitions: {
       setup: () => ({
         processor: new AsyncFunctionReplacementProcessor({
           searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (content, index) => {
-            return Promise.resolve(`NEW-${index}`);
+          replacement: async (_match: string, { matchIndex }: ReplacementContext) => {
+            return Promise.resolve(`NEW-${matchIndex}`);
           }
         }),
         input: ["Replace OLD and OLD and OLD content"]
@@ -455,13 +456,13 @@ export const benchmarkDefinitions: {
       setup: () => ({
         processor: new AsyncIterableFunctionReplacementProcessor({
           searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (content, index) => {
+          replacement: async (_match: string, { matchIndex }: ReplacementContext) => {
             return new ReadableStream({
               start(controller) {
                 controller.enqueue("N");
                 controller.enqueue("E");
                 controller.enqueue("W");
-                controller.enqueue(`-${index}`);
+                controller.enqueue(`-${matchIndex}`);
                 controller.close();
               }
             });

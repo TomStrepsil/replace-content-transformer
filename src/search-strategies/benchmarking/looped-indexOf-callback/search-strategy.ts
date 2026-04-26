@@ -1,17 +1,18 @@
 import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
 
 export class LoopedIndexOfCallbackSearchStrategy
   implements SyncCallbackProcessor
 {
   private partialChunk: string;
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
   private readonly startToken: string;
   private readonly endToken: string;
   private matchIndex: number = 0;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     tokens: string[]
   ) {
     this.replacement = replacement;
@@ -70,10 +71,11 @@ export class LoopedIndexOfCallbackSearchStrategy
       );
       if (endIndex !== -1) {
         this.lastIndex = endIndex + this.endToken.length;
-        let replacement = this.replacement(
-          chunk.substring(index, this.lastIndex),
-          this.matchIndex++
-        );
+        const match = chunk.substring(index, this.lastIndex);
+        let replacement = this.replacement(match, {
+          matchIndex: this.matchIndex++,
+          streamIndices: [index, this.lastIndex]
+        });
         enqueue(replacement);
       } else {
         this.partialChunk = chunk.substring(index);

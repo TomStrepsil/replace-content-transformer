@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** Replacement callbacks now receive match as first parameter and context as second: `(match: string, context: ReplacementContext) => ...`.
+- Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
+
 ## [1.2.0] - 2026-04-06
 
 ### Added

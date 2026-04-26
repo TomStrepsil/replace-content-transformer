@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.ts";
 import { mockSearchStrategyFactory } from "../../test/utilities.ts";
+import type { ReplacementContext } from "./replacement-processor.base.ts";
 
 describe("IterableFunctionReplacementProcessor", () => {
   const mockInput = "test input";
@@ -87,8 +88,8 @@ describe("IterableFunctionReplacementProcessor", () => {
   it("handles iterable replacement with match context and index", async () => {
     const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH", streamIndices: [0, 5] });
 
-    const iterableFactory = (matchedContent: string, matchIndex: number) => {
-      return [`[${matchedContent}:${matchIndex}]`];
+    const iterableFactory = (match: string, { matchIndex }: ReplacementContext) => {
+      return [`[${ match }:${matchIndex}]`];
     };
 
     const processor = new IterableFunctionReplacementProcessor({

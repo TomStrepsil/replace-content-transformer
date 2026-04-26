@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { mockSearchStrategyFactory } from "../../test/utilities.ts";
 import { AsyncFunctionReplacementProcessor } from "./async-function-replacement-processor.ts";
+import type { ReplacementContext } from "./replacement-processor.base.ts";
 import { inspect } from "node:util";
 
 describe("AsyncFunctionReplacementProcessor", () => {
-  it("calls async replacement function with matched content and index", async () => {
+  it("calls async replacement function with match and context", async () => {
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: false, content: "Hello " },
       { isMatch: true, content: "MATCH", streamIndices: [6, 11] },
@@ -23,18 +24,28 @@ describe("AsyncFunctionReplacementProcessor", () => {
       outputChunks.push(chunk);
     }
 
-    expect(asyncReplacementFn).toHaveBeenCalledWith("MATCH", 0, [6, 11]);
+    expect(asyncReplacementFn).toHaveBeenCalledWith("MATCH", {
+      matchIndex: 0,
+      streamIndices: [6, 11]
+    });
     expect(outputChunks).toEqual(["Hello ", "ASYNC_RESULT", " world"]);
   });
 
   it("increments match index for subsequent async matches", async () => {
+    const calls: Array<[string, ReplacementContext]> = [];
+
     const mockStrategy = mockSearchStrategyFactory(
       { isMatch: true, content: "MATCH", streamIndices: [0, 5] },
       { isMatch: false, content: " and " },
       { isMatch: true, content: "MATCH", streamIndices: [10, 15] }
     );
 
-    const asyncReplacementFn = vi.fn().mockResolvedValue("ASYNC");
+    const asyncReplacementFn = vi.fn(
+      (match: string, context: ReplacementContext) => {
+        calls.push([match, context]);
+        return Promise.resolve("ASYNC");
+      }
+    );
 
     const processor = new AsyncFunctionReplacementProcessor({
       searchStrategy: mockStrategy,
@@ -47,8 +58,21 @@ describe("AsyncFunctionReplacementProcessor", () => {
       outputChunks.push(chunk);
     }
 
-    expect(asyncReplacementFn).toHaveBeenNthCalledWith(1, "MATCH", 0, [0, 5]);
-    expect(asyncReplacementFn).toHaveBeenNthCalledWith(2, "MATCH", 1, [10, 15]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual([
+      "MATCH",
+      {
+        matchIndex: 0,
+        streamIndices: [0, 5]
+      }
+    ]);
+    expect(calls[1]).toEqual([
+      "MATCH",
+      {
+        matchIndex: 1,
+        streamIndices: [10, 15]
+      }
+    ]);
   });
 
   it("handles string replacement with async processor", async () => {

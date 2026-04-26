@@ -1,5 +1,6 @@
 import {
   ReplacementProcessorBase,
+  type ReplacementContext,
   type ReplacementProcessorOptions
 } from "./replacement-processor.base.ts";
 
@@ -18,12 +19,10 @@ export type FunctionReplacementProcessorOptions<
   /**
    * Function called for each match to generate the replacement content.
    * 
-   * @param match - The matched content (type inferred from search strategy)
-   * @param matchIndex - Zero-based index of this match (increments with each match)
-   * @param streamIndices - [startIndex, endIndex] of the match in the stream (endIndex is exclusive)
+   * @param context - The match context
    * @returns The replacement string, or a Promise<string> for async operations
    */
-  replacement: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => R;
+  replacement: (match: TMatch, context: ReplacementContext) => R;
 };
 
 /**
@@ -51,7 +50,7 @@ export type FunctionReplacementProcessorOptions<
  * 
  * const processor = new FunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory(/{{(\w+)}}/g),
- *   replacement: (match, matchIndex) => `Replacement #${matchIndex}: ${match[1]}`
+ *   replacement: (match, { matchIndex }) => `Replacement #${matchIndex}: ${match[1]}`
  * });
  * 
  * const transformer = new ReplaceContentTransformer(processor);
@@ -64,7 +63,7 @@ export type FunctionReplacementProcessorOptions<
  * 
  * const processor = new FunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{id}}'),
- *   replacement: async (match, matchIndex) => {
+ *   replacement: async (_match, { matchIndex }) => {
  *     const data = await fetch(`/api/data/${matchIndex}`);
  *     return data.text();
  *   }
@@ -79,7 +78,7 @@ export class FunctionReplacementProcessor<
   TMatch = string,
   R extends string | Promise<string> = string
 > extends ReplacementProcessorBase<TState, TMatch> {
-  private readonly replacementFn: (match: TMatch, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) => R;
+  private readonly replacementFn: (match: TMatch, context: ReplacementContext) => R;
   private matchIndex: number = 0;
 
   constructor({
@@ -99,11 +98,10 @@ export class FunctionReplacementProcessor<
         yield result.content;
         continue;
       }
-      yield this.replacementFn(
-        result.content,
-        this.matchIndex++,
-        result.streamIndices
-      );
+      yield this.replacementFn(result.content, {
+        matchIndex: this.matchIndex++,
+        streamIndices: result.streamIndices
+      });
     }
   }
 }

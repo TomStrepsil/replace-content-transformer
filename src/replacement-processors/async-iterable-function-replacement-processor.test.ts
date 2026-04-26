@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { mockSearchStrategyFactory } from "../../test/utilities.ts";
 import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor.ts";
+import type { ReplacementContext } from "./replacement-processor.base.ts";
 
 describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("yields stream content chunk-by-chunk without buffering", async () => {
@@ -104,10 +105,10 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("handles stream replacement with match context and index", async () => {
     const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH", streamIndices: [0, 5] });
 
-    const streamFactory = async (matchedContent: string, matchIndex: number) => {
+    const streamFactory = async (match: string, { matchIndex }: ReplacementContext) => {
       return new ReadableStream({
         start(controller) {
-          controller.enqueue(`[${matchedContent}:${matchIndex}]`);
+          controller.enqueue(`[${ match }:${matchIndex}]`);
           controller.close();
         }
       });

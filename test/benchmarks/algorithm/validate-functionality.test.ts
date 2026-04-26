@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as harnesses from "../../harnesses/index.ts";
 import type { BaseHarness } from "../../harnesses/types.ts";
 import { mockTransformStreamDefaultControllerFactory } from "../../utilities.ts";
+import type { ReplacementContext } from "../../../src/replacement-processors/replacement-processor.base.ts";
 
 for (const harness of Object.values(harnesses) as BaseHarness[]) {
   const { name, createSearchStrategy, createTransformer, isAsync } = harness;
@@ -18,12 +19,12 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
     wrapper(
       substitutionData[match.slice(2, -2) as keyof typeof substitutionData]
     );
-  let indexedReplacement = (_: string, index: number) =>
-    wrapper(["Hello", "World"][index]);
+  let indexedReplacement = (_match: string, { matchIndex }: ReplacementContext) =>
+    wrapper(["Hello", "World"][matchIndex]);
 
   const setupTransformer = (
     tokens: string[],
-    replacement: (match: string, index: number) => string | Promise<string>
+    replacement: (match: string, context: ReplacementContext) => string | Promise<string>
   ) => {
     const strategy = createSearchStrategy({ tokens, replacement });
     return createTransformer({ strategy, replacement });

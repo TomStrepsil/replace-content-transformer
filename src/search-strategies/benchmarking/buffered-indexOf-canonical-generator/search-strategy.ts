@@ -2,12 +2,13 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../../string-buffer-strategy-base.ts";
 import type { SyncProcessor } from "../../../replacement-processors/types.ts";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
 
 export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   extends StringBufferStrategyBase
   implements SyncProcessor<string>
 {
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
   private readonly startToken: string;
   private readonly endToken: string;
@@ -15,7 +16,7 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   private state: StringBufferState;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     tokens: string[]
   ) {
     super();
@@ -55,10 +56,11 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
       );
       if (endIndex !== -1) {
         this.lastIndex = endIndex + this.endToken.length;
-        let replacement = this.replacement(
-          chunk.substring(index, this.lastIndex),
-          this.matchIndex++
-        );
+        const match = chunk.substring(index, this.lastIndex);
+        let replacement = this.replacement(match, {
+          matchIndex: this.matchIndex++,
+          streamIndices: [index, this.lastIndex]
+        });
         yield replacement;
       } else {
         this.state.buffer = chunk.substring(index);
