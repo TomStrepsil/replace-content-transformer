@@ -183,7 +183,7 @@ const transformer = new ReplaceContentTransformer(
     searchStrategy: searchStrategyFactory(
       /class="(?<before>[^"]*?\b)old-button(?<after>\b[^"]*?)"/
     ),
-    replacement: (match: RegExpExecArray, _context) => {
+    replacement: (match: RegExpExecArray) => {
       const { before, after } = match.groups;
       return `class="${before}new-button${after}"`;
     }
@@ -208,7 +208,7 @@ import { fileURLToPath } from "node:url";
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
-    replacement: async (imgTag: string, _context) =>
+    replacement: async (imgTag: string) =>
       `<img src="data:image/png;base64,${(
         await fs.readFile(
           path.join(
@@ -239,7 +239,7 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
       'rel="stylesheet"',
       "/>"
     ]),
-    replacement: async (match: string, _context): Promise<string> => {
+    replacement: async (match: string): Promise<string> => {
       const {
         groups: { url }
       } = /href="(?<url>[^"]+)"/.exec(match)!;
@@ -256,7 +256,7 @@ const transformer = new ReplaceContentTransformer<Promise<string>>(
 ```typescript
 const maxConcurrent = 5;
 const active = new Set<Promise<string>>();
-const replacement = async (match: string, _context): Promise<string> => {
+const replacement = async (match: string): Promise<string> => {
   if (active.size >= maxConcurrent) {
     await Promise.race(active);
   }
@@ -281,7 +281,7 @@ import { IterableFunctionReplacementProcessor } from "replace-content-transforme
 const transformer = new ReplaceContentTransformer(
   new IterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory("3 "),
-    replacement: (_match, _context) => [...Array(3)].map((_, i) => `3.${i + 1} `)
+    replacement: (_match) => [...Array(3)].map((_, i) => `3.${i + 1} `)
   })
 );
 ```
@@ -297,7 +297,7 @@ import { AsyncIterableFunctionReplacementProcessor } from "replace-content-trans
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
-    replacement: async (match: string, _context) => {
+    replacement: async (match: string) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -319,7 +319,7 @@ function transformerFactory(currentDepth: number) {
   return new AsyncReplaceContentTransformer(
     new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
-      replacement: async (match: string, _context) => {
+      replacement: async (match: string) => {
         const {
           groups: { url }
         } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -373,7 +373,7 @@ const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match, _context) => {
+    replacement: async (match) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -417,7 +417,7 @@ function transformFactory(currentDepth: number) {
   return new AsyncReplaceContentTransform(
     new AsyncIterableFunctionReplacementProcessor({
       searchStrategy,
-      replacement: async (match: string, _context) => {
+      replacement: async (match: string) => {
         const {
           groups: { url }
         } = /src="(?<url>[^"]+)"/.exec(match)!;
