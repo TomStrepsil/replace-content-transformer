@@ -49,7 +49,7 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
  * 
  * const processor = new AsyncIterableFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{stream}}'),
- *   replacement: async function* (_match, { matchIndex }) {
+ *   replacement: async function* (match, { matchIndex }) {
  *     const response = await fetch(`/api/stream/${matchIndex}`);
  *     const reader = response.body.getReader();
  *     

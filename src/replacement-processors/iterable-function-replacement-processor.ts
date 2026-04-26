@@ -57,7 +57,7 @@ export type IterableFunctionReplacementProcessorOptions<
  * ```typescript
  * const processor = new IterableFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{repeat}}'),
- *   replacement: function* (_match, { matchIndex }) {
+ *   replacement: function* () {
  *     for (let i = 0; i < 5; i++) {
  *       yield `Iteration ${i}\n`;
  *     }

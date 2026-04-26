@@ -54,7 +54,7 @@ export type AsyncFunctionReplacementProcessorOptions<
  * 
  * const processor = new AsyncFunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{user}}'),
- *   replacement: async (_match, { matchIndex }) => {
+ *   replacement: async (match, { matchIndex }) => {
  *     const response = await fetch(`/api/users/${matchIndex}`);
  *     return response.text();
  *   }

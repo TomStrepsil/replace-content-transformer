@@ -63,7 +63,7 @@ export type FunctionReplacementProcessorOptions<
  * 
  * const processor = new FunctionReplacementProcessor({
  *   searchStrategy: searchStrategyFactory('{{id}}'),
- *   replacement: async (_match, { matchIndex }) => {
+ *   replacement: async (match, { matchIndex }) => {
  *     const data = await fetch(`/api/data/${matchIndex}`);
  *     return data.text();
  *   }
