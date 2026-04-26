@@ -13,7 +13,8 @@ export default [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: "module",
-        project: "./tsconfig.json"
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname
       },
       globals: {
         ...globals.node,
