@@ -88,7 +88,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "regex-partial-match": "^0.2.0"
+    "regex-partial-match": "^0.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
