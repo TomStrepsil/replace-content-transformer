@@ -15,7 +15,7 @@ Replaces all pattern matches with the same static string value. Simplest and fas
 
 Replaces matches using a function that receives the matched content and a context object. Supports both sync and async replacement functions.
 
-- **Replacement Type**: `(match: string, context: ReplacementContext) => string | Promise<string>`
+- **Replacement Type**: `(match: TMatch, context: ReplacementContext) => string | Promise<string>`
 - **Execution**: Synchronous generator (can yield promises)
 - **Use Case**: Dynamic replacements, transformations, API calls
 - **Example**: `new FunctionReplacementProcessor({ searchStrategy, replacement: (match, { matchIndex }) => `[${matchIndex}]` })`
@@ -24,7 +24,7 @@ Replaces matches using a function that receives the matched content and a contex
 
 Replacement function returns an iterable that yields multiple string chunks for a single match. Useful for streaming large replacements or expanding matches into multiple parts.
 
-- **Replacement Type**: `(match: string, context: ReplacementContext) => Iterable<string>`
+- **Replacement Type**: `(match: TMatch, context: ReplacementContext) => Iterable<string>`
 - **Execution**: Synchronous generator
 - **Use Case**: Expanding matches, streaming large replacements, multi-part substitutions
 - **Example**: `new IterableFunctionReplacementProcessor({ searchStrategy, replacement: (match, { matchIndex }) => ['<', match, '>', `(${matchIndex})`] })`
@@ -33,7 +33,7 @@ Replacement function returns an iterable that yields multiple string chunks for 
 
 Async version of FunctionReplacementProcessor. Replacement function must return a Promise. Processor awaits each replacement before yielding.
 
-- **Replacement Type**: `(match: string, context: ReplacementContext) => Promise<string>`
+- **Replacement Type**: `(match: TMatch, context: ReplacementContext) => Promise<string>`
 - **Execution**: Async generator
 - **Use Case**: API calls, database lookups, async transformations
 - **Example**: `new AsyncFunctionReplacementProcessor({ searchStrategy, replacement: async (match, { matchIndex }) => await fetch(`/api/${matchIndex}`) })`
@@ -42,7 +42,7 @@ Async version of FunctionReplacementProcessor. Replacement function must return 
 
 Async version of IterableFunctionReplacementProcessor. Replacement function returns an async iterable that yields chunks asynchronously.
 
-- **Replacement Type**: `(match: string, context: ReplacementContext) => AsyncIterable<string>`
+- **Replacement Type**: `(match: TMatch, context: ReplacementContext) => AsyncIterable<string>`
 - **Execution**: Async generator
 - **Use Case**: Streaming API responses, async chunk generation
 - **Example**: `new AsyncIterableFunctionReplacementProcessor({ searchStrategy, replacement: async function* (match, { matchIndex }) { yield* streamData(matchIndex) } })`
