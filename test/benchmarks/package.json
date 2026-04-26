@@ -10,6 +10,7 @@
     "bench:deno": "deno run --allow-read --allow-write --allow-env --allow-sys runtime/benchmarks.ts",
     "bench:node": "node --experimental-strip-types runtime/benchmarks.ts",
     "bench:runtimes": "./runtime/bench-all.sh",
+    "bench:compare-runtimes": "node --experimental-strip-types runtime/compare.ts",
     "bench:algorithms": "node --experimental-strip-types algorithm/comparison.bench.ts",
     "bench:algorithms:json": "./algorithm/run.sh",
     "bench:algorithms:json:succinct": "./algorithm/run-succinct.sh",

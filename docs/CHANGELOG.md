@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 
+### Added
+
+- `bench:compare-runtimes` package script, enacting the `runtime/compare.ts` script previously undocumented
+
+### Fixed
+
+- corrected some paths in docs for the runtime benchmarks
+
 ## [1.2.0] - 2026-04-06
 
 ### Added

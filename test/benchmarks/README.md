@@ -96,6 +96,9 @@ npm run bench:deno
 
 # Run on all installed runtimes
 npm run bench:runtimes
+
+# Compare all runtimes
+npm run bench:compare-runtimes
 ```
 
 #### What's Measured
