@@ -281,7 +281,7 @@ import { IterableFunctionReplacementProcessor } from "replace-content-transforme
 const transformer = new ReplaceContentTransformer(
   new IterableFunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory("3 "),
-    replacement: (_match) => [...Array(3)].map((_, i) => `3.${i + 1} `)
+    replacement: () => [...Array(3)].map((_, i) => `3.${i + 1} `)
   })
 );
 ```
