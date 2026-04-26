@@ -19,7 +19,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
     wrapper(
       substitutionData[match.slice(2, -2) as keyof typeof substitutionData]
     );
-  let indexedReplacement = (_match: string, { matchIndex }: ReplacementContext) =>
+  let indexedReplacement = (_: string, { matchIndex }: ReplacementContext) =>
     wrapper(["Hello", "World"][matchIndex]);
 
   const setupTransformer = (
