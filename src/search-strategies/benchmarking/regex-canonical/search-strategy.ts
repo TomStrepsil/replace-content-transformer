@@ -58,22 +58,17 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
     }
   }
 
-  replaceTag(match: string, p1: string, offset: number) {
-    // String.replace callback argument shape depends on capture groups.
-    // Resolve the numeric offset robustly for regexes with or without captures.
-    const offsetValue =
-      typeof p1 === "number"
-        ? p1
-        : typeof offset === "number"
-          ? offset
-          : 0;
-    const transformedOffset = offsetValue + this.replacementDelta;
+  replaceTag(match: string, ...args: unknown[]) {
+    // offset is always the second-to-last argument in the replace callback:
+    // (match, ...captures, offset, string) or (match, ...captures, offset, string, namedGroups)
+    const numericOffset = args.at(-2) as number;
+    const transformedOffset = numericOffset + this.replacementDelta;
 
     let replacement = this.replacement(match, {
       matchIndex: this.matchIndex++,
       streamIndices: [
-        this.currentChunkBaseOffset + offsetValue,
-        this.currentChunkBaseOffset + offsetValue + match.length
+        this.currentChunkBaseOffset + numericOffset,
+        this.currentChunkBaseOffset + numericOffset + match.length
       ]
     });
     if (replacement === undefined) {
