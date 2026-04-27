@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A "codemods" workspace, plus a `jscodeshift` codemod and npm script to migrate replacement callbacks from positional arguments to `(match, context)` form
 - `bench:compare-runtimes` package script, enacting the `runtime/compare.ts` script previously undocumented
 - Updated benchmark search strategies to include proper stream indices, to support parity of functionality
 - Added explicit CJS build step / exports, and add [`@arethetypeswrong`](https://github.com/arethetypeswrong/arethetypeswrong.github.io) validation
