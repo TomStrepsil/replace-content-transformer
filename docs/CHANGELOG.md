@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **BREAKING:** Replacement callbacks now receive `match` as the first parameter and `context` as the second: `(match, context: ReplacementContext) => ...`
-- **BREAKING:** Made Node minimum version 22 (LTS) - support for `import.meta.dirname` (Node 20) required
+- **BREAKING:** Made Node minimum version 22 (LTS)
+  - support for `import.meta.dirname` required Node 20+
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Moved to extension-less imports for better type exports
