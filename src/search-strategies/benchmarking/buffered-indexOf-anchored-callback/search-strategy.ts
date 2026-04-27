@@ -8,6 +8,7 @@ export class BufferedIndexOfAnchoredCallbackSearchStrategy
   private readonly replacement: (match: string, context: ReplacementContext) => string;
   private readonly delimiters: string[];
   private matchIndex: number = 0;
+  private totalStreamOffset: number = 0;
 
   constructor(
     replacement: (match: string, context: ReplacementContext) => string,
@@ -19,51 +20,57 @@ export class BufferedIndexOfAnchoredCallbackSearchStrategy
   }
 
   processChunk(chunk: string, enqueue: (output: string) => void): void {
+    const bufferLength = this.partialChunk.length;
+    const baseOffset = this.totalStreamOffset - bufferLength;
     chunk = this.partialChunk + chunk;
     this.partialChunk = "";
     let position = 0;
 
-    while (position < chunk.length) {
-      const startIndex = chunk.indexOf(this.delimiters[0], position);
+    try {
+      while (position < chunk.length) {
+        const startIndex = chunk.indexOf(this.delimiters[0], position);
 
-      if (startIndex === -1) {
-        const bufferSize = this.delimiters[0].length - 1;
-        const splitPoint = Math.max(position, chunk.length - bufferSize);
-        this.partialChunk = chunk.slice(splitPoint);
-        if (position !== splitPoint) {
-          enqueue(chunk.slice(position, splitPoint));
-        }
-        return;
-      }
-
-      if (startIndex > position) {
-        enqueue(chunk.substring(position, startIndex));
-      }
-
-      let currentPos = startIndex + this.delimiters[0].length;
-      let delimiterIndex = 1;
-
-      while (delimiterIndex < this.delimiters.length) {
-        const delimiter = this.delimiters[delimiterIndex];
-        const delimIndex = chunk.indexOf(delimiter, currentPos);
-
-        if (delimIndex === -1) {
-          this.partialChunk = chunk.substring(startIndex);
+        if (startIndex === -1) {
+          const bufferSize = this.delimiters[0].length - 1;
+          const splitPoint = Math.max(position, chunk.length - bufferSize);
+          this.partialChunk = chunk.slice(splitPoint);
+          if (position !== splitPoint) {
+            enqueue(chunk.slice(position, splitPoint));
+          }
           return;
         }
 
-        currentPos = delimIndex + delimiter.length;
-        delimiterIndex++;
-      }
+        if (startIndex > position) {
+          enqueue(chunk.substring(position, startIndex));
+        }
 
-      const matchEnd = currentPos;
-      const match = chunk.substring(startIndex, matchEnd);
-      const replacement = this.replacement(match, {
-        matchIndex: this.matchIndex++,
-        streamIndices: [startIndex, matchEnd]
-      });
-      enqueue(replacement);
-      position = matchEnd;
+        let currentPos = startIndex + this.delimiters[0].length;
+        let delimiterIndex = 1;
+
+        while (delimiterIndex < this.delimiters.length) {
+          const delimiter = this.delimiters[delimiterIndex];
+          const delimIndex = chunk.indexOf(delimiter, currentPos);
+
+          if (delimIndex === -1) {
+            this.partialChunk = chunk.substring(startIndex);
+            return;
+          }
+
+          currentPos = delimIndex + delimiter.length;
+          delimiterIndex++;
+        }
+
+        const matchEnd = currentPos;
+        const match = chunk.substring(startIndex, matchEnd);
+        const replacement = this.replacement(match, {
+          matchIndex: this.matchIndex++,
+          streamIndices: [baseOffset + startIndex, baseOffset + matchEnd]
+        });
+        enqueue(replacement);
+        position = matchEnd;
+      }
+    } finally {
+      this.totalStreamOffset += chunk.length - bufferLength;
     }
   }
 

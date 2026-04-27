@@ -11,6 +11,7 @@ export class BufferedIndexOfReplaceContentTransformer
   private readonly startToken: string;
   private readonly endToken: string;
   private matchIndex: number = 0;
+  private totalStreamOffset: number = 0;
 
   constructor(
     replacement: (match: string, context: ReplacementContext) => string,
@@ -27,44 +28,52 @@ export class BufferedIndexOfReplaceContentTransformer
     chunk: string,
     controller: TransformStreamDefaultController<string>
   ) {
+    const bufferLength = this.partialChunk.length;
+    const baseOffset = this.totalStreamOffset - bufferLength;
     chunk = this.partialChunk + chunk;
     this.partialChunk = "";
     this.lastIndex = 0;
-    while (this.lastIndex < chunk.length) {
-      let index = chunk.indexOf(this.startToken, this.lastIndex);
-      if (index === -1) {
-        const splitPoint = Math.max(
-          this.lastIndex,
-          chunk.length - this.startToken.length - 1
-        );
-        this.partialChunk = chunk.slice(splitPoint);
-        const content = chunk.slice(this.lastIndex, splitPoint);
-        if (content) {
-          controller.enqueue(content);
+    const chunkLength = chunk.length;
+    
+    try {
+      while (this.lastIndex < chunkLength) {
+        let index = chunk.indexOf(this.startToken, this.lastIndex);
+        if (index === -1) {
+          const splitPoint = Math.max(
+            this.lastIndex,
+            chunkLength - this.startToken.length - 1
+          );
+          this.partialChunk = chunk.slice(splitPoint);
+          const content = chunk.slice(this.lastIndex, splitPoint);
+          if (content) {
+            controller.enqueue(content);
+          }
+          return;
         }
-        return;
-      }
 
-      if (index > 0) {
-        controller.enqueue(chunk.substring(this.lastIndex, index));
-      }
+        if (index > 0) {
+          controller.enqueue(chunk.substring(this.lastIndex, index));
+        }
 
-      const endIndex = chunk.indexOf(
-        this.endToken,
-        index + this.startToken.length
-      );
-      if (endIndex !== -1) {
-        this.lastIndex = endIndex + this.endToken.length;
-        const match = chunk.substring(index, this.lastIndex);
-        let replacement = this.replacement(match, {
-          matchIndex: this.matchIndex++,
-          streamIndices: [index, this.lastIndex]
-        });
-        controller.enqueue(replacement);
-      } else {
-        this.partialChunk = chunk.substring(index);
-        return;
+        const endIndex = chunk.indexOf(
+          this.endToken,
+          index + this.startToken.length
+        );
+        if (endIndex !== -1) {
+          this.lastIndex = endIndex + this.endToken.length;
+          const match = chunk.substring(index, this.lastIndex);
+          let replacement = this.replacement(match, {
+            matchIndex: this.matchIndex++,
+            streamIndices: [baseOffset + index, baseOffset + this.lastIndex]
+          });
+          controller.enqueue(replacement);
+        } else {
+          this.partialChunk = chunk.substring(index);
+          return;
+        }
       }
+    } finally {
+      this.totalStreamOffset += chunkLength - bufferLength;
     }
   }
 

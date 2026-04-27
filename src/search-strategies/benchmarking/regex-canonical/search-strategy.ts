@@ -9,6 +9,9 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
   private readonly openRegex: RegExp;
   private readonly partialAtEndRegex: RegExp;
   private matchIndex: number = 0;
+  private totalStreamOffset: number = 0;
+  private currentChunkBaseOffset: number = 0;
+  private replacementDelta: number = 0;
 
   constructor(
     replacement: (match: string, context: ReplacementContext) => string,
@@ -26,10 +29,14 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
     chunk: string,
     controller: TransformStreamDefaultController<string>
   ) {
+    const bufferLength = this.partialChunk.length;
+    this.currentChunkBaseOffset = this.totalStreamOffset - bufferLength;
     chunk = this.partialChunk + chunk;
     this.partialChunk = "";
     // lastIndex is the index of the first character after the last substitution.
     this.lastIndex = 0;
+    this.replacementDelta = 0;
+    const originalLength = chunk.length;
     chunk = chunk.replace(this.openRegex, this.replaceTag.bind(this));
     // Regular expression for an incomplete template at the end of a string.
     // Avoid looking at any characters that have already been substituted.
@@ -42,6 +49,7 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
       chunk = chunk.substring(0, match.index);
     }
     controller.enqueue(chunk);
+    this.totalStreamOffset += originalLength - bufferLength;
   }
 
   flush(controller: TransformStreamDefaultController<string>) {
@@ -51,14 +59,28 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
   }
 
   replaceTag(match: string, p1: string, offset: number) {
+    // String.replace callback argument shape depends on capture groups.
+    // Resolve the numeric offset robustly for regexes with or without captures.
+    const offsetValue =
+      typeof p1 === "number"
+        ? p1
+        : typeof offset === "number"
+          ? offset
+          : 0;
+    const transformedOffset = offsetValue + this.replacementDelta;
+
     let replacement = this.replacement(match, {
       matchIndex: this.matchIndex++,
-      streamIndices: [offset, offset + match.length]
+      streamIndices: [
+        this.currentChunkBaseOffset + offsetValue,
+        this.currentChunkBaseOffset + offsetValue + match.length
+      ]
     });
     if (replacement === undefined) {
       replacement = "";
     }
-    this.lastIndex = offset + replacement.length;
+    this.replacementDelta += replacement.length - match.length;
+    this.lastIndex = transformedOffset + replacement.length;
     return replacement;
   }
 }

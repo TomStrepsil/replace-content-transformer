@@ -700,5 +700,174 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         expect(matchCount).toBe(1);
       });
     });
+
+    describe("stream indices validation", () => {
+      it("Stream indices should be absolute positions in the overall stream", async () => {
+        const chunks = ["before {{", "hello}} after"];
+        const fullStream = chunks.join("");
+        
+        const capturedIndices: Array<{ matchIndex: number; streamIndices: [number, number]; match: string }> = [];
+        
+        const replacement = (match: string, { matchIndex, streamIndices }: ReplacementContext) => {
+          capturedIndices.push({ matchIndex, streamIndices: streamIndices as [number, number], match });
+          return "REPLACED";
+        };
+
+        const outputs: string[] = [];
+        const transformer = setupTransformer(["{{", "}}"], replacement);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+        for await (const chunk of chunks) {
+          await transformer.transform(chunk, controller);
+        }
+        transformer.flush(controller);
+
+        expect(capturedIndices).toHaveLength(1);
+        const [startIndex, endIndex] = capturedIndices[0].streamIndices;
+        
+        // Verify the match content at the absolute position
+        const matchContent = fullStream.substring(startIndex, endIndex);
+        expect(matchContent).toBe("{{hello}}");
+        
+        // Verify indices point to the right positions
+        expect(startIndex).toBe(7); // Position of {{ in "before {{hello}} after"
+        expect(endIndex).toBe(16); // Position after }}
+      });
+
+      it("Stream indices remain correct across multiple chunks with multiple matches", async () => {
+        const chunks = ["{{a}}text{{", "b}}more{{c", "}}"];
+        const fullStream = chunks.join("");
+        
+        const capturedMatches: Array<{ streamIndices: [number, number]; match: string }> = [];
+        
+        const replacement = (match: string, { streamIndices }: ReplacementContext) => {
+          capturedMatches.push({ streamIndices: streamIndices as [number, number], match });
+          return "X";
+        };
+
+        const outputs: string[] = [];
+        const transformer = setupTransformer(["{{", "}}"], replacement);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+        for await (const chunk of chunks) {
+          await transformer.transform(chunk, controller);
+        }
+        transformer.flush(controller);
+
+        expect(capturedMatches).toHaveLength(3);
+        
+        // Check first match: {{a}}
+        expect(fullStream.substring(capturedMatches[0].streamIndices[0], capturedMatches[0].streamIndices[1])).toBe("{{a}}");
+        expect(capturedMatches[0].streamIndices).toEqual([0, 5]);
+        
+        // Check second match: {{b}}
+        expect(fullStream.substring(capturedMatches[1].streamIndices[0], capturedMatches[1].streamIndices[1])).toBe("{{b}}");
+        expect(capturedMatches[1].streamIndices[0]).toBeGreaterThan(5);
+        
+        // Check third match: {{c}}
+        expect(fullStream.substring(capturedMatches[2].streamIndices[0], capturedMatches[2].streamIndices[1])).toBe("{{c}}");
+        expect(capturedMatches[2].streamIndices[0]).toBeGreaterThan(capturedMatches[1].streamIndices[0]);
+      });
+
+      it("Stream indices are correct for matches split across chunk boundaries", async () => {
+        const chunks = ["start {{he", "llo}} end"];
+        const fullStream = chunks.join("");
+        
+        const capturedIndices: Array<{ streamIndices: [number, number] }> = [];
+        
+        const replacement = (match: string, { streamIndices }: ReplacementContext) => {
+          capturedIndices.push({ streamIndices: streamIndices as [number, number] });
+          return "REPLACED";
+        };
+
+        const outputs: string[] = [];
+        const transformer = setupTransformer(["{{", "}}"], replacement);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+        for await (const chunk of chunks) {
+          await transformer.transform(chunk, controller);
+        }
+        transformer.flush(controller);
+
+        expect(capturedIndices).toHaveLength(1);
+        const [startIndex, endIndex] = capturedIndices[0].streamIndices;
+        
+        // The match spans chunks: "{{hello}}"
+        // In "start {{hello}} end", it starts at position 6
+        const matchContent = fullStream.substring(startIndex, endIndex);
+        expect(matchContent).toBe("{{hello}}");
+        expect(startIndex).toBe(6);
+        expect(endIndex).toBe(15);
+      });
+
+      it("Stream indices are monotonically increasing and correct", async () => {
+        const chunks = ["Hello {{a}}", " World {{b", "}} Foo {{c}}"];
+        const fullStream = chunks.join("");
+        
+        const capturedMatches: Array<{ streamIndices: [number, number]; match: string }> = [];
+        
+        const replacement = (match: string, { streamIndices }: ReplacementContext) => {
+          capturedMatches.push({ streamIndices: streamIndices as [number, number], match });
+          return "X";
+        };
+
+        const outputs: string[] = [];
+        const transformer = setupTransformer(["{{", "}}"], replacement);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+        for await (const chunk of chunks) {
+          await transformer.transform(chunk, controller);
+        }
+        transformer.flush(controller);
+
+        expect(capturedMatches).toHaveLength(3);
+        
+        // Verify each match can be found in the stream at its reported indices
+        for (const captured of capturedMatches) {
+          const [start, end] = captured.streamIndices;
+          const extractedMatch = fullStream.substring(start, end);
+          expect(extractedMatch).toBe(captured.match);
+        }
+        
+        // Verify indices are monotonically increasing (non-overlapping)
+        for (let i = 1; i < capturedMatches.length; i++) {
+          expect(capturedMatches[i].streamIndices[0]).toBeGreaterThanOrEqual(
+            capturedMatches[i - 1].streamIndices[1]
+          );
+        }
+      });
+
+      it("Stream indices point to correct match content in the stream", async () => {
+        // Test with padding and multiple matches to ensure indices are absolute
+        const chunks = ["start{{one}}mi", "ddle{{two}}end"];
+        const fullStream = chunks.join("");
+        
+        const capturedMatches: Array<{ streamIndices: [number, number]; match: string }> = [];
+        
+        const replacement = (match: string, { streamIndices }: ReplacementContext) => {
+          capturedMatches.push({ streamIndices: streamIndices as [number, number], match });
+          return "X";
+        };
+
+        const outputs: string[] = [];
+        const transformer = setupTransformer(["{{", "}}"], replacement);
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+        for await (const chunk of chunks) {
+          await transformer.transform(chunk, controller);
+        }
+        transformer.flush(controller);
+
+        expect(capturedMatches).toHaveLength(2);
+
+        // Verify each captured match can be extracted from the stream using its indices
+        capturedMatches.forEach((captured) => {
+          const [start, end] = captured.streamIndices;
+          const matchContent = fullStream.substring(start, end);
+          // The extracted content should be the match
+          expect(matchContent).toBe(captured.match);
+        });
+      });
+    });
   });
 }
