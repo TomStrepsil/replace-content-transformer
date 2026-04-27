@@ -711,7 +711,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         const capturedIndices: Array<{ matchIndex: number; streamIndices: [number, number]; match: string }> = [];
         
         const replacement = (match: string, { matchIndex, streamIndices }: ReplacementContext) => {
-          capturedIndices.push({ matchIndex, streamIndices: streamIndices as [number, number], match });
+          capturedIndices.push({ matchIndex, streamIndices, match });
           return "REPLACED";
         };
 
@@ -743,7 +743,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         const capturedMatches: Array<{ streamIndices: [number, number]; match: string }> = [];
         
         const replacement = (match: string, { streamIndices }: ReplacementContext) => {
-          capturedMatches.push({ streamIndices: streamIndices as [number, number], match });
+          capturedMatches.push({ streamIndices, match });
           return "X";
         };
 
@@ -778,7 +778,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         const capturedIndices: Array<{ streamIndices: [number, number] }> = [];
         
         const replacement = (match: string, { streamIndices }: ReplacementContext) => {
-          capturedIndices.push({ streamIndices: streamIndices as [number, number] });
+          capturedIndices.push({ streamIndices });
           return "REPLACED";
         };
 
@@ -809,7 +809,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         const capturedMatches: Array<{ streamIndices: [number, number]; match: string }> = [];
         
         const replacement = (match: string, { streamIndices }: ReplacementContext) => {
-          capturedMatches.push({ streamIndices: streamIndices as [number, number], match });
+          capturedMatches.push({ streamIndices, match });
           return "X";
         };
 
@@ -847,7 +847,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         const capturedMatches: Array<{ streamIndices: [number, number]; match: string }> = [];
         
         const replacement = (match: string, { streamIndices }: ReplacementContext) => {
-          capturedMatches.push({ streamIndices: streamIndices as [number, number], match });
+          capturedMatches.push({ streamIndices, match });
           return "X";
         };
 

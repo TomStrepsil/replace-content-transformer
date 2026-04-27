@@ -51,7 +51,7 @@ export class BufferedIndexOfReplaceContentTransformer
           return;
         }
 
-        if (index > this.lastIndex!) {
+        if (index > this.lastIndex) {
           controller.enqueue(chunk.substring(this.lastIndex, index));
         }
 
