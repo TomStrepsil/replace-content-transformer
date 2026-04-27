@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { ReplaceContentTransform } from "./sync-transform";
+import { ReplaceContentTransform } from "./sync-transform.js";
 import { Writable } from "node:stream";
-import { mockSyncProcessorFactory } from "../../../test/utilities";
+import { mockSyncProcessorFactory } from "../../../test/utilities.js";
 
 describe("ReplaceContentTransform (sync)", () => {
   it("delegates to processor and writes output to stream", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy";
+import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {

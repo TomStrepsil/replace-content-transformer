@@ -1,7 +1,7 @@
-import type { MatchResult, SearchStrategy } from "../../types";
+import type { MatchResult, SearchStrategy } from "../../types.js";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../../string-buffer-strategy-base";
+} from "../../string-buffer-strategy-base.js";
 export interface AnchorSequenceSearchState<TState> extends StringBufferState {
   currentNeedleIndex: number;
   strategyStates: TState[];

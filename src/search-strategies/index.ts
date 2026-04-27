@@ -1,4 +1,4 @@
 export {
   LoopedIndexOfAnchoredSearchStrategy as StringAnchorSearchStrategy
-} from "./looped-indexOf-anchored/index";
-export * from "./regex/index";
+} from "./looped-indexOf-anchored/index.js";
+export * from "./regex/index.js";

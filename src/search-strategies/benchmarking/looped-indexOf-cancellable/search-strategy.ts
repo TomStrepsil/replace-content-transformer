@@ -1,7 +1,7 @@
-import type { SearchStrategy, MatchResult } from "../../types";
+import type { SearchStrategy, MatchResult } from "../../types.js";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../../string-buffer-strategy-base";
+} from "../../string-buffer-strategy-base.js";
 export interface LoopedIndexOfCancellableSearchState extends StringBufferState {
   needleIndex: number;
 }

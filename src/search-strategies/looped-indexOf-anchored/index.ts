@@ -1,1 +1,1 @@
-export { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy";
+export { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";

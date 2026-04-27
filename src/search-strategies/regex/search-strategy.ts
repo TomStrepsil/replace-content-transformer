@@ -1,9 +1,9 @@
-import type { MatchResult, SearchStrategy } from "../types";
+import type { MatchResult, SearchStrategy } from "../types.js";
 import createPartialMatchRegex from "regex-partial-match";
-import validateInput from "./input-validation";
+import validateInput from "./input-validation.js";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../string-buffer-strategy-base";
+} from "../string-buffer-strategy-base.js";
 
 /**
  * Corrected version of {@link RegExpIndicesArray} that models `undefined`

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { AnchorSequenceSearchStrategy } from "./search-strategy";
-import { BufferedIndexOfCancellableSearchStrategy } from "../buffered-indexOf-cancellable/search-strategy";
+import { AnchorSequenceSearchStrategy } from "./search-strategy.js";
+import { BufferedIndexOfCancellableSearchStrategy } from "../buffered-indexOf-cancellable/search-strategy.js";
 
 describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrategy", () => {
   it("simple two-delimiter match", () => {

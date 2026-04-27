@@ -1,1 +1,1 @@
-export { BufferedIndexOfAnchoredCallbackSearchStrategy } from "./search-strategy";
+export { BufferedIndexOfAnchoredCallbackSearchStrategy } from "./search-strategy.js";

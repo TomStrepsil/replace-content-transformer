@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { IndexOfKnuthMorrisPrattSearchStrategy } from "./search-strategy";
-import type { MatchResult } from "../../types";
+import { IndexOfKnuthMorrisPrattSearchStrategy } from "./search-strategy.js";
+import type { MatchResult } from "../../types.js";
 
 describe("IndexOfKnuthMorrisPratt", () => {
   describe("complete matches in single chunk", () => {

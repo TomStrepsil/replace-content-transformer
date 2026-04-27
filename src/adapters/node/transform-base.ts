@@ -1,5 +1,5 @@
 import { Transform, type TransformCallback } from "node:stream";
-import type { Processor } from "../../replacement-processors/types";
+import type { Processor } from "../../replacement-processors/types.js";
 
 export abstract class ReplaceContentTransformBase extends Transform {
   protected abstract processor: Processor;

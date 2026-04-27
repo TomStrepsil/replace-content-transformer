@@ -2,8 +2,8 @@ import {
   ReplacementProcessorBase,
   type ReplacementContext,
   type ReplacementProcessorOptions
-} from "./replacement-processor.base";
-import { type SyncProcessor } from "./types";
+} from "./replacement-processor.base.js";
+import { type SyncProcessor } from "./types.js";
 
 /**
  * Configuration options for {@link IterableFunctionReplacementProcessor}.

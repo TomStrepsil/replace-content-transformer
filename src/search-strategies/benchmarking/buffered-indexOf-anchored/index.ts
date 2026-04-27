@@ -1,4 +1,4 @@
 export {
   BufferedIndexOfAnchoredSearchStrategy,
   type BufferedIndexOfAnchoredSearchState
-} from "./search-strategy";
+} from "./search-strategy.js";

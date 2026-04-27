@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { mockSearchStrategyFactory } from "../../test/utilities";
-import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor";
-import type { ReplacementContext } from "./replacement-processor.base";
+import { mockSearchStrategyFactory } from "../../test/utilities.js";
+import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor.js";
+import type { ReplacementContext } from "./replacement-processor.base.js";
 
 describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("yields stream content chunk-by-chunk without buffering", async () => {

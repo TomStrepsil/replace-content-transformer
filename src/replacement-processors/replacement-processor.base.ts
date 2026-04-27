@@ -1,4 +1,4 @@
-import type { SearchStrategy } from "../search-strategies/types";
+import type { SearchStrategy } from "../search-strategies/types.js";
 
 /**
  * Base options for all replacement processors.

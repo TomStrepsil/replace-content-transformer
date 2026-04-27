@@ -1,4 +1,4 @@
-import inputValidation from "./input-validation";
+import inputValidation from "./input-validation.js";
 
 describe("input validation", () => {
   it("should not allow negative lookahead to be part of the needle", () => {

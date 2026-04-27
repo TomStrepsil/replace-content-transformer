@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { ReplaceContentTransformer } from "./sync-transformer";
+import { ReplaceContentTransformer } from "./sync-transformer.js";
 import {
   mockTransformStreamDefaultControllerFactory,
   mockSyncProcessorFactory
-} from "../../../test/utilities";
+} from "../../../test/utilities.js";
 
 describe("ReplaceContentTransformer (sync)", () => {
   it("delegates to processor and enqueues output", () => {

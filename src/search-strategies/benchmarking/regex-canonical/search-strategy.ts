@@ -1,5 +1,5 @@
 import type { Transformer } from "node:stream/web";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
 
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
 export class RegexReplaceContentTransformer implements Transformer<string> {

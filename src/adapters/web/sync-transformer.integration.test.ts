@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { text } from "node:stream/consumers";
-import { ReplaceContentTransformer } from "./sync-transformer";
-import { FunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor";
-import { StringAnchorSearchStrategy } from "../../search-strategies/index";
-import type { ReplacementContext } from "../../replacement-processors/replacement-processor.base";
+import { ReplaceContentTransformer } from "./sync-transformer.js";
+import { FunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor.js";
+import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
+import type { ReplacementContext } from "../../replacement-processors/replacement-processor.base.js";
 
 describe("ReplaceContentTransformer + StringAnchorSearchStrategy + stopReplacingSignal", () => {
   it("passes through new chunks after abort set between chunks when no buffered remainder exists", async () => {

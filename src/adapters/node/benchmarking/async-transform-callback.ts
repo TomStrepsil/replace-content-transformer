@@ -1,5 +1,5 @@
-import { ReplaceContentTransformBase } from "../transform-base";
-import type { AsyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types";
+import { ReplaceContentTransformBase } from "../transform-base.js";
+import type { AsyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
 
 export class AsyncReplaceContentTransformCallback extends ReplaceContentTransformBase {
   protected processor: AsyncCallbackProcessor;

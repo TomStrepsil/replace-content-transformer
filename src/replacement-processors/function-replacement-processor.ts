@@ -2,7 +2,7 @@ import {
   ReplacementProcessorBase,
   type ReplacementContext,
   type ReplacementProcessorOptions
-} from "./replacement-processor.base";
+} from "./replacement-processor.base.js";
 
 /**
  * Configuration options for {@link FunctionReplacementProcessor}.

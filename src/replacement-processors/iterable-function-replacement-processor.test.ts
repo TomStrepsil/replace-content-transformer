@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor";
-import { mockSearchStrategyFactory } from "../../test/utilities";
-import type { ReplacementContext } from "./replacement-processor.base";
+import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.js";
+import { mockSearchStrategyFactory } from "../../test/utilities.js";
+import type { ReplacementContext } from "./replacement-processor.base.js";
 
 describe("IterableFunctionReplacementProcessor", () => {
   const mockInput = "test input";

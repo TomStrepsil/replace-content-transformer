@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   StringAnchorSearchStrategy,
   RegexSearchStrategy
-} from "../search-strategies/index";
-import { FunctionReplacementProcessor } from "./function-replacement-processor";
+} from "../search-strategies/index.js";
+import { FunctionReplacementProcessor } from "./function-replacement-processor.js";
 
 describe("FunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
   it("simple match", () => {

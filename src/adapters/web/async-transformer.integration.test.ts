@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor";
-import { AsyncReplaceContentTransformer } from "./async-transformer";
+import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.js";
+import { AsyncReplaceContentTransformer } from "./async-transformer.js";
 import { http, HttpResponse } from "msw";
-import { server } from "../../../test/utilities";
+import { server } from "../../../test/utilities.js";
 import { text } from "node:stream/consumers";
-import { StringAnchorSearchStrategy } from "../../search-strategies/index";
+import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
 
 describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
   it("passes through new chunks after abort set between chunks when no buffered remainder exists", async () => {

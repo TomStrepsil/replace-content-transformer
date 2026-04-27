@@ -1,5 +1,5 @@
-import type { MatchResult, SearchStrategy } from "../../types";
-import StringBufferStrategyBase from "../../string-buffer-strategy-base";
+import type { MatchResult, SearchStrategy } from "../../types.js";
+import StringBufferStrategyBase from "../../string-buffer-strategy-base.js";
 
 export type BufferedIndexOfAnchoredSearchState = {
   /** Buffer holding partial content that may contain incomplete matches spanning chunks */

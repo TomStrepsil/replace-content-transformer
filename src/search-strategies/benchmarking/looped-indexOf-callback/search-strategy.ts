@@ -1,5 +1,5 @@
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base";
+import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
 
 export class LoopedIndexOfCallbackSearchStrategy
   implements SyncCallbackProcessor
