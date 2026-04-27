@@ -19,9 +19,11 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
    * Async function called for each match that returns an async iterable of replacement strings.
    * 
    * @param context - The match context
-   * @returns Promise resolving to an async iterable of replacement strings
+   * @returns Async iterable of replacement strings, either directly or wrapped in a Promise
    */
-  replacement: (match: TMatch, context: ReplacementContext) => Promise<AsyncIterable<string>>;
+  replacement: (match: TMatch, context: ReplacementContext) =>
+    | AsyncIterable<string>
+    | Promise<AsyncIterable<string>>;
 };
 
 /**
@@ -91,7 +93,9 @@ export class AsyncIterableFunctionReplacementProcessor<
   TState,
   TMatch = string
 > extends ReplacementProcessorBase<TState, TMatch> implements AsyncProcessor {
-  private readonly replacementFn: (match: TMatch, context: ReplacementContext) => Promise<AsyncIterable<string>>;
+  private readonly replacementFn: (match: TMatch, context: ReplacementContext) =>
+    | AsyncIterable<string>
+    | Promise<AsyncIterable<string>>;
   private matchIndex: number = 0;
 
   constructor({

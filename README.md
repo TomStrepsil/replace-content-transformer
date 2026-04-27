@@ -290,6 +290,11 @@ const transformer = new ReplaceContentTransformer(
 
 Interpolate [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream)s, or other async iterables, into the output. Ensures each async operation completes before the next starts:
 
+You can return either form:
+
+- an async iterable directly (for example `async function*`)
+- a `Promise<AsyncIterable<string>>` (for example an `async` function returning a stream)
+
 ```typescript
 import { AsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
 
@@ -303,6 +308,17 @@ const transformer = new AsyncReplaceContentTransformer(
       } = /src="(?<url>[^"]+)"/.exec(match)!;
       const res = await fetch(url);
       return res.body!.pipeThrough(new TextDecoderStream());
+    }
+  })
+);
+
+// direct async iterable form
+const transformerWithGenerator = new AsyncReplaceContentTransformer(
+  new AsyncIterableFunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory("{{needle}}"),
+    replacement: async function* () {
+      yield "first chunk";
+      yield "second chunk";
     }
   })
 );

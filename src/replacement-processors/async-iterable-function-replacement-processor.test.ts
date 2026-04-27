@@ -211,4 +211,27 @@ describe("flush", () => {
     const flushed = processor.flush();
     expect(flushed).toBe("");
   });
+
+  it("accepts replacement that directly returns an async iterable", async () => {
+    const mockStrategy = mockSearchStrategyFactory(
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD", streamIndices: [6, 9] },
+      { isMatch: false, content: " world" }
+    );
+
+    const processor = new AsyncIterableFunctionReplacementProcessor({
+      searchStrategy: mockStrategy,
+      replacement: async function* () {
+        yield "chunk1";
+        yield "chunk2";
+      }
+    });
+
+    const outputChunks: string[] = [];
+    for await (const chunk of processor.processChunk("Hello OLD world")) {
+      outputChunks.push(chunk);
+    }
+
+    expect(outputChunks).toEqual(["Hello ", "chunk1", "chunk2", " world"]);
+  });
 });
