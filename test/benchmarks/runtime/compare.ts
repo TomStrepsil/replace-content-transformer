@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --experimental-strip-types
+#!/usr/bin/env -S node --import tsx
 
 /**
  * Cross-Runtime Benchmark Comparison Tool
@@ -54,7 +54,8 @@ const RUNTIMES: RuntimeInfo[] = [
     name: "Node",
     command: "node",
     args: [
-      "--experimental-strip-types",
+      "--import",
+      "tsx",
       "./runtime/benchmarks.ts",
       "--json"
     ],

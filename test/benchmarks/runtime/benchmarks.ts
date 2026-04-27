@@ -16,7 +16,7 @@ import {
  * Usage:
  * - Bun: bun run test/benchmarks/runtime/benchmarks.ts
  * - Deno: deno run --allow-read --allow-write --allow-env --allow-sys test/benchmarks/runtime/benchmarks.ts
- * - Node: node --experimental-strip-types test/benchmarks/runtime/benchmarks.ts
+ * - Node: node --import tsx test/benchmarks/runtime/benchmarks.ts
  */
 
 const runtime = (() => {

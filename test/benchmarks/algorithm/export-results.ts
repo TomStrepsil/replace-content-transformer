@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --experimental-strip-types
+#!/usr/bin/env -S node --import tsx
 
 /**
  * Exports succinct harness comparison results for tracking over time
@@ -10,8 +10,8 @@
  * - Winner per scenario
  *
  * Usage:
- *   node --experimental-strip-types test/benchmarks/algorithm/comparison.bench.ts --json | \
- *   node --experimental-strip-types test/benchmarks/algorithm/export-results.ts > test/benchmarks/algorithm/results/comparison-YYYY-MM-DD.json
+ *   node --import tsx test/benchmarks/algorithm/comparison.bench.ts --json | \
+ *   node --import tsx test/benchmarks/algorithm/export-results.ts > test/benchmarks/algorithm/results/comparison-YYYY-MM-DD.json
  */
 
 import type { ReadStream } from "node:fs";

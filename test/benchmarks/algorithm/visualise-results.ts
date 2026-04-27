@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --experimental-strip-types
+#!/usr/bin/env -S node --import tsx
 
 /**
  * Visualise harness comparison results
@@ -12,13 +12,13 @@
  *   cd test/benchmarks/algorithm
  * 
  *   # Single run terminal chart
- *   node --experimental-strip-types visualise-results.ts results/comparison-2025-11-07.json
+ *   node --import tsx visualise-results.ts results/comparison-2025-11-07.json
  *
  *   # Generate HTML chart
- *   node --experimental-strip-types visualise-results.ts results/comparison-2025-11-07.json --html > chart.html
+ *   node --import tsx visualise-results.ts results/comparison-2025-11-07.json --html > chart.html
  *
  *   # Time-series comparison (multiple files)
- *   node --experimental-strip-types visualise-results.ts results/*.json --timeseries --html > trends.html
+ *   node --import tsx visualise-results.ts results/*.json --timeseries --html > trends.html
  */
 
 import { readFile } from "node:fs/promises";
@@ -854,13 +854,13 @@ Usage:
   cd test/benchmarks/algorithm
 
   # Terminal visualization (single run)
-  node --experimental-strip-types visualise-results.ts <file.json>
+  node --import tsx visualise-results.ts <file.json>
 
   # HTML chart (single run)
-  node --experimental-strip-types visualise-results.ts <file.json> --html > chart.html
+  node --import tsx visualise-results.ts <file.json> --html > chart.html
 
   # Time-series trends (multiple runs)
-  node --experimental-strip-types visualise-results.ts results/*.json --timeseries --html > trends.html
+  node --import tsx visualise-results.ts results/*.json --timeseries --html > trends.html
     `);
     process.exit(0);
   }
