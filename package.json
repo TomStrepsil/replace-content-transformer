@@ -44,7 +44,7 @@
     "./web": {
       "types": {
         "import": "./lib/esm/adapters/web/index.d.ts",
-        "require": "./lib/cjs/adapters/web/index.d.cts"
+        "require": "./lib/cjs/adapters/web/index.d.ts"
       },
       "deno": "./lib/esm/adapters/web/index.js",
       "bun": "./lib/esm/adapters/web/index.js",
@@ -56,7 +56,7 @@
     "./node": {
       "types": {
         "import": "./lib/esm/adapters/node/index.d.ts",
-        "require": "./lib/cjs/adapters/node/index.d.cts"
+        "require": "./lib/cjs/adapters/node/index.d.ts"
       },
       "require": "./lib/cjs/adapters/node/index.js",
       "import": "./lib/esm/adapters/node/index.js",
@@ -65,7 +65,7 @@
     ".": {
       "types": {
         "import": "./lib/esm/index.d.ts",
-        "require": "./lib/cjs/index.d.cts"
+        "require": "./lib/cjs/index.d.ts"
       },
       "require": "./lib/cjs/index.js",
       "import": "./lib/esm/index.js",
