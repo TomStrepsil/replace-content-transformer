@@ -16,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Moved to extension-less imports for better type exports
 
-
 ### Added
 
 - `bench:compare-runtimes` package script, enacting the `runtime/compare.ts` script previously undocumented
@@ -27,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected some paths in docs for the runtime benchmarks
 - Corrected JSDoc example for `AsyncIterableFunctionReplacementProcessor` to properly handle multi-byte values in text decoder
 - Fixed some benchmark search strategies to avoid emitting empty chunks when consecutive matches without gaps exist
+- Clarified that `AsyncIterableFunctionReplacementProcessor` can replace with `AsyncIterable<string>` as well as `Promise<AsyncIterable<string>>`
 
 ## [1.2.0] - 2026-04-06
 
