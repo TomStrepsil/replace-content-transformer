@@ -561,7 +561,7 @@ There are 5 stream processors to select from, rather than the system figuring ou
 - **`FunctionReplacementProcessor`** - Yields function results, passing match as first parameter and context object `{ matchIndex, streamIndices }` as second parameter
 - **`IterableFunctionReplacementProcessor`** - Allows a function to return an iterable, flattened with [`yield*`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*)
 - **`AsyncFunctionReplacementProcessor`** - Allows an async function, as an async generators with [`for await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of)
-- **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterables with `yield* await` (assumption that async iterator is itself accessed via a Promise)
+- **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterable replacements, either via a `Promise` or functions that return an `AsyncIterable<string>` directly
 
 There is no reliable way in javascript to detect the output type of a function without calling it, and trying to adapt just-in-time based on the first replacement made would be complex. The type of function can be thought to have a ["colour"](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/#what-color-is-your-function) that requires up-front selection.
 
