@@ -2,8 +2,8 @@ import {
   ReplacementProcessorBase,
   type ReplacementContext,
   type ReplacementProcessorOptions
-} from "./replacement-processor.base.ts";
-import { type AsyncProcessor } from "./types.ts";
+} from "./replacement-processor.base";
+import { type AsyncProcessor } from "./types";
 
 /**
  * Configuration options for {@link AsyncFunctionReplacementProcessor}.

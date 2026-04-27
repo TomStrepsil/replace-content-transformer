@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
-import { AsyncFunctionReplacementProcessor } from "./async-function-replacement-processor.ts";
+import { mockSearchStrategyFactory } from "../../test/utilities";
+import { AsyncFunctionReplacementProcessor } from "./async-function-replacement-processor";
 import { inspect } from "node:util";
 
 describe("AsyncFunctionReplacementProcessor", () => {

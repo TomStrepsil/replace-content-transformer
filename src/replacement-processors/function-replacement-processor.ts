@@ -2,7 +2,7 @@ import {
   ReplacementProcessorBase,
   type ReplacementContext,
   type ReplacementProcessorOptions
-} from "./replacement-processor.base.ts";
+} from "./replacement-processor.base";
 
 /**
  * Configuration options for {@link FunctionReplacementProcessor}.

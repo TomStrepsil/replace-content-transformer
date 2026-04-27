@@ -1,7 +1,7 @@
-import type { MatchResult, SearchStrategy } from "../types.ts";
+import type { MatchResult, SearchStrategy } from "../types";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../string-buffer-strategy-base.ts";
+} from "../string-buffer-strategy-base";
 
 export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   /** Index of the current needle being matched in a multi-needle sequence */

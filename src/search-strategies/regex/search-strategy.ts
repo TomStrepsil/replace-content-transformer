@@ -1,9 +1,9 @@
-import type { MatchResult, SearchStrategy } from "../types.ts";
+import type { MatchResult, SearchStrategy } from "../types";
 import createPartialMatchRegex from "regex-partial-match";
-import validateInput from "./input-validation.ts";
+import validateInput from "./input-validation";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../string-buffer-strategy-base.ts";
+} from "../string-buffer-strategy-base";
 
 /**
  * Corrected version of {@link RegExpIndicesArray} that models `undefined`

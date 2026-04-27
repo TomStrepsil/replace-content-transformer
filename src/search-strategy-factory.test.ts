@@ -1,8 +1,8 @@
 import {
   StringAnchorSearchStrategy,
   RegexSearchStrategy
-} from "./search-strategies/index.ts";
-import { searchStrategyFactory } from "./search-strategy-factory.ts";
+} from "./search-strategies/index";
+import { searchStrategyFactory } from "./search-strategy-factory";
 import { describe, it, expect } from "vitest";
 
 vi.mock("./search-strategies/index.ts");

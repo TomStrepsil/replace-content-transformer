@@ -1,5 +1,5 @@
-import type { MatchResult, SearchStrategy } from "../../types.ts";
-import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
+import type { MatchResult, SearchStrategy } from "../../types";
+import StringBufferStrategyBase from "../../string-buffer-strategy-base";
 
 export type BufferedIndexOfCancellableSearchState = {
   buffer: string;

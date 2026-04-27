@@ -2,8 +2,8 @@ import {
   ReplacementProcessorBase,
   type ReplacementContext,
   type ReplacementProcessorOptions
-} from "./replacement-processor.base.ts";
-import { type SyncProcessor } from "./types.ts";
+} from "./replacement-processor.base";
+import { type SyncProcessor } from "./types";
 
 /**
  * Configuration options for {@link IterableFunctionReplacementProcessor}.

@@ -1,5 +1,5 @@
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
+import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base";
 import createPartialMatchRegex from "regex-partial-match";
 
 export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {

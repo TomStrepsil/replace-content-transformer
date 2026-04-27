@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BufferedIndexOfAnchoredCallbackSearchStrategy } from "./search-strategy.ts";
+import { BufferedIndexOfAnchoredCallbackSearchStrategy } from "./search-strategy";
 
 describe("BufferedIndexOfAnchoredCallbackSearchStrategy", () => {
   // Helper to collect outputs from callback-based processor

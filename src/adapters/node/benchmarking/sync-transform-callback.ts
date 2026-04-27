@@ -1,5 +1,5 @@
-import { ReplaceContentTransformBase } from "../transform-base.ts";
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
+import { ReplaceContentTransformBase } from "../transform-base";
+import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types";
 
 export class ReplaceContentTransformCallback extends ReplaceContentTransformBase {
   protected processor: SyncCallbackProcessor;

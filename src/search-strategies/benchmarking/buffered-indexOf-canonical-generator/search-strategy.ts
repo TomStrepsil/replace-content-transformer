@@ -1,8 +1,8 @@
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../../string-buffer-strategy-base.ts";
-import type { SyncProcessor } from "../../../replacement-processors/types.ts";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.ts";
+} from "../../string-buffer-strategy-base";
+import type { SyncProcessor } from "../../../replacement-processors/types";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base";
 
 export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   extends StringBufferStrategyBase

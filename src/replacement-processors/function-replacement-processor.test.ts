@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { FunctionReplacementProcessor } from "./function-replacement-processor.ts";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
+import { FunctionReplacementProcessor } from "./function-replacement-processor";
+import { mockSearchStrategyFactory } from "../../test/utilities";
 
 describe("FunctionReplacementProcessor", () => {
   describe("processChunk", () => {

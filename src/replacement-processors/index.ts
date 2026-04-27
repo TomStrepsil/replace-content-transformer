@@ -1,6 +1,6 @@
-export * from "./static-replacement-processor.ts";
-export * from "./function-replacement-processor.ts";
-export * from "./iterable-function-replacement-processor.ts";
-export * from "./async-function-replacement-processor.ts";
-export * from "./async-iterable-function-replacement-processor.ts";
-export type { ReplacementContext } from "./replacement-processor.base.ts";
+export * from "./static-replacement-processor";
+export * from "./function-replacement-processor";
+export * from "./iterable-function-replacement-processor";
+export * from "./async-function-replacement-processor";
+export * from "./async-iterable-function-replacement-processor";
+export type { ReplacementContext } from "./replacement-processor.base";
