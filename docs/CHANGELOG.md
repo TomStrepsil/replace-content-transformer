@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
+- Updated `vitest` to [version 4.1.5](https://github.com/vitest-dev/vitest/releases/tag/v4.1.5)
 
 ### Added
 
