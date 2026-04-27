@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from "child_process";
-import { rmSync, renameSync } from "fs";
-import { readdirSync } from "fs";
+import { cpSync, readdirSync, renameSync, rmSync } from "fs";
 import { join } from "path";
 
 // Clean output
@@ -38,7 +37,7 @@ function renameFiles(dir) {
 renameFiles("lib-cjs");
 
 // Merge lib-cjs into lib
-execSync("cp -r lib-cjs/* lib/", { stdio: "inherit" });
+cpSync("lib-cjs", "lib", { recursive: true });
 
 // Cleanup
 rmSync("lib-cjs", { recursive: true, force: true });
