@@ -5,7 +5,7 @@ import {
 import { searchStrategyFactory } from "./search-strategy-factory";
 import { describe, it, expect } from "vitest";
 
-vi.mock("./search-strategies/index.ts");
+vi.mock("./search-strategies/index");
 
 describe("search strategy factory", () => {
   describe("given a RegExp needle", () => {
