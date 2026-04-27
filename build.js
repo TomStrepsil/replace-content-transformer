@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from "child_process";
-import { cpSync, readdirSync, renameSync, rmSync } from "fs";
+import { readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 // Clean output
@@ -11,35 +11,26 @@ rmSync("lib", { recursive: true, force: true });
 console.log("Building ESM...");
 execSync("npx tsc -p tsconfig.build.json", { stdio: "inherit" });
 
-// Build CJS with tsc (to lib-cjs temporarily)
+// Build CJS with tsc
 console.log("Building CJS...");
-execSync("npx tsc -p tsconfig.build.cjs.json --outDir lib-cjs", {
-  stdio: "inherit",
-});
+execSync("npx tsc -p tsconfig.build.cjs.json", { stdio: "inherit" });
 
-// Rename .js to .cjs and .d.ts to .d.cts in lib-cjs recursively
-function renameFiles(dir) {
+// Mark lib/cjs as CommonJS so Node resolves .js files as CJS
+writeFileSync("lib/cjs/package.json", JSON.stringify({ type: "commonjs" }, null, 2) + "\n");
+
+// Rename .d.ts to .d.cts in lib/cjs recursively (for TypeScript CJS consumers)
+function renameDts(dir) {
   const files = readdirSync(dir, { withFileTypes: true });
   for (const file of files) {
     const fullPath = join(dir, file.name);
     if (file.isDirectory()) {
-      renameFiles(fullPath);
-    } else if (file.name.endsWith(".js")) {
-      const newPath = fullPath.replace(/\.js$/, ".cjs");
-      renameSync(fullPath, newPath);
+      renameDts(fullPath);
     } else if (file.name.endsWith(".d.ts")) {
-      const newPath = fullPath.replace(/\.d\.ts$/, ".d.cts");
-      renameSync(fullPath, newPath);
+      renameSync(fullPath, fullPath.replace(/\.d\.ts$/, ".d.cts"));
     }
   }
 }
 
-renameFiles("lib-cjs");
+renameDts("lib/cjs");
 
-// Merge lib-cjs into lib
-cpSync("lib-cjs", "lib", { recursive: true });
-
-// Cleanup
-rmSync("lib-cjs", { recursive: true, force: true });
-
-console.log("Build complete: ESM (.js, .d.ts) and CJS (.cjs, .d.cts) in lib/");
+console.log("Build complete: ESM in lib/esm/ (.js, .d.ts), CJS in lib/cjs/ (.js, .d.cts)");

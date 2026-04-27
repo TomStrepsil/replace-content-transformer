@@ -27,49 +27,49 @@
   },
   "homepage": "https://github.com/TomStrepsil/replace-content-transformer#readme",
   "type": "module",
-  "main": "./lib/index.cjs",
-  "module": "./lib/index.js",
-  "types": "./lib/index.d.ts",
+  "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js",
+  "types": "./lib/esm/index.d.ts",
   "typesVersions": {
     "*": {
       "web": [
-        "lib/adapters/web/index.d.ts"
+        "lib/esm/adapters/web/index.d.ts"
       ],
       "node": [
-        "lib/adapters/node/index.d.ts"
+        "lib/esm/adapters/node/index.d.ts"
       ]
     }
   },
   "exports": {
     "./web": {
       "types": {
-        "import": "./lib/adapters/web/index.d.ts",
-        "require": "./lib/adapters/web/index.d.cts"
+        "import": "./lib/esm/adapters/web/index.d.ts",
+        "require": "./lib/cjs/adapters/web/index.d.cts"
       },
-      "deno": "./lib/adapters/web/index.js",
-      "bun": "./lib/adapters/web/index.js",
-      "browser": "./lib/adapters/web/index.js",
-      "require": "./lib/adapters/web/index.cjs",
-      "import": "./lib/adapters/web/index.js",
-      "default": "./lib/adapters/web/index.js"
+      "deno": "./lib/esm/adapters/web/index.js",
+      "bun": "./lib/esm/adapters/web/index.js",
+      "browser": "./lib/esm/adapters/web/index.js",
+      "require": "./lib/cjs/adapters/web/index.js",
+      "import": "./lib/esm/adapters/web/index.js",
+      "default": "./lib/esm/adapters/web/index.js"
     },
     "./node": {
       "types": {
-        "import": "./lib/adapters/node/index.d.ts",
-        "require": "./lib/adapters/node/index.d.cts"
+        "import": "./lib/esm/adapters/node/index.d.ts",
+        "require": "./lib/cjs/adapters/node/index.d.cts"
       },
-      "require": "./lib/adapters/node/index.cjs",
-      "import": "./lib/adapters/node/index.js",
-      "default": "./lib/adapters/node/index.js"
+      "require": "./lib/cjs/adapters/node/index.js",
+      "import": "./lib/esm/adapters/node/index.js",
+      "default": "./lib/esm/adapters/node/index.js"
     },
     ".": {
       "types": {
-        "import": "./lib/index.d.ts",
-        "require": "./lib/index.d.cts"
+        "import": "./lib/esm/index.d.ts",
+        "require": "./lib/cjs/index.d.cts"
       },
-      "require": "./lib/index.cjs",
-      "import": "./lib/index.js",
-      "default": "./lib/index.js"
+      "require": "./lib/cjs/index.js",
+      "import": "./lib/esm/index.js",
+      "default": "./lib/esm/index.js"
     }
   },
   "files": [

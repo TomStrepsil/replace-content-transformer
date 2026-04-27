@@ -11,7 +11,7 @@
   "include": ["src/**/*"],
   "compilerOptions": {
     "declaration": true,
-    "outDir": "./lib",
+    "outDir": "./lib/esm",
     "rootDir": "./src"
   }
 }
