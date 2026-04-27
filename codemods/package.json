@@ -1,0 +1,15 @@
+{
+  "name": "@replace-content-transformer/codemods",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Codemods for replace-content-transformer breaking changes",
+  "type": "module",
+  "scripts": {
+    "codemod:replacement-callback-context": "jscodeshift -t transforms/v1-v2/replacement-callback-positional-to-context.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jscodeshift": "^17.3.0",
+    "vitest": "^4.1.5"
+  }
+}
