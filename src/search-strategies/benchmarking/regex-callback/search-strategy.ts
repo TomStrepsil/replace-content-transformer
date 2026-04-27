@@ -53,8 +53,10 @@ export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {
   }
 
   private replaceTag(match: string, ...args: unknown[]): string {
-    // offset is always the second-to-last argument in the replace callback:
-    // (match, ...captures, offset, string) or (match, ...captures, offset, string, namedGroups)
+    // NOTE: This benchmark strategy assumes offset is args.at(-2), i.e.
+    // (match, ...captures, offset, string). This is intentionally simplified
+    // for harness brevity and does not handle named groups
+    // (match, ...captures, offset, string, namedGroups), where offset is -3.
     const numericOffset = args.at(-2) as number;
     const transformedOffset = numericOffset + this.replacementDelta;
 
