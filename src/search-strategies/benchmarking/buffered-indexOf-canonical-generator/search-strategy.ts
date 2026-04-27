@@ -51,7 +51,7 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
           return;
         }
 
-        if (index > 0) {
+        if (index > this.lastIndex!) {
           yield chunk.substring(this.lastIndex, index);
         }
 

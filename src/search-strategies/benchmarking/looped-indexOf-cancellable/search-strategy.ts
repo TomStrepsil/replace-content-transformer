@@ -84,7 +84,9 @@ export class LoopedIndexOfCancellableSearchStrategy
           return;
         }
 
-        yield { isMatch: false, content: haystack.slice(0, matchPos) };
+        if (matchPos) {
+          yield { isMatch: false, content: haystack.slice(0, matchPos) };
+        }
         const startIndex = absoluteCursor + matchPos;
         const endIndex = startIndex + this.needle.length;
         absoluteCursor += matchPos + this.needle.length;

@@ -300,6 +300,8 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
 
         expect([...outputs, flushed].join("")).toBe("FIRSTSECONDTHIRD");
         expect(matchCount).toBe(3);
+        // Ensure no empty strings were enqueued between consecutive matches
+        expect(outputs.every(o => o.length > 0)).toBe(true);
       });
 
       // Scenario 7: Long pattern content

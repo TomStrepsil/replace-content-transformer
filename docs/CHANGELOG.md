@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Corrected some paths in docs for the runtime benchmarks
-- Corrected JSDoc example for `AsyncIterableFunctionReplacementProcessor` to properly handle multi-byte values in text decoder.
+- Corrected JSDoc example for `AsyncIterableFunctionReplacementProcessor` to properly handle multi-byte values in text decoder
+- Fixed some benchmark search strategies to avoid emitting empty chunks when consecutive matches without gaps exist
 
 ## [1.2.0] - 2026-04-06
 
