@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - support for `import.meta.dirname` required Node 20+, and the project baseline was aligned to Node 22 LTS
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
-- Moved to extension-less imports for better type exports
+- Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
 
 ### Added
 
