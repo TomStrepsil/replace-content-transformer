@@ -56,7 +56,7 @@ export type AsyncIterableFunctionReplacementProcessorOptions<
  *     while (true) {
  *       const { done, value } = await reader.read();
  *       if (done) break;
- *       yield new TextDecoder().decode(value);
+ *       yield new TextDecoder().decode(value, { stream: true });
  *     }
  *   }
  * });
