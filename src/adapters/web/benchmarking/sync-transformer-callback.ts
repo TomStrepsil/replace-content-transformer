@@ -1,5 +1,5 @@
-import { ReplaceContentTransformerBase } from "../transformer-base.ts";
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
+import { ReplaceContentTransformerBase } from "../transformer-base.js";
+import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
 
 export class ReplaceContentTransformerCallback<
   T extends string | Promise<string> = string

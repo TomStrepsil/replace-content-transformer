@@ -1,7 +1,7 @@
-import type { SearchStrategy, MatchResult } from "../../types.ts";
+import type { SearchStrategy, MatchResult } from "../../types.js";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../../string-buffer-strategy-base.ts";
+} from "../../string-buffer-strategy-base.js";
 export interface LoopedIndexOfCancellableSearchState extends StringBufferState {
   needleIndex: number;
 }
@@ -84,7 +84,9 @@ export class LoopedIndexOfCancellableSearchStrategy
           return;
         }
 
-        yield { isMatch: false, content: haystack.slice(0, matchPos) };
+        if (matchPos) {
+          yield { isMatch: false, content: haystack.slice(0, matchPos) };
+        }
         const startIndex = absoluteCursor + matchPos;
         const endIndex = startIndex + this.needle.length;
         absoluteCursor += matchPos + this.needle.length;

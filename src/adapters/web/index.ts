@@ -1,2 +1,2 @@
-export * from "./async-transformer.ts";
-export * from "./sync-transformer.ts";
+export * from "./async-transformer.js";
+export * from "./sync-transformer.js";

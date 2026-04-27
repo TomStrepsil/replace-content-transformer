@@ -1,7 +1,7 @@
 import { describe, test, expect } from "vitest";
-import { AnchorSequenceSearchStrategy } from "./search-strategy.ts";
-import { IndexOfKnuthMorrisPrattSearchStrategy } from "../indexOf-knuth-morris-pratt/index.ts";
-import type { MatchResult } from "../../types.ts";
+import { AnchorSequenceSearchStrategy } from "./search-strategy.js";
+import { IndexOfKnuthMorrisPrattSearchStrategy } from "../indexOf-knuth-morris-pratt/index.js";
+import type { MatchResult } from "../../types.js";
 
 describe("AnchorSequenceSearchStrategy", () => {
   describe("findMatch - single call scenarios", () => {

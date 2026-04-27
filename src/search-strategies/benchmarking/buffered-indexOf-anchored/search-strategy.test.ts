@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BufferedIndexOfAnchoredSearchStrategy } from "./search-strategy.ts";
-import { MatchResult } from "../../types.ts";
+import { BufferedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
+import { MatchResult } from "../../types.js";
 
 // Helper function to extract string value from MatchResult
 function getValue(result: MatchResult): string {

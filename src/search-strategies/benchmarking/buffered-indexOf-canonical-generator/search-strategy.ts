@@ -1,13 +1,14 @@
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../../string-buffer-strategy-base.ts";
-import type { SyncProcessor } from "../../../replacement-processors/types.ts";
+} from "../../string-buffer-strategy-base.js";
+import type { SyncProcessor } from "../../../replacement-processors/types.js";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
 
 export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   extends StringBufferStrategyBase
   implements SyncProcessor<string>
 {
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
   private readonly startToken: string;
   private readonly endToken: string;
@@ -15,7 +16,7 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   private state: StringBufferState;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     tokens: string[]
   ) {
     super();
@@ -27,43 +28,56 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   }
 
   *processChunk(chunk: string): Generator<string, void, undefined> {
+    const bufferLength = this.state.buffer.length;
+    const baseOffset = this.state.streamOffset - bufferLength;
     chunk = this.state.buffer + chunk;
     this.state.buffer = "";
+    const chunkLength = chunk.length;
     this.lastIndex = 0;
-    while (this.lastIndex < chunk.length) {
-      let index = chunk.indexOf(this.startToken, this.lastIndex);
-      if (index === -1) {
-        const splitPoint = Math.max(
-          this.lastIndex,
-          chunk.length - this.startToken.length - 1
-        );
-        this.state.buffer = chunk.slice(splitPoint);
-        const content = chunk.slice(this.lastIndex, splitPoint);
-        if (content) {
-          yield content;
+    try {
+      while (this.lastIndex < chunkLength) {
+        let index = chunk.indexOf(this.startToken, this.lastIndex);
+        if (index === -1) {
+          const splitPoint = Math.max(
+            this.lastIndex,
+            chunkLength - this.startToken.length - 1
+          );
+          this.state.buffer = chunk.slice(splitPoint);
+          const content = chunk.slice(this.lastIndex, splitPoint);
+          if (content) {
+            yield content;
+          }
+          this.lastIndex = chunkLength;
+          return;
         }
-        return;
-      }
 
-      if (index > 0) {
-        yield chunk.substring(this.lastIndex, index);
-      }
+        if (index > this.lastIndex) {
+          yield chunk.substring(this.lastIndex, index);
+        }
 
-      const endIndex = chunk.indexOf(
-        this.endToken,
-        index + this.startToken.length
-      );
-      if (endIndex !== -1) {
-        this.lastIndex = endIndex + this.endToken.length;
-        let replacement = this.replacement(
-          chunk.substring(index, this.lastIndex),
-          this.matchIndex++
+        const endIndex = chunk.indexOf(
+          this.endToken,
+          index + this.startToken.length
         );
-        yield replacement;
-      } else {
-        this.state.buffer = chunk.substring(index);
-        return;
+        if (endIndex !== -1) {
+          this.lastIndex = endIndex + this.endToken.length;
+          const match = chunk.substring(index, this.lastIndex);
+          let replacement = this.replacement(match, {
+            matchIndex: this.matchIndex++,
+            streamIndices: [baseOffset + index, baseOffset + this.lastIndex]
+          });
+          yield replacement;
+        } else {
+          this.state.buffer = chunk.substring(index);
+          this.lastIndex = chunkLength;
+          return;
+        }
       }
+    } finally {
+      if (this.lastIndex < chunkLength && !this.state.buffer) {
+        this.state.buffer += chunk.slice(this.lastIndex);
+      }
+      this.state.streamOffset += chunkLength - bufferLength;
     }
   }
 

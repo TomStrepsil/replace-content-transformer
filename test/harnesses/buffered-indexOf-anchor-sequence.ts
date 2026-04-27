@@ -1,5 +1,6 @@
 import { FunctionReplacementProcessor } from "../../src/replacement-processors/function-replacement-processor.ts";
 import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
+import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
 import {
   AnchorSequenceSearchStrategy,
   BufferedIndexOfCancellableSearchStrategy,
@@ -13,7 +14,7 @@ export const BufferedIndexOfAnchorSequenceHarness = {
     tokens
   }: {
     tokens: string[];
-    replacement?: (match: string, index: number) => string;
+    replacement?: (match: string, context: ReplacementContext) => string;
   }) =>
     new AnchorSequenceSearchStrategy<BufferedIndexOfCancellableSearchState>(
       tokens.map((token) => new BufferedIndexOfCancellableSearchStrategy(token))
@@ -23,7 +24,7 @@ export const BufferedIndexOfAnchorSequenceHarness = {
     replacement
   }: {
     strategy: AnchorSequenceSearchStrategy<BufferedIndexOfCancellableSearchState>;
-    replacement: (match: string, index: number) => string;
+    replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     new ReplaceContentTransformer(
       new FunctionReplacementProcessor({

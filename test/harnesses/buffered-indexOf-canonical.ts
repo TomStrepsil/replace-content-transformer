@@ -1,4 +1,5 @@
 import { BufferedIndexOfReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts";
+import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
 
 export const BufferedIndexOfCanonicalHarness = {
   name: "Buffered IndexOf Canonical",
@@ -9,7 +10,7 @@ export const BufferedIndexOfCanonicalHarness = {
     replacement
   }: {
     tokens: string[];
-    replacement: (match: string, index: number) => string;
+    replacement: (match: string, context: ReplacementContext) => string;
   }) => {
     return { tokens, replacement };
   },
@@ -18,7 +19,7 @@ export const BufferedIndexOfCanonicalHarness = {
   }: {
     strategy: {
       tokens: string[];
-      replacement: (match: string, index: number) => string;
+      replacement: (match: string, context: ReplacementContext) => string;
     };
   }) =>
     new BufferedIndexOfReplaceContentTransformer(

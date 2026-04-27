@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.ts";
-import { StringAnchorSearchStrategy } from "../search-strategies/index.ts";
+import { IterableFunctionReplacementProcessor } from "./iterable-function-replacement-processor.js";
+import { StringAnchorSearchStrategy } from "../search-strategies/index.js";
 
 describe("IterableFunctionReplacementProcessor + BufferedIndexOfCancellableSearchStrategy", () => {
   it("should support recursive replacement", async () => {

@@ -1,5 +1,5 @@
-import { ReplaceContentTransformerBase } from "./transformer-base.ts";
-import type { AsyncProcessor } from "../../replacement-processors/types.ts";
+import { ReplaceContentTransformerBase } from "./transformer-base.js";
+import type { AsyncProcessor } from "../../replacement-processors/types.js";
 
 /**
  * Creates an asynchronous transformer for the WHATWG Streams API that replaces content in streaming text.

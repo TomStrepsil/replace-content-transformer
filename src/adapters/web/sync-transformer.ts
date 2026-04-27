@@ -1,5 +1,5 @@
-import { ReplaceContentTransformerBase } from "./transformer-base.ts";
-import type { SyncProcessor } from "../../replacement-processors/types.ts";
+import { ReplaceContentTransformerBase } from "./transformer-base.js";
+import type { SyncProcessor } from "../../replacement-processors/types.js";
 
 /**
  * A synchronous transformer for the WHATWG Streams API that replaces content in streaming text.

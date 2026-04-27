@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { text } from "node:stream/consumers";
-import { ReplaceContentTransformer } from "./sync-transformer.ts";
-import { FunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor.ts";
-import { StringAnchorSearchStrategy } from "../../search-strategies/index.ts";
+import { ReplaceContentTransformer } from "./sync-transformer.js";
+import { FunctionReplacementProcessor } from "../../replacement-processors/function-replacement-processor.js";
+import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
+import type { ReplacementContext } from "../../replacement-processors/replacement-processor.base.js";
 
 describe("ReplaceContentTransformer + StringAnchorSearchStrategy + stopReplacingSignal", () => {
   it("passes through new chunks after abort set between chunks when no buffered remainder exists", async () => {
@@ -123,9 +124,9 @@ describe("ReplaceContentTransformer + StringAnchorSearchStrategy + Promise-retur
 
     const processor = new FunctionReplacementProcessor({
       searchStrategy,
-      replacement: async (match: string, index: number): Promise<string> => {
+      replacement: async (match: string, { matchIndex }: ReplacementContext): Promise<string> => {
         await vi.waitFor(() => Promise.resolve(), { timeout: 10 });
-        return `[${index}:${match.slice(2, -2)}]`;
+        return `[${matchIndex}:${match.slice(2, -2)}]`;
       }
     });
 

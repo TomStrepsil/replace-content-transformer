@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BufferedIndexOfAnchoredCallbackSearchStrategy } from "./search-strategy.ts";
+import { BufferedIndexOfAnchoredCallbackSearchStrategy } from "./search-strategy.js";
 
 describe("BufferedIndexOfAnchoredCallbackSearchStrategy", () => {
   // Helper to collect outputs from callback-based processor
@@ -319,12 +319,12 @@ describe("BufferedIndexOfAnchoredCallbackSearchStrategy", () => {
       expect(flushed).toBe("}");
     });
 
-    it("handles replacement function with index parameter", () => {
+    it("handles replacement function with match context", () => {
       const replacements: string[] = [];
       const strategy = new BufferedIndexOfAnchoredCallbackSearchStrategy(
-        (match, index) => {
-          replacements.push(`Match${index}`);
-          return `[${index}]`;
+        (match, context) => {
+          replacements.push(`Match${context.matchIndex}`);
+          return `[${context.matchIndex}]`;
         },
         ["{{", "}}"]
       );

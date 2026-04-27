@@ -1,17 +1,19 @@
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.ts";
+import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
+import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
 
 export class LoopedIndexOfCallbackSearchStrategy
   implements SyncCallbackProcessor
 {
   private partialChunk: string;
-  private readonly replacement: (match: string, index: number) => string;
+  private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
   private readonly startToken: string;
   private readonly endToken: string;
   private matchIndex: number = 0;
+  private totalStreamOffset: number = 0;
 
   constructor(
-    replacement: (match: string, index: number) => string,
+    replacement: (match: string, context: ReplacementContext) => string,
     tokens: string[]
   ) {
     this.replacement = replacement;
@@ -49,36 +51,44 @@ export class LoopedIndexOfCallbackSearchStrategy
   }
 
   processChunk(chunk: string, enqueue: (output: string) => void): void {
+    const bufferLength = this.partialChunk.length;
+    const baseOffset = this.totalStreamOffset - bufferLength;
     chunk = this.partialChunk + chunk;
     this.partialChunk = "";
     this.lastIndex = 0;
+    const chunkLength = chunk.length;
 
-    while (this.lastIndex < chunk.length) {
-      let index = chunk.indexOf(this.startToken, this.lastIndex);
-      if (index === -1) {
-        this.attemptPartialMatchAtEnd(chunk, this.lastIndex, enqueue);
-        return;
-      }
+    try {
+      while (this.lastIndex < chunkLength) {
+        let index = chunk.indexOf(this.startToken, this.lastIndex);
+        if (index === -1) {
+          this.attemptPartialMatchAtEnd(chunk, this.lastIndex, enqueue);
+          return;
+        }
 
-      if (index > this.lastIndex) {
-        enqueue(chunk.substring(this.lastIndex, index));
-      }
+        if (index > this.lastIndex) {
+          enqueue(chunk.substring(this.lastIndex, index));
+        }
 
-      const endIndex = chunk.indexOf(
-        this.endToken,
-        index + this.startToken.length
-      );
-      if (endIndex !== -1) {
-        this.lastIndex = endIndex + this.endToken.length;
-        let replacement = this.replacement(
-          chunk.substring(index, this.lastIndex),
-          this.matchIndex++
+        const endIndex = chunk.indexOf(
+          this.endToken,
+          index + this.startToken.length
         );
-        enqueue(replacement);
-      } else {
-        this.partialChunk = chunk.substring(index);
-        return;
+        if (endIndex !== -1) {
+          this.lastIndex = endIndex + this.endToken.length;
+          const match = chunk.substring(index, this.lastIndex);
+          let replacement = this.replacement(match, {
+            matchIndex: this.matchIndex++,
+            streamIndices: [baseOffset + index, baseOffset + this.lastIndex]
+          });
+          enqueue(replacement);
+        } else {
+          this.partialChunk = chunk.substring(index);
+          return;
+        }
       }
+    } finally {
+      this.totalStreamOffset += chunkLength - bufferLength;
     }
   }
 

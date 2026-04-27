@@ -1,8 +1,8 @@
 import {
   ReplacementProcessorBase,
   type ReplacementProcessorOptions
-} from "./replacement-processor.base.ts";
-import { type SyncProcessor } from "./types.ts";
+} from "./replacement-processor.base.js";
+import { type SyncProcessor } from "./types.js";
 
 /**
  * Configuration options for {@link StaticReplacementProcessor}.

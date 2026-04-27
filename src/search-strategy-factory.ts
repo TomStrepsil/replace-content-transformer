@@ -1,7 +1,7 @@
 import {
   StringAnchorSearchStrategy,
   RegexSearchStrategy
-} from "./search-strategies/index.ts";
+} from "./search-strategies/index.js";
 
 /**
  * Creates an appropriate search strategy based on the needle type.

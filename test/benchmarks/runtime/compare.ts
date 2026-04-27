@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --experimental-strip-types
+#!/usr/bin/env -S node --import tsx
 
 /**
  * Cross-Runtime Benchmark Comparison Tool
@@ -31,7 +31,7 @@ const RUNTIMES: RuntimeInfo[] = [
     command: "bun",
     args: [
       "run",
-      "./test/benchmarks/runtime-comparison/benchmarks.ts",
+      "./runtime/benchmarks.ts",
       "--json"
     ],
     available: false
@@ -45,7 +45,7 @@ const RUNTIMES: RuntimeInfo[] = [
       "--allow-write",
       "--allow-env",
       "--allow-sys",
-      "./test/benchmarks/runtime-comparison/benchmarks.ts",
+      "./runtime/benchmarks.ts",
       "--json"
     ],
     available: false
@@ -54,8 +54,9 @@ const RUNTIMES: RuntimeInfo[] = [
     name: "Node",
     command: "node",
     args: [
-      "--experimental-strip-types",
-      "./test/benchmarks/runtime-comparison/benchmarks.ts",
+      "--import",
+      "tsx",
+      "./runtime/benchmarks.ts",
       "--json"
     ],
     available: false

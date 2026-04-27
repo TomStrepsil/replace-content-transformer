@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
-import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor.ts";
+import { mockSearchStrategyFactory } from "../../test/utilities.js";
+import { AsyncIterableFunctionReplacementProcessor } from "./async-iterable-function-replacement-processor.js";
+import type { ReplacementContext } from "./replacement-processor.base.js";
 
 describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("yields stream content chunk-by-chunk without buffering", async () => {
@@ -104,10 +105,10 @@ describe("AsyncIterableFunctionReplacementProcessor", () => {
   it("handles stream replacement with match context and index", async () => {
     const mockStrategy = mockSearchStrategyFactory({ isMatch: true, content: "MATCH", streamIndices: [0, 5] });
 
-    const streamFactory = async (matchedContent: string, matchIndex: number) => {
+    const streamFactory = async (match: string, { matchIndex }: ReplacementContext) => {
       return new ReadableStream({
         start(controller) {
-          controller.enqueue(`[${matchedContent}:${matchIndex}]`);
+          controller.enqueue(`[${ match }:${matchIndex}]`);
           controller.close();
         }
       });
@@ -209,5 +210,28 @@ describe("flush", () => {
     }
     const flushed = processor.flush();
     expect(flushed).toBe("");
+  });
+
+  it("accepts replacement that directly returns an async iterable", async () => {
+    const mockStrategy = mockSearchStrategyFactory(
+      { isMatch: false, content: "Hello " },
+      { isMatch: true, content: "OLD", streamIndices: [6, 9] },
+      { isMatch: false, content: " world" }
+    );
+
+    const processor = new AsyncIterableFunctionReplacementProcessor({
+      searchStrategy: mockStrategy,
+      replacement: async function* () {
+        yield "chunk1";
+        yield "chunk2";
+      }
+    });
+
+    const outputChunks: string[] = [];
+    for await (const chunk of processor.processChunk("Hello OLD world")) {
+      outputChunks.push(chunk);
+    }
+
+    expect(outputChunks).toEqual(["Hello ", "chunk1", "chunk2", " world"]);
   });
 });

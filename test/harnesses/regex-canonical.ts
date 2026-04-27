@@ -1,5 +1,6 @@
 import { RegexReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts";
 import createPartialMatchRegex from "regex-partial-match";
+import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
 
 export const RegexCanonicalHarness = {
   name: "Regex Canonical",
@@ -10,7 +11,7 @@ export const RegexCanonicalHarness = {
     replacement
   }: {
     tokens: string[];
-    replacement: (match: string, index: number) => string;
+    replacement: (match: string, context: ReplacementContext) => string;
   }) => {
     // contrived, to ensure one-time construction overhead of regexes
     return {
@@ -28,7 +29,7 @@ export const RegexCanonicalHarness = {
     strategy
   }: {
     strategy: {
-      replacement: (match: string, index: number) => string;
+      replacement: (match: string, context: ReplacementContext) => string;
       openRegex: RegExp;
       partialAtEndRegex: RegExp;
     };

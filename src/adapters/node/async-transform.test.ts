@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { AsyncReplaceContentTransform } from "./async-transform";
+import { AsyncReplaceContentTransform } from "./async-transform.js";
 import { Writable } from "node:stream";
-import { mockAsyncProcessorFactory } from "../../../test/utilities";
+import { mockAsyncProcessorFactory } from "../../../test/utilities.js";
 
 describe("ReplaceContentTransform (async)", () => {
   it("delegates to processor and writes output to stream", async () => {

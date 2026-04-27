@@ -1,11 +1,11 @@
 import {
   StringAnchorSearchStrategy,
   RegexSearchStrategy
-} from "./search-strategies/index.ts";
-import { searchStrategyFactory } from "./search-strategy-factory.ts";
+} from "./search-strategies/index.js";
+import { searchStrategyFactory } from "./search-strategy-factory.js";
 import { describe, it, expect } from "vitest";
 
-vi.mock("./search-strategies/index.ts");
+vi.mock("./search-strategies/index.js");
 
 describe("search strategy factory", () => {
   describe("given a RegExp needle", () => {

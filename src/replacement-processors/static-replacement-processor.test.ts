@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
-import { StaticReplacementProcessor } from "./static-replacement-processor.ts";
+import { mockSearchStrategyFactory } from "../../test/utilities.js";
+import { StaticReplacementProcessor } from "./static-replacement-processor.js";
 
 describe("StaticReplacementProcessor", () => {
   const mockInput = "test input";

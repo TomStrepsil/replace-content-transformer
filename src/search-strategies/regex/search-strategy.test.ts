@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { RegexSearchStrategy } from "./search-strategy.ts";
-import type { MatchResult } from "../types.ts";
-import validateInput from "./input-validation.ts";
+import { RegexSearchStrategy } from "./search-strategy.js";
+import type { MatchResult } from "../types.js";
+import validateInput from "./input-validation.js";
 
-vi.mock("./input-validation.ts");
+vi.mock("./input-validation.js");
 
 // Helper to extract string value from MatchResult
 function getValue(result: MatchResult<RegExpExecArray>): string {

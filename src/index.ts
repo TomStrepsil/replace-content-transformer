@@ -1,3 +1,3 @@
-export * from "./search-strategies/index.ts";
-export * from "./replacement-processors/index.ts";
-export * from "./search-strategy-factory.ts";
+export * from "./search-strategies/index.js";
+export * from "./replacement-processors/index.js";
+export * from "./search-strategy-factory.js";

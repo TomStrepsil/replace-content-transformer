@@ -1,4 +1,4 @@
-import type { SearchStrategy } from "../search-strategies/types";
+import type { SearchStrategy } from "../search-strategies/types.js";
 
 /**
  * Base options for all replacement processors.
@@ -6,6 +6,17 @@ import type { SearchStrategy } from "../search-strategies/types";
  */
 export type ReplacementProcessorOptions<TState, TMatch> = {
   searchStrategy: SearchStrategy<TState, TMatch>;
+};
+
+/**
+ * Context passed to replacement callbacks.
+ *
+ * @property matchIndex - Zero-based ordinal for the current match in the stream.
+ * @property streamIndices - Absolute stream offsets as [startIndex, endIndex], where endIndex is exclusive.
+ */
+export type ReplacementContext = {
+  matchIndex: number;
+  streamIndices: [startIndex: number, endIndex: number];
 };
 
 /**

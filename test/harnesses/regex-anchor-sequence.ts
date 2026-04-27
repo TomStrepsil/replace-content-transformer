@@ -3,6 +3,7 @@ import { RegexSearchStrategy } from "../../src/search-strategies/regex/search-st
 import { AnchorSequenceSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
 import type { StringBufferState } from "../../src/search-strategies/string-buffer-strategy-base.ts";
+import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
 
 export const RegexAnchorSequenceHarness = {
   name: "Regex + Anchor Sequence",
@@ -11,7 +12,7 @@ export const RegexAnchorSequenceHarness = {
     tokens
   }: {
     tokens: string[];
-    replacement?: (match: string, index: number) => string;
+    replacement?: (match: string, context: ReplacementContext) => string;
   }) =>
     new AnchorSequenceSearchStrategy<StringBufferState, RegExpExecArray>(
       tokens.map(
@@ -23,7 +24,7 @@ export const RegexAnchorSequenceHarness = {
     replacement
   }: {
     strategy: AnchorSequenceSearchStrategy<StringBufferState, RegExpExecArray>;
-    replacement: (match: string, index: number) => string;
+    replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     new ReplaceContentTransformer(
       new FunctionReplacementProcessor({

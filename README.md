@@ -139,7 +139,10 @@ import { FunctionReplacementProcessor } from "replace-content-transformer";
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (match: string, matchIndex: number) =>
+    replacement: (
+      match: string,
+      { matchIndex }: { matchIndex: number }
+    ) =>
       `${match.slice(2, -2)} was match ${matchIndex}`
   })
 );
@@ -151,7 +154,14 @@ Access the character indices of the match, relative to the start of the stream:
 const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (match: string, matchIndex: number, streamIndices: [startIndex: number, endIndex: number]) =>
+    replacement: (
+      match: string,
+      {
+        streamIndices
+      }: {
+        streamIndices: [startIndex: number, endIndex: number];
+      }
+    ) =>
       `${match.slice(2, -2)}, found from ${streamIndices[0]} to ${streamIndices[1]}`
   })
 );
@@ -280,6 +290,11 @@ const transformer = new ReplaceContentTransformer(
 
 Interpolate [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream)s, or other async iterables, into the output. Ensures each async operation completes before the next starts:
 
+You can return either form:
+
+- an async iterable directly (for example `async function*`)
+- a `Promise<AsyncIterable<string>>` (for example an `async` function returning a stream)
+
 ```typescript
 import { AsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
 
@@ -293,6 +308,17 @@ const transformer = new AsyncReplaceContentTransformer(
       } = /src="(?<url>[^"]+)"/.exec(match)!;
       const res = await fetch(url);
       return res.body!.pipeThrough(new TextDecoderStream());
+    }
+  })
+);
+
+// direct async iterable form
+const transformerWithGenerator = new AsyncReplaceContentTransformer(
+  new AsyncIterableFunctionReplacementProcessor({
+    searchStrategy: searchStrategyFactory("{{needle}}"),
+    replacement: async function* () {
+      yield "first chunk";
+      yield "second chunk";
     }
   })
 );
@@ -337,7 +363,7 @@ const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncIterableFunctionReplacementProcessor({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match, matchIndex) => {
+    replacement: async (match, { matchIndex }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
@@ -532,10 +558,10 @@ flush(): string {
 There are 5 stream processors to select from, rather than the system figuring out the optimum based on supplied options. See [Replacement Processors](./src/replacement-processors/README.md) for detailed usage guidance.
 
 - **`StaticReplacementProcessor`** - Yields static strings
-- **`FunctionReplacementProcessor`** - Yields function results, passing the match and a match index / sequence number
+- **`FunctionReplacementProcessor`** - Yields function results, passing match as first parameter and context object `{ matchIndex, streamIndices }` as second parameter
 - **`IterableFunctionReplacementProcessor`** - Allows a function to return an iterable, flattened with [`yield*`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*)
 - **`AsyncFunctionReplacementProcessor`** - Allows an async function, as an async generators with [`for await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of)
-- **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterables with `yield* await` (assumption that async iterator is itself accessed via a Promise)
+- **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterable replacements, either via a `Promise` or functions that return an `AsyncIterable<string>` directly
 
 There is no reliable way in javascript to detect the output type of a function without calling it, and trying to adapt just-in-time based on the first replacement made would be complex. The type of function can be thought to have a ["colour"](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/#what-color-is-your-function) that requires up-front selection.
 

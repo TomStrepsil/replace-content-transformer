@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { AsyncReplaceContentTransformer } from "./async-transformer.ts";
+import { AsyncReplaceContentTransformer } from "./async-transformer.js";
 import {
   mockTransformStreamDefaultControllerFactory,
   mockAsyncProcessorFactory
-} from "../../../test/utilities.ts";
+} from "../../../test/utilities.js";
 
 describe("AsyncReplaceContentTransformer", () => {
   it("delegates to processor and enqueues output", async () => {
