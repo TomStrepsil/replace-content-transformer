@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `"codemods"` workspace, plus a `jscodeshift` codemod and an npm script in the workspace to migrate replacement callbacks from positional arguments to `(match, context)` form
 - `bench:compare-runtimes` package script, enacting the `runtime/compare.ts` script previously undocumented
 - Updated benchmark search strategies to include proper stream indices, to support parity of functionality
-- Added explicit CJS build step / exports, and add [`@arethetypeswrong`](https://github.com/arethetypeswrong/arethetypeswrong.github.io) validation
+- Explicit CJS build step / exports, and add [`@arethetypeswrong`](https://github.com/arethetypeswrong/arethetypeswrong.github.io) validation
+- Note regarding `matchIndex` / `streamIndices` in recursive scenarios to [`README.md`](../README.md)
 
 ### Fixed
 
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected JSDoc example for `AsyncIterableFunctionReplacementProcessor` to properly handle multi-byte values in text decoder
 - Fixed some benchmark search strategies to avoid emitting empty chunks when consecutive matches without gaps exist
 - Clarified that `AsyncIterableFunctionReplacementProcessor` can replace with `AsyncIterable<string>` as well as `Promise<AsyncIterable<string>>`
+- Consistent links to [`README.md`](../README.md) from this log
 
 ## [1.2.0] - 2026-04-06
 
@@ -46,9 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Clarified README guidance for `promise`-valued replacements, back-pressure trade-offs, and cancellation with shared `AbortController`s
+- Clarified [`README.md`](../README.md) guidance for `promise`-valued replacements, back-pressure trade-offs, and cancellation with shared `AbortController`s
 - Added WHATWG `Transformer.cancel()` support for async web transformers so stream cancellation stops further enqueues at the next async yield boundary
-- Fixed minor documentation issues in the README and search strategy docs
+- Fixed minor documentation issues in the [`README.md`](../README.md) and search strategy docs
 - Fixed the type for the `AsyncReplaceContentTransformer`, this only outputs `string` unlike the sync version which can also output `Promise<string>`
 - Removed `"bun": ">=1.0.0", "deno": ">=1.40.0"` from `package.json` "engines" field, since not valid here
 - Ensured that mid-chunk enacting of the `stopReplacingSignal` causes buffered content to appear in-order, rather than at the end of the stream
@@ -62,12 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Documentation:
-  - Consistent prefix for examples in main README
+  - Consistent prefix for examples in main [`README.md`](../README.md)
   - Fix typo in release process
   - Remove reference to un-exported `BufferedIndexOfAnchoredSearchStrategy`, linking to benchmarking code within repo instead
   - Note in regex JSDoc that lookahead support is positive only
-  - Clarify in the benchmarking README that `--experimental-strip-types` is a Node thing
-  - Update a `NOTE` in the main README to be a `CAUTION` and move under the example
+  - Clarify in the benchmarking [`README.md`](../README.md) that `--experimental-strip-types` is a Node thing
+  - Update a `NOTE` in the main [`README.md`](../README.md) to be a `CAUTION` and move under the example
 - No longer exporting internal use only types.  Not publicly documented, so not considering this a breaking change
 - Ensure the `BufferedIndexOfAnchoredSearchState`, `IndexOfKnuthMorrisPrattSearchStrategy` and `LoopedIndexOfCancellableSearchStrategy` benchmark comparison strategies properly resets their state
 
@@ -87,19 +89,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Added explicit `read` permission to the `ci.yml` GitHub actions workflow
-- Various `README.md` typos
+- Various [`README.md`](../README.md) typos
 
 ## [0.2.0] - 2025-12-25
 
 ### Added
 
 - Support for [`unicodeSets`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/unicodeSets) in the regex search strategy, via upgrade to [Version 0.2.0 of `regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.2.0)
-- Link to codeql runs on `main` from the `README.md`
+- Link to codeql runs on `main` from the [`README.md`](../README.md)
 
 ### Fixed
 
 - Release pipeline updated to properly support semver selection in PR bodies, and updated ci pipeline to support valid casings, to match
-- Updated stylesheet transclusion examples in `README.md` for proper typing and realistic replacement
+- Updated stylesheet transclusion examples in [`README.md`](../README.md) for proper typing and realistic replacement
 
 ## [0.1.3] - 2025-12-22
 
