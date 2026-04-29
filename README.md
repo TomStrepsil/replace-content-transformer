@@ -354,6 +354,9 @@ function transformerFactory(currentDepth: number) {
 const transformer = transformerFactory(0);
 ```
 
+> [!NOTE]
+> When using `matchIndex` / `streamIndices` from context, these will be specific to each replacement processor instance, thus may not be the holistic "indexes into the stream".
+
 #### Limit replacements
 
 To abort replacement after a certain number of replacements (or, for any other reason), provide an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal):
@@ -490,7 +493,7 @@ The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchSt
 The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
 
 > [!NOTE]
-> The `streamIndices` property contains absolute character offsets into the overall stream as `[startIndex, endIndex]`, thus not chunk-relative.
+> The `streamIndices` property contains absolute character offsets into the stream passed to the replacement processor as `[startIndex, endIndex]`, thus not chunk-relative.
 
 Each strategy contains the pattern-matching logic for a specific use case:
 
@@ -646,7 +649,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 
 ### ✅ Fully Supported Runtimes
 
-- **Node.js** 18.0.0+
+- **Node.js** 22.0.0+
 - **Bun** 1.0+
 - **Deno** 1.17+
 - **Browsers:**
