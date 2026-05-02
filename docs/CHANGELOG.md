@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated benchmark search strategies to include proper stream indices, to support parity of functionality
 - Explicit CJS build step / exports, and add [`@arethetypeswrong`](https://github.com/arethetypeswrong/arethetypeswrong.github.io) validation
 - Note regarding `matchIndex` / `streamIndices` in recursive scenarios to [`README.md`](../README.md)
-- Ensured CI validates Bun & Deno as well as Node in CI, as was suggested in main [`README.md`](../README.md) already. Added lock files for Deno and Bun, to support
+- Ensured CI validates Bun & Deno as well as Node in CI, as was suggested in main [`README.md`](../README.md) already
+  - Added lock files for Deno and Bun, to support this
 - Added a version to `packageManager` in `package.json`
 
 ### Fixed
