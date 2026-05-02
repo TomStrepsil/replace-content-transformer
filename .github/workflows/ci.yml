@@ -67,6 +67,10 @@ jobs:
         if: matrix.runtime == 'bun'
         run: bun ci
 
+      - name: Install dependencies (Deno) # needed for 'vitest' command, despite install not normally being required for Deno projects
+        if: matrix.runtime == 'deno'
+        run: deno install
+
       - name: Run tests (Node)
         if: matrix.runtime == 'node'
         run: npm run test:ci
