@@ -8,7 +8,8 @@
       "version": ">=24"
     },
     "packageManager": {
-      "name": "npm"
+      "name": "npm",
+      "version": ">=11"
     }
   },
   "keywords": [
