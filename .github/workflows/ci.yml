@@ -68,10 +68,6 @@ jobs:
         if: matrix.runtime == 'bun'
         run: bun ci
 
-      - name: Install dependencies (Deno) # needed for 'vitest' command, despite install not normally being required for Deno projects
-        if: matrix.runtime == 'deno'
-        run: deno install
-
       - name: Run tests (Node)
         if: matrix.runtime == 'node'
         run: npm run test:ci
@@ -82,7 +78,7 @@ jobs:
 
       - name: Run tests (Deno)
         if: matrix.runtime == 'deno'
-        run: deno run -A npm:vitest run
+        run: deno run --lock=deno.lock --frozen -A npm:vitest run
 
   changelog-and-semver-check:
     name: CHANGELOG and Semver Check
