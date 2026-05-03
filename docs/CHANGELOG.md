@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
 - Updated `vitest` to [version 4.1.5](https://github.com/vitest-dev/vitest/releases/tag/v4.1.5)
+- Removed [`msw`](https://github.com/mswjs/msw/) dependency
 
 ### Added
 
@@ -27,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ensured CI validates Bun & Deno as well as Node in CI, as was suggested in main [`README.md`](../README.md) already
   - Added lock files for Deno and Bun, to support this
 - Added a version to `packageManager` in `package.json`
+- Added a hand-rolled http test server utility, compatible with Bun / Deno / Node, to replace [`msw`](https://github.com/mswjs/msw/)
+- Added proper cross-runtime matrix for CI tests, as promised in the main [`README.md`](../README.md)
 
 ### Fixed
 
