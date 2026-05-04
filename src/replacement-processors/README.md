@@ -20,6 +20,8 @@ Replaces matches using a function that receives the matched content and a contex
 - **Use Case**: Dynamic replacements, transformations, API calls
 - **Example**: `new FunctionReplacementProcessor({ searchStrategy, replacement: (match, { matchIndex }) => `[${matchIndex}]` })`
 
+For async replacement work, use `AsyncFunctionReplacementProcessor` (serial) or the pipelined [`LookaheadAsyncIterableTransformer`](../lookahead/README.md) (concurrent, in-order output, pluggable scheduling).
+
 ### 🔄 Iterable Function Replacement
 
 Replacement function returns an iterable that yields multiple string chunks for a single match. Useful for streaming large replacements or expanding matches into multiple parts.
@@ -97,87 +99,9 @@ const remaining = processor.flush();
 | Multiple chunks per match (sync)  | `IterableFunctionReplacementProcessor`      |
 | Multiple chunks per match (async) | `AsyncIterableFunctionReplacementProcessor` |
 
-### ⏩ Using FunctionReplacementProcessor with Promises
+### ⏩ Pipelined async: `LookaheadAsyncIterableTransformer`
 
-> [!IMPORTANT]
-> This pattern is only compatible with the **WHATWG Streams API** (`ReplaceContentTransformer`). Node.js streams do not support promises as chunk values. For Node.js streams, use `AsyncReplaceContentTransform` instead.
-
-You can use `FunctionReplacementProcessor<Promise<string>>` with async replacement functions instead of `AsyncFunctionReplacementProcessor`. This pattern yields promises immediately without awaiting them, allowing the processor to continue discovering and processing matches in the input stream while async operations are still in flight.
-
-**Key differences:**
-
-- **`FunctionReplacementProcessor<Promise<string>>`** - Initiates all async operations as matches are discovered, yielding promises immediately. Enables parallel processing and early discovery. **Web API only.**
-- **`AsyncFunctionReplacementProcessor`** - Awaits each async operation before proceeding to the next match. Ensures serial execution and respects backpressure. **Works with both Web and Node.js.**
-
-**When to use Promise pattern:**
-
-- **Early discovery**: You want to find all matches in the input stream as quickly as possible, without waiting for async operations to complete
-- **Parallel processing**: Multiple async operations can run concurrently (e.g., multiple API calls)
-- **Consumer control**: The consuming code decides when to await promises
-
-**Trade-offs:**
-
-⚠️ **Bypasses backpressure control** - Async operations are initiated regardless of consumer speed, which can conflict with stream `highWaterMark` settings. If the consumer can't keep up, promises accumulate in memory.
-
-💡 **Consider promise pooling** - Limit concurrent operations by tracking active promises and using `Promise.race()` to wait when a threshold is reached (see main README for example).
-
-**Example (WHATWG Streams):**
-
-```typescript
-import { ReplaceContentTransformer } from "replace-content-transformer/web";
-import { FunctionReplacementProcessor } from "replace-content-transformer";
-
-// Returns promises immediately, continues processing input
-const processor = new FunctionReplacementProcessor<Promise<string>>({
-  searchStrategy,
-  replacement: async (match) => {
-    const result = await fetch(`/api/${match}`);
-    return result.text();
-  }
-});
-
-// Use with generic ReplaceContentTransformer (Web API) to yield promises to stream
-const transformer = new ReplaceContentTransformer<Promise<string>>(processor);
-
-// All matches discovered and API calls initiated immediately
-const transformedStream = readableStream
-  .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new TransformStream(transformer));
-
-// Consumer can await promises as they arrive
-const reader = transformedStream.getReader();
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-
-  if (value instanceof Promise) {
-    const resolved = await value; // Consumer controls when to await
-    // ... use resolved
-  } else {
-    // ... use string value
-  }
-}
-```
-
-**For Node.js Streams:**
-
-```typescript
-import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
-import { AsyncFunctionReplacementProcessor } from "replace-content-transformer";
-
-// Node.js streams require serial async processing
-const transform = new AsyncReplaceContentTransform(
-  new AsyncFunctionReplacementProcessor({
-    searchStrategy,
-    replacement: async (match) => {
-      const result = await fetch(`/api/${match}`);
-      return result.text();
-    }
-  })
-);
-
-readableStream.pipe(transform).pipe(writableStream);
-```
+For async replacement work that benefits from discovering later matches while earlier replacements are still in flight — with **in-order output** and **bounded concurrency** — use the [`LookaheadAsyncIterableTransformer`](../../README.md#pipelined-async-replacement-with-lookaheadasynciterabletransformer). It supersedes the previous `FunctionReplacementProcessor<Promise<string>>` pattern, which initiated async work without any concurrency control.
 
 ## 📝 Notes
 

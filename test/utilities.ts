@@ -1,4 +1,7 @@
 import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
+import type { IterableSlotNode } from "../src/lookahead/slot-tree/types.ts";
+import type { Nested } from "../src/lookahead/nested.ts";
+import { SLOT_KIND } from "../src/lookahead/slot-tree/constants.ts";
 import { vi, type Mocked } from "vitest";
 
 type TestHttpHandler = (request: Request) => Response | Promise<Response>;
@@ -129,6 +132,42 @@ async function streamToString(stream: ReadableStream<string>): Promise<string> {
   return output;
 }
 
+/**
+ * Create an {@link IterableSlotNode} skeleton suitable for handing to a
+ * `ConcurrencyStrategy.acquire()` call. The `iterable` field is left as
+ * a never-resolving placeholder — strategy unit tests don't drive it.
+ */
+function createIterableSlotNode(
+  siblingIndex: number,
+  parent: IterableSlotNode | null
+): IterableSlotNode {
+  return {
+    kind: SLOT_KIND.iterable,
+    siblingIndex,
+    parent,
+    iterable: new Promise<AsyncIterable<string> | Nested>(() => {})
+  };
+}
+
+/** 
+ * Build an `AsyncIterable<string>` that yields the given chunks in order. 
+ * 
+ * (Awaiting AsyncIterator.from(chunks) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
+ */
+function asyncIterable(...chunks: string[]): AsyncIterable<string> {
+  return { [Symbol.asyncIterator]: async function* () { yield* chunks; } };
+}
+
+/** Thin wrapper over {@link Promise.withResolvers} for test expressiveness. */
+function deferred<T>(): PromiseWithResolvers<T> {
+  return Promise.withResolvers<T>();
+}
+
+/** Flush `times` rounds of microtasks — lets scheduled dispatches settle. */
+async function settleMicrotasks(times = 2): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
 function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMatch>[]): Mocked<SearchStrategy<object, TMatch>> {
   return {
     createState: vi.fn().mockReturnValue({}),
@@ -154,7 +193,7 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
   };
 }
 
-function mockSyncProcessorFactory<T extends string | Promise<string> = string>(...output: (T | (() => T))[]) {
+function mockSyncProcessorFactory(...output: (string | (() => string))[]) {
   return {
     processChunk: vi.fn().mockImplementation(function* () {
       for (const chunk of output) {
@@ -185,10 +224,14 @@ function mockAsyncProcessorFactory(...output: (string | (() => string))[]) {
 }
 
 export {
+  asyncIterable,
+  createIterableSlotNode,
+  deferred,
   mockAsyncProcessorFactory,
   mockSearchStrategyFactory,
   mockSyncProcessorFactory,
   mockTransformStreamDefaultControllerFactory,
+  settleMicrotasks,
   startTestHttpServer,
   streamToString
 };

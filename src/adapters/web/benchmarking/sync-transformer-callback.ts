@@ -1,24 +1,22 @@
 import { ReplaceContentTransformerBase } from "../transformer-base.js";
 import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
 
-export class ReplaceContentTransformerCallback<
-  T extends string | Promise<string> = string
-> extends ReplaceContentTransformerBase {
-  protected processor: SyncCallbackProcessor<T>;
+export class ReplaceContentTransformerCallback extends ReplaceContentTransformerBase {
+  protected processor: SyncCallbackProcessor;
 
-  constructor(processor: SyncCallbackProcessor<T>) {
+  constructor(processor: SyncCallbackProcessor) {
     super();
     this.processor = processor;
   }
 
   transform(
     chunk: string,
-    controller: TransformStreamDefaultController<T | string>
+    controller: TransformStreamDefaultController<string>
   ) {
     this.processor.processChunk(chunk, (output) => controller.enqueue(output));
   }
 
-  flush(controller: TransformStreamDefaultController<T | string>) {
+  flush(controller: TransformStreamDefaultController<string>) {
     const flushed = this.processor.flush();
     if (flushed) {
       controller.enqueue(flushed);

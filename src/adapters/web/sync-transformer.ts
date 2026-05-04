@@ -2,37 +2,28 @@ import { ReplaceContentTransformerBase } from "./transformer-base.js";
 import type { SyncProcessor } from "../../replacement-processors/types.js";
 
 /**
- * A synchronous transformer for the WHATWG Streams API that replaces content in streaming text.
+ * A synchronous transformer for the WHATWG Streams API that replaces
+ * content in streaming text.
  *
- * @typeParam T - The output type of the transformer. Use `string` (default) for synchronous replacements,
- *                or `Promise<string>` when using FunctionReplacementProcessor with async replacement functions
- *                to enable early discovery of matches while async operations are in flight.
+ * For async replacement use cases, see:
+ * - {@link AsyncReplaceContentTransformer} — serial async replacement.
+ * - {@link LookaheadAsyncIterableTransformer} — pipelined async
+ *   replacement with pluggable concurrency control and in-order output.
  *
  * @example
  * ```typescript
- * // Default string output
  * const transformer = new ReplaceContentTransformer(
  *   new StaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
  * );
- *
- * // Promise<string> output for early discovery
- * const transformer = new ReplaceContentTransformer<Promise<string>>(
- *   new FunctionReplacementProcessor<Promise<string>>({
- *     searchStrategy,
- *     replacement: async (match) => await fetch(`/api/${match}`)
- *   })
- * );
  * ```
  */
-export class ReplaceContentTransformer<
-  T extends string | Promise<string> = string
-> extends ReplaceContentTransformerBase<T> {
-  protected processor: SyncProcessor<T>;
+export class ReplaceContentTransformer extends ReplaceContentTransformerBase<string> {
+  protected processor: SyncProcessor;
   #stopReplacingSignal?: AbortSignal;
   #didFlushAfterAbort = false;
 
   #flushAfterAbortIfNeeded(
-    controller: TransformStreamDefaultController<T | string>
+    controller: TransformStreamDefaultController<string>
   ) {
     if (this.#didFlushAfterAbort || !this.#stopReplacingSignal?.aborted) {
       return;
@@ -42,7 +33,7 @@ export class ReplaceContentTransformer<
     this.flush(controller);
   }
 
-  constructor(processor: SyncProcessor<T>, stopReplacingSignal?: AbortSignal) {
+  constructor(processor: SyncProcessor, stopReplacingSignal?: AbortSignal) {
     super();
     this.#stopReplacingSignal = stopReplacingSignal;
     this.processor = processor;
@@ -50,7 +41,7 @@ export class ReplaceContentTransformer<
 
   transform(
     chunk: string,
-    controller: TransformStreamDefaultController<T | string>
+    controller: TransformStreamDefaultController<string>
   ) {
     if (this.#stopReplacingSignal?.aborted) {
       this.#flushAfterAbortIfNeeded(controller);

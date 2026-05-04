@@ -11,7 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** Replacement callbacks now receive `match` as the first parameter and `context` as the second: `(match, context: ReplacementContext) => ...`
 - **BREAKING:** Made Node minimum version 22 (LTS)
-  - support for `import.meta.dirname` required Node 20+, and the project baseline was aligned to Node 22 LTS
+  - support for `import.meta.dirname` required Node 20+, and the project baseline was aligned to Node 22 LTS, to allow use of [`Promise.withResolvers`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers)
+- **BREAKING:** `FunctionReplacementProcessor` no longer accepts a `Promise<string>` replacement type; its replacement function must now return `string`. The previous pattern of enqueuing promises onto the stream for downstream `await` has been superseded by `LookaheadAsyncIterableTransformer`, which provides pipelined async replacement with in-order output and bounded concurrency. Consequently:
+  - `FunctionReplacementProcessor` drops its third `R extends string | Promise<string>` type parameter.
+  - `ReplaceContentTransformer` drops its `T extends string | Promise<string>` type parameter; output is always `string`.
+  - `SyncProcessor` drops its `T` type parameter.
+  - Migration: replace `new ReplaceContentTransformer<Promise<string>>(new FunctionReplacementProcessor<Promise<string>>({...}))` with `new LookaheadAsyncIterableTransformer({...})` imported from `replace-content-transformer/web`.
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
@@ -31,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a hand-rolled http test server utility, compatible with Bun / Deno / Node, to replace [`msw`](https://github.com/mswjs/msw/)
   - Added temporary opt-out of test using complement set intersection of regex character classes due to Bun bug (https://github.com/oven-sh/bun/issues/30183)
 - Added proper cross-runtime matrix for CI tests, as promised in the main [`README.md`](../README.md)
+- `LookaheadAsyncIterableTransformer` — a WHATWG `Transformer<string, string>` that scans streaming input for matches and, rather than serially awaiting each replacement before looking for the next, **eagerly initiates** replacement work as matches are discovered. Downstream output order is preserved (earlier matches' chunks always emit before later matches'), while concurrent initiation of async iterable replacements unlocks pipelined I/O (e.g. parallel fragment fetches with in-order rendering)
+- `nested(source)` sentinel for opt-in recursive re-scanning: returning `nested(body)` from a replacement function signals that the parent transformer should spawn a child (sharing the same search strategy, concurrency strategy, and replacement function) to re-process the body; a plain `AsyncIterable<string>` return emits the body verbatim. Nested work competes for the same concurrency budget and is ordered across nesting levels by tree-aware comparators
+- Pluggable `ConcurrencyStrategy` interface with two built-in implementations:
+  - `SemaphoreStrategy` — FIFO arrival-order dispatch bounded by a concurrency limit (use `SemaphoreStrategy(Infinity)` explicitly for unfettered dispatch)
+  - `PriorityQueueStrategy` — heap-backed, slot-tree-aware, pairs with a `NodeComparator` to order queued work across nesting levels
+- Two built-in comparators for `PriorityQueueStrategy`: `streamOrder` (earlier-in-output-stream first, via LCA) and `breadthFirst` (shallower first, siblingIndex tie-break)
+- Supporting types exposed for custom `ConcurrencyStrategy` implementations: `IterableSlotNode`, `TextSlotNode`, `SlotNode`, `NodeComparator`
+- `highWaterMark` option on `LookaheadAsyncIterableTransformer` (default `32`) — caps the number of slots the scanner may buffer ahead of the drainer, providing upstream backpressure when downstream stalls
+- `LookaheadAsyncIterableTransform` — Node `stream.Transform` counterpart exported from `replace-content-transformer/node`. Shares the same engine/options as the web adapter (plus optional `streamHighWaterMark` for the underlying Node-stream high-water mark); supports nested `nested()` re-scanning and all concurrency/comparator primitives identically
 
 ### Fixed
 

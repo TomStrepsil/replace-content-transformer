@@ -188,38 +188,6 @@ describe("FunctionReplacementProcessor", () => {
       expect(outputChunks).toEqual(["NEW", " and ", "NEW"]);
     });
 
-    it("when using an async replacement function, does not await each async call before proceeding, if the consumer iterates without awaiting", async () => {
-      const resolves: ((value: string) => void)[] = [];
-      const asyncReplacementFn = vi.fn().mockImplementation(() => {
-        const { promise, resolve } = Promise.withResolvers<string>();
-        resolves.push(resolve);
-        return promise;
-      });
-
-      const mockStrategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "OLD", streamIndices: [0, 3] },
-        { isMatch: false, content: " and " },
-        { isMatch: true, content: "OLD", streamIndices: [8, 11] }
-      );
-
-      const processor = new FunctionReplacementProcessor({
-        searchStrategy: mockStrategy,
-        replacement: asyncReplacementFn
-      });
-
-      const results: IteratorResult<Promise<string> | string>[] = [];
-      const iterable = processor.processChunk("OLD and OLD");
-      for (const value of [iterable.next(), iterable.next(), iterable.next()]) {
-        results.push(value);
-      }
-
-      expect(asyncReplacementFn).toHaveBeenCalledTimes(2);
-      resolves[0]("NEW 0");
-      await expect(results[0].value).resolves.toEqual("NEW 0");
-      expect(results[1].value).toEqual(" and ");
-      resolves[1]("NEW 1");
-      await expect(results[2].value).resolves.toEqual("NEW 1");
-    });
   });
 
   describe("flush", () => {

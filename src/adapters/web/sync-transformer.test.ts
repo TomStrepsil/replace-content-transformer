@@ -88,30 +88,4 @@ describe("ReplaceContentTransformer (sync)", () => {
     expect(outputs).toContain("<FLUSHED>");
     expect(mockProcessor.flush).toHaveBeenCalled();
   });
-
-  it("supports Promise<string> generic type for async replacement functions", async () => {
-    const mockProcessor = mockSyncProcessorFactory<Promise<string> | string>(
-      Promise.resolve("ASYNC_RESULT_1"),
-      "regular string",
-      Promise.resolve("ASYNC_RESULT_2")
-    );
-
-    const transformer = new ReplaceContentTransformer<Promise<string>>(
-      mockProcessor
-    );
-    const outputs: Array<string | Promise<string>> = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-
-    transformer.transform("input", controller);
-
-    expect(outputs).toHaveLength(3);
-    expect(outputs[0]).toBeInstanceOf(Promise);
-    expect(outputs[1]).toBe("regular string");
-    expect(outputs[2]).toBeInstanceOf(Promise);
-
-    // Resolve promises
-    await expect(outputs[0]).resolves.toBe("ASYNC_RESULT_1");
-    await expect(outputs[2]).resolves.toBe("ASYNC_RESULT_2");
-    expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
-  });
 });

@@ -1,4 +1,15 @@
 /**
+ * Inclusive/exclusive stream indices for a discovered match.
+ *
+ * - `startIndex`: index of the first matched character
+ * - `endIndex`: index immediately after the last matched character
+ */
+export type StreamIndices = [
+  startIndex: number,
+  endIndex: number
+];
+
+/**
  * Result of processing content - either a match or literal content.
  *
  * Uses boolean discrimination with typed content:
@@ -9,7 +20,7 @@
  */
 export type MatchResult<T = string> =
   | { isMatch: false; content: string }
-  | { isMatch: true; content: T; streamIndices: [startIndex: number, endIndex: number] };
+  | { isMatch: true; content: T; streamIndices: StreamIndices };
 
 /**
  * Search strategy for finding patterns in streaming content.

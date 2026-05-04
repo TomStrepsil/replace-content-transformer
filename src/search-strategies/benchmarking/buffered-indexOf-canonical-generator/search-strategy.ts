@@ -6,7 +6,7 @@ import type { ReplacementContext } from "../../../replacement-processors/replace
 
 export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   extends StringBufferStrategyBase
-  implements SyncProcessor<string>
+  implements SyncProcessor
 {
   private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;

@@ -36,6 +36,7 @@ Perfect for server-side rendering, edge composition, log processing, template en
 - 🚀 **Streaming-first** - Processes data as it arrives, yielding as early as possible
 - 🎯 **Boundary-aware** - Correctly handles tokens split across chunk boundaries
 - 🔄 **Multiple replacements** - Supports replacing multiple occurrences
+- 🔮 **Eager discovery** - Supporting lookahead replacement, with configurable concurrency
 - 🎨 **Dynamic content** - Replace with strings, functions, or iterables, sync or async
 - ⏹️ **Cancellable** - Replacement can be halted mid-chunk
 - ♻️ **Generator based** - Consuming stream has control
@@ -55,7 +56,7 @@ npm install replace-content-transformer
 
 See [Design](#-design) on composable parts to import and combine.
 
-### WHATWG Transformer
+### WHATWG Transformers
 
 Constructors are available from the `/web` import path, for both synchronous and asynchronous replacement use-cases:
 
@@ -221,54 +222,7 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses.
-
-> [!WARNING]
-> The WHATWG Streams API allows enqueueing any JavaScript value. Downstream consumers receive `Promise` objects and must explicitly `await` them.
-> 
-> Because the replacement function runs synchronously for all matches in a chunk, all async operations (e.g. `fetch` calls) are initiated eagerly — the consumer cannot pace their creation. Back-pressure still operates between input chunks, but within a single chunk, concurrency is uncontrolled. This is the trade-off for early discovery in the input stream.
-
-```typescript
-// `<link href="https://example.com/css" rel="stylesheet" />` becomes `<style>{content of sheet}</style>`
-const transformer = new ReplaceContentTransformer<Promise<string>>(
-  new FunctionReplacementProcessor<Promise<string>>({
-    searchStrategy: searchStrategyFactory([
-      "<link",
-      'href="',
-      '.css"',
-      'rel="stylesheet"',
-      "/>"
-    ]),
-    replacement: async (match: string): Promise<string> => {
-      const {
-        groups: { url }
-      } = /href="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      return `<style>${await res.text()}</style>`;
-    }
-  })
-);
-```
-
-> [!TIP]
-> If promise-concurrency needs control, consider a replacement function that limits in-flight promises via pooling:
-
-```typescript
-const maxConcurrent = 5;
-const active = new Set<Promise<string>>();
-const replacement = async (match: string): Promise<string> => {
-  if (active.size >= maxConcurrent) {
-    await Promise.race(active);
-  }
-  const [, url] = /href="([^"]+)"/.exec(match)!;
-  const promise = fetch(url).then((response) => {
-    active.delete(promise);
-    return response.text();
-  });
-  active.add(promise);
-  return `<style>${await promise}</style>`;
-};
-```
+> [!TIP] For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`LookaheadAsyncIterableTransformer`](#-pipelined-async-replacement-with-lookaheadasynciterabletransformer) (see below).
 
 #### Iterable Replacement
 
@@ -323,6 +277,14 @@ const transformerWithGenerator = new AsyncReplaceContentTransformer(
   })
 );
 ```
+
+#### Pipelined Async Replacement with `LookaheadAsyncIterableTransformer`
+
+For I/O-bound replacements (fragment fetches, KV lookups, etc.) the `AsyncIterableFunctionReplacementProcessor` above processes matches **serially** — the next match isn't even looked for until the current replacement has fully streamed to the output. That means later matches wait idle while earlier replacements are still in flight, even if they could be running concurrently.
+
+`LookaheadAsyncIterableTransformer` is a WHATWG `Transformer<string, string>` that scans ahead and **initiates** later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
+
+See the [full documentation](./src/lookahead/README.md) for usage examples, concurrency strategies, backpressure/`highWaterMark`, cancellation, and recursive composition.
 
 #### Manage Recursion
 
@@ -421,7 +383,31 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 
 ### Node Transform
 
-Use the Node adapters (`ReplaceContentTransform` / `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
+Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`, `LookaheadAsyncIterableTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
+
+`LookaheadAsyncIterableTransform` is the Node counterpart to the web `LookaheadAsyncIterableTransformer`. It shares the same engine and options, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. One extra Node-only option is available:
+
+- `streamHighWaterMark` — forwarded to the underlying `stream.Transform`'s own `highWaterMark`, composing Node-stream backpressure with the engine's `highWaterMark` on the slot queue. Named distinctly so the two are never confused.
+
+```typescript
+import { LookaheadAsyncIterableTransform } from "replace-content-transformer/node";
+import {
+  SemaphoreStrategy,
+  searchStrategyFactory
+} from "replace-content-transformer";
+
+const transform = new LookaheadAsyncIterableTransform({
+  searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
+  concurrencyStrategy: new SemaphoreStrategy(8),
+  replacement: async (match) => {
+    const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
+    const res = await fetch(url);
+    return res.body!.pipeThrough(new TextDecoderStream());
+  }
+});
+
+readable.pipe(transform).pipe(writable);
+```
 
 ```typescript
 // streaming esi middleware for express.js, using native NodeJs stream.Transform
@@ -651,7 +637,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 
 - **Node.js** 22.0.0+
 - **Bun** 1.0+
-- **Deno** 1.17+
+- **Deno** 1.38+
 - **Browsers:**
   - Chrome 52+
   - Firefox 65+
