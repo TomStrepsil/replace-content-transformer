@@ -478,15 +478,10 @@ describe("RegexSearchStrategy", () => {
     ];
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
-      test(name, () => {
-        if (
-          name.includes("complement unicodeSet character classes") &&
-          typeof Bun !== "undefined"
-        ) {
-          // https://github.com/oven-sh/bun/issues/30183
-          return;
-        }
-
+      test.skipIf(
+        typeof Bun !== "undefined" &&
+          name.includes("complement unicodeSet character classes")
+      )(name, () => {
         const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
         const results: MatchResult<RegExpExecArray>[] = [];
@@ -1044,15 +1039,10 @@ describe("RegexSearchStrategy", () => {
     ];
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
-      test(name, () => {
-        if (
-          name.includes("complement unicodeSet character classes") &&
-          typeof Bun !== "undefined"
-        ) {
-          // pCHANGEL
-          return;
-        }
-
+      test.skipIf(
+        typeof Bun !== "undefined" &&
+          name.includes("complement unicodeSet character classes")
+      )(name, () => {
         const strategy = new RegexSearchStrategy(pattern);
         const state = strategy.createState();
         const results: MatchResult<RegExpExecArray>[] = [];

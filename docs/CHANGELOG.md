@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added lock files for Deno and Bun, to support this
 - Added a version to `packageManager` in `package.json`
 - Added a hand-rolled http test server utility, compatible with Bun / Deno / Node, to replace [`msw`](https://github.com/mswjs/msw/)
-  - Added temporary opt-out of test using complement set intersection of regex characters classes due to Bun bug (https://github.com/oven-sh/bun/issues/30183)
+  - Added temporary opt-out of test using complement set intersection of regex character classes due to Bun bug (https://github.com/oven-sh/bun/issues/30183)
 - Added proper cross-runtime matrix for CI tests, as promised in the main [`README.md`](../README.md)
 
 ### Fixed
