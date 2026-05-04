@@ -31,23 +31,58 @@ jobs:
         run: npm run lint
 
   test:
-    name: Test
+    name: Test (${{ matrix.runtime }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [node, bun, deno]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
       - name: Setup Node.js
+        if: matrix.runtime == 'node'
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
 
-      - name: Install dependencies
+      - name: Setup Bun
+        if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Setup Deno
+        if: matrix.runtime == 'deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ^2
+
+      - name: Install dependencies (Node)
+        if: matrix.runtime == 'node'
         run: npm ci
 
-      - name: Run tests
+      - name: Install dependencies (Bun)
+        if: matrix.runtime == 'bun'
+        run: bun ci
+
+      - name: Install dependencies (Deno)
+        if: matrix.runtime == 'deno'
+        run: deno install
+
+      - name: Run tests (Node)
+        if: matrix.runtime == 'node'
         run: npm run test:ci
+
+      - name: Run tests (Bun)
+        if: matrix.runtime == 'bun'
+        run: bun run --bun test
+
+      - name: Run tests (Deno)
+        if: matrix.runtime == 'deno'
+        run: deno run -A npm:vitest run
 
   changelog-and-semver-check:
     name: CHANGELOG and Semver Check

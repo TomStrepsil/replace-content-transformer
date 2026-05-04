@@ -1,0 +1,6 @@
+{
+  "lock": {
+    "frozen": true
+  },
+  "allowScripts": ["npm:install"]
+}

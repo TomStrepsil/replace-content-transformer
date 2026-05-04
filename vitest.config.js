@@ -13,6 +13,5 @@ export default defineConfig({
       include: ["src/**/*.ts", "benchmarks/**/*.ts"],
       exclude: ["**/index.ts", "**/*.d.ts", "**/*.bench.ts"]
     }
-  },
-  setupFiles: ["./test/vitest.setup.js"]
+  }
 });

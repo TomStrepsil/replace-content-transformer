@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.js";
 import { AsyncReplaceContentTransformer } from "./async-transformer.js";
-import { http, HttpResponse } from "msw";
-import { server } from "../../../test/utilities.js";
-import { text } from "node:stream/consumers";
+import { startTestHttpServer, streamToString } from "../../../test/utilities.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
 
 describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
@@ -24,7 +22,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
 
     const stream = new TransformStream(transformer);
     const writer = stream.writable.getWriter();
-    const outputPromise = text(stream.readable);
+    const outputPromise = streamToString(stream.readable);
 
     await writer.write("plain ");
     abortController.abort();
@@ -51,7 +49,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
 
     const stream = new TransformStream(transformer);
     const writer = stream.writable.getWriter();
-    const outputPromise = text(stream.readable);
+    const outputPromise = streamToString(stream.readable);
 
     await writer.write("{{a");
     abortController.abort();
@@ -62,107 +60,112 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
   });
 
   it("should support streaming ReadableStream into the output", async () => {
-    const fragmentUrl = "https://example.com/fragment";
-    server.use(
-      http.get(fragmentUrl, () => {
-        return HttpResponse.text("<h1>some fragment</h1>");
-      })
-    );
-    const parentUrl = "https://example.com/parent";
-    server.use(
-      http.get(parentUrl, () => {
-        return HttpResponse.text(
-          `<div><esi:include src="${fragmentUrl}" /></div>`
-        );
-      })
-    );
+    const httpServer = await startTestHttpServer({
+      "/fragment": () => new Response("<h1>some fragment</h1>"),
+      "/parent": (request) => {
+        const fragmentUrl = new URL("/fragment", request.url).toString();
+        return new Response(`<div><esi:include src="${fragmentUrl}" /></div>`);
+      }
+    });
 
-    const fetchAndDecode = async (url: string) => {
-      const res = await fetch(url);
-      return res.body!.pipeThrough(new TextDecoderStream());
-    };
+    try {
+      const fetchAndDecode = async (url: string) => {
+        const res = await fetch(url);
+        return res.body!.pipeThrough(new TextDecoderStream());
+      };
 
-    const parentResponse = await fetchAndDecode(parentUrl);
+      const parentResponse = await fetchAndDecode(`${httpServer.baseUrl}/parent`);
 
-    const result = await text(
-      parentResponse.pipeThrough(
-        new TransformStream(
-          new AsyncReplaceContentTransformer(
-            new AsyncIterableFunctionReplacementProcessor({
-              searchStrategy: new StringAnchorSearchStrategy([
-                "<esi:include",
-                ">"
-              ]),
-              replacement: (match) => {
-                const [, url] = /src="([^"]+)"/.exec(match)!;
-                return fetchAndDecode(url);
-              }
-            })
+      const result = await streamToString(
+        parentResponse.pipeThrough(
+          new TransformStream(
+            new AsyncReplaceContentTransformer(
+              new AsyncIterableFunctionReplacementProcessor({
+                searchStrategy: new StringAnchorSearchStrategy([
+                  "<esi:include",
+                  ">"
+                ]),
+                replacement: (match) => {
+                  const [, url] = /src="([^"]+)"/.exec(match)!;
+                  return fetchAndDecode(url);
+                }
+              })
+            )
           )
         )
-      )
-    );
+      );
 
-    expect(result).toEqual("<div><h1>some fragment</h1></div>");
+      expect(result).toEqual("<div><h1>some fragment</h1></div>");
+    } finally {
+      await httpServer.close();
+    }
   });
 
   it("should support sharing an abort signal with a fetch request", async () => {
     const abortController = new AbortController();
 
-    const fragmentUrl = "https://example.com/fragment-abort";
-    server.use(
-      http.get(fragmentUrl, () => {
-        return new Promise(() => {
+    const httpServer = await startTestHttpServer({
+      "/fragment-abort": () => {
+        return new Promise<Response>(() => {
           abortController.abort(); // simulate external abort during fetch
         });
-      })
-    );
-    const parentUrl = "https://example.com/parent-abort";
-    server.use(
-      http.get(parentUrl, () => {
-        return HttpResponse.text(
-          `<esi:include src="${fragmentUrl}" /><div><esi:include src="https://example.com/some-not-attempted-fragment" /></div>`
+      },
+      "/parent-abort": (request) => {
+        const fragmentUrl = new URL("/fragment-abort", request.url).toString();
+        const notAttemptedUrl = new URL(
+          "/some-not-attempted-fragment",
+          request.url
+        ).toString();
+        return new Response(
+          `<esi:include src="${fragmentUrl}" /><div><esi:include src="${notAttemptedUrl}" /></div>`
         );
-      })
-    );
+      }
+    });
 
-    const fetchAndDecode = async (url: string, signal: AbortSignal) => {
-      const res = await fetch(url, { signal });
-      return res.body!.pipeThrough(new TextDecoderStream());
-    };
+    try {
+      const fetchAndDecode = async (url: string, signal: AbortSignal) => {
+        const res = await fetch(url, { signal });
+        return res.body!.pipeThrough(new TextDecoderStream());
+      };
 
-    const parentResponse = await fetch(parentUrl);
-    const parentStream = parentResponse.body!.pipeThrough(
-      new TextDecoderStream()
-    );
+      const parentResponse = await fetch(`${httpServer.baseUrl}/parent-abort`);
+      const parentStream = parentResponse.body!.pipeThrough(
+        new TextDecoderStream()
+      );
 
-    const transformer = new AsyncReplaceContentTransformer(
-      new AsyncIterableFunctionReplacementProcessor({
-        searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-        replacement: async (match) => {
-          const [, url] = /src="([^"]+)"/.exec(match)!;
-          try {
-            return await fetchAndDecode(url, abortController.signal);
-          } catch (error: unknown) {
-            if (error instanceof Error && error.name === "AbortError") {
-              return (async function* () {
-                yield "<div>Operation Cancelled</div>";
-              })();
+      const transformer = new AsyncReplaceContentTransformer(
+        new AsyncIterableFunctionReplacementProcessor({
+          searchStrategy: new StringAnchorSearchStrategy([
+            "<esi:include",
+            ">"
+          ]),
+          replacement: async (match) => {
+            const [, url] = /src="([^"]+)"/.exec(match)!;
+            try {
+              return await fetchAndDecode(url, abortController.signal);
+            } catch (error: unknown) {
+              if (error instanceof Error && error.name === "AbortError") {
+                return (async function* () {
+                  yield "<div>Operation Cancelled</div>";
+                })();
+              }
+              throw error;
             }
-            throw error;
           }
-        }
-      }),
-      abortController.signal
-    );
+        }),
+        abortController.signal
+      );
 
-    const transformedStream = parentStream.pipeThrough(
-      new TransformStream(transformer)
-    );
+      const transformedStream = parentStream.pipeThrough(
+        new TransformStream(transformer)
+      );
 
-    await expect(text(transformedStream)).resolves.toEqual(
-      `<div>Operation Cancelled</div><div><esi:include src="https://example.com/some-not-attempted-fragment" /></div>`
-    );
+      await expect(streamToString(transformedStream)).resolves.toEqual(
+        `<div>Operation Cancelled</div><div><esi:include src="${httpServer.baseUrl}/some-not-attempted-fragment" /></div>`
+      );
+    } finally {
+      await httpServer.close();
+    }
   });
 
   it("flushes the unprocessed remainder of a chunk when abort is signaled mid-transform", async () => {
@@ -193,7 +196,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       .pipeThrough(new TextDecoderStream())
       .pipeThrough(new TransformStream(transformer));
 
-    await expect(text(transformed)).resolves.toBe("REPLACED-tail next");
+    await expect(streamToString(transformed)).resolves.toBe("REPLACED-tail next");
   });
 
   it("stops discovering additional matches in the current chunk after mid-transform abort", async () => {
@@ -228,7 +231,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       .pipeThrough(new TextDecoderStream())
       .pipeThrough(new TransformStream(transformer));
 
-    await expect(text(transformed)).resolves.toBe("{{A}}{{b}}{{c}} next");
+    await expect(streamToString(transformed)).resolves.toBe("{{A}}{{b}}{{c}} next");
     expect(replacement).toHaveBeenCalledTimes(1);
   });
 });
