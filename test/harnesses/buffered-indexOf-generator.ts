@@ -1,26 +1,21 @@
-import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
-import { BufferedIndexOfCanonicalAsGeneratorSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import { syncHarnessTransformer, generatorProcessorToEngine } from "./engine-harness.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
+import { BufferedIndexOfCanonicalAsGeneratorSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
 
 export const BufferedIndexOfGeneratorHarness = {
   name: "Buffered IndexOf Generator Canonical",
   isAsync: false,
-  isStateful: true,
-  createSearchStrategy: ({
-    tokens,
+  createSearchStrategy: ({ tokens }: { tokens: string[] }) => tokens,
+  createTransformer: ({
+    strategy: tokens,
     replacement
   }: {
-    tokens: string[];
+    strategy: string[];
     replacement: (match: string, context: ReplacementContext) => string;
-  }) => {
-    return new BufferedIndexOfCanonicalAsGeneratorSearchStrategy(
-      replacement,
-      tokens
-    );
-  },
-  createTransformer: ({
-    strategy
-  }: {
-    strategy: BufferedIndexOfCanonicalAsGeneratorSearchStrategy;
-  }) => new ReplaceContentTransformer(strategy)
+  }) =>
+    syncHarnessTransformer(
+      generatorProcessorToEngine(
+        new BufferedIndexOfCanonicalAsGeneratorSearchStrategy(replacement, tokens)
+      )
+    )
 };

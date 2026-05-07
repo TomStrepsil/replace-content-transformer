@@ -1,29 +1,21 @@
-import { BufferedIndexOfReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import { syncHarnessTransformer, legacyTransformerToEngine } from "./engine-harness.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
+import { BufferedIndexOfReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts"
 
 export const BufferedIndexOfCanonicalHarness = {
   name: "Buffered IndexOf Canonical",
   isAsync: false,
-  isStateful: true,
-  createSearchStrategy: ({
-    tokens,
+  createSearchStrategy: ({ tokens }: { tokens: string[] }) => tokens,
+  createTransformer: ({
+    strategy: tokens,
     replacement
   }: {
-    tokens: string[];
+    strategy: string[];
     replacement: (match: string, context: ReplacementContext) => string;
-  }) => {
-    return { tokens, replacement };
-  },
-  createTransformer: ({
-    strategy
-  }: {
-    strategy: {
-      tokens: string[];
-      replacement: (match: string, context: ReplacementContext) => string;
-    };
   }) =>
-    new BufferedIndexOfReplaceContentTransformer(
-      strategy.replacement,
-      strategy.tokens
+    syncHarnessTransformer(
+      legacyTransformerToEngine(
+        new BufferedIndexOfReplaceContentTransformer(replacement, tokens)
+      )
     )
 };

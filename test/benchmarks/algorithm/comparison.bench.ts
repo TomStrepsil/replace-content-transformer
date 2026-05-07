@@ -342,8 +342,7 @@ group("Setup Cost (strategy + transformer creation)", async () => {
       name,
       createSearchStrategy,
       createTransformer,
-      isAsync,
-      isStateful
+      isAsync
     } = harness;
 
     const benchReplacement = isAsync
@@ -352,14 +351,9 @@ group("Setup Cost (strategy + transformer creation)", async () => {
       : representativeScenario.replacement;
 
     bench(name, () => {
-      const strategy = createSearchStrategy(
-        isStateful
-          ? {
-              tokens: representativeScenario.tokens,
-              replacement: benchReplacement
-            }
-          : { tokens: representativeScenario.tokens }
-      );
+      const strategy = createSearchStrategy({
+        tokens: representativeScenario.tokens
+      });
 
       createTransformer({ strategy, replacement: benchReplacement });
     });
@@ -373,8 +367,7 @@ for (const scenario of scenarios) {
         name,
         createSearchStrategy,
         createTransformer,
-        isAsync,
-        isStateful
+        isAsync
       } = harness;
 
       const benchReplacement = isAsync
@@ -382,21 +375,12 @@ for (const scenario of scenarios) {
         : scenario.replacement;
 
       bench(name, function* () {
-        const statelessStrategy = isStateful
-          ? null
-          : createSearchStrategy({ tokens: scenario.tokens });
+        const statelessStrategy = createSearchStrategy({ tokens: scenario.tokens });
 
         yield {
           async bench() {
-            const strategy =
-              statelessStrategy ??
-              createSearchStrategy({
-                tokens: scenario.tokens,
-                replacement: benchReplacement
-              });
-
             const transformer = createTransformer({
-              strategy,
+              strategy: statelessStrategy,
               replacement: benchReplacement
             });
             const outputs: string[] = [];

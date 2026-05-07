@@ -76,7 +76,7 @@ group("⚡ Scaling & Optimization", () => {
   });
 });
 group("🔄 Async Replacement Performance", () => {
-  // First two benchmarks use sync execution (baseline)
+  // First two are sync-engine baselines
   benchmarkDefinitions.async
     .slice(0, 2)
     .forEach((definition: BenchmarkDefinition) => {
@@ -85,7 +85,7 @@ group("🔄 Async Replacement Performance", () => {
       });
     });
 
-  // Remaining benchmarks use async execution
+  // Remaining six use the async engine
   benchmarkDefinitions.async
     .slice(2)
     .forEach((definition: BenchmarkDefinition) => {

@@ -1,91 +1,80 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ReplaceContentTransformer } from "./sync-transformer.js";
-import {
-  mockTransformStreamDefaultControllerFactory,
-  mockSyncProcessorFactory
-} from "../../../test/utilities.js";
+import { mockTransformStreamDefaultControllerFactory } from "../../../test/utilities.js";
+import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
 
-describe("ReplaceContentTransformer (sync)", () => {
-  it("delegates to processor and enqueues output", () => {
-    const mockProcessor = mockSyncProcessorFactory("ABC", "abc!");
-    const transformer = new ReplaceContentTransformer(mockProcessor);
+function mockSyncEngine() {
+  return {
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => void>(),
+    end: vi.fn<() => void>()
+  };
+}
+
+describe("ReplaceContentTransformer (sync adapter)", () => {
+  it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    transformer.transform("abc", controller);
+    transformer.start(controller);
 
-    expect(outputs).toContain("ABC");
-    expect(outputs).toContain("abc!");
-    expect(mockProcessor.processChunk).toHaveBeenCalledWith("abc");
+    expect(engine.start).toHaveBeenCalledOnce();
+    const [sink] = engine.start.mock.calls[0];
+    sink.enqueue("hello");
+    expect(outputs).toEqual(["hello"]);
   });
 
-  it("skips processing when abort signal is set prior to transformation", () => {
-    const mockProcessor = mockSyncProcessorFactory("transformed");
-    const abortController = new AbortController();
-    const transformer = new ReplaceContentTransformer(
-      mockProcessor,
-      abortController.signal
-    );
+  it("wires start(controller) to engine.start with a sink that forwards error", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
-    abortController.abort();
 
-    transformer.transform("input", controller);
+    transformer.start(controller);
 
-    expect(outputs).toEqual(["input"]);
-    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    const [sink] = engine.start.mock.calls[0];
+    const err = new Error("boom");
+    sink.error(err);
+    expect(controller.error).toHaveBeenCalledWith(err);
   });
 
-  it("stops processing mid-transformation when abort signal is set, and flushes remaining content", () => {
-    const abortController = new AbortController();
-    const mockProcessor = mockSyncProcessorFactory(() => {
-      abortController.abort();
-      return "PART1";
-    }, "PART2");
-    mockProcessor.flush.mockReturnValue("<FLUSHED>");
-    const transformer = new ReplaceContentTransformer(
-      mockProcessor,
-      abortController.signal
-    );
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+  it("delegates transform(chunk) to engine.write(chunk)", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
 
-    transformer.transform("input", controller);
+    transformer.transform("hello");
 
-    expect(outputs).toEqual(["PART1", "<FLUSHED>"]);
-    expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
-    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
+    expect(engine.write).toHaveBeenCalledWith("hello");
   });
 
-  it("flushes at most once after abort across multiple subsequent chunks", () => {
-    const mockProcessor = mockSyncProcessorFactory("OUT");
-    const abortController = new AbortController();
-    const transformer = new ReplaceContentTransformer(
-      mockProcessor,
-      abortController.signal
-    );
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+  it("delegates flush() to engine.end()", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
 
-    abortController.abort();
-    transformer.transform("first", controller);
-    transformer.transform("second", controller);
+    transformer.flush();
 
-    expect(outputs).toEqual(["first", "second"]);
-    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    expect(engine.end).toHaveBeenCalledOnce();
   });
 
-  it("flush enqueues flushed content", () => {
-    const mockProcessor = mockSyncProcessorFactory();
-
-    const transformer = new ReplaceContentTransformer(mockProcessor);
+  it("pipes end-to-end: engine output via sink is forwarded to the controller", () => {
+    let capturedSink!: EngineSink;
+    const engine: SyncTransformEngine = {
+      start: (sink) => { capturedSink = sink; },
+      write: (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
+      end: () => { capturedSink.enqueue("END"); }
+    };
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
-    mockProcessor.flush.mockReturnValue("<FLUSHED>");
+    const transformer = new ReplaceContentTransformer(engine);
 
-    transformer.flush(controller);
+    transformer.start(controller);
+    transformer.transform("abc");
+    transformer.flush();
 
-    expect(outputs).toContain("<FLUSHED>");
-    expect(mockProcessor.flush).toHaveBeenCalled();
+    expect(outputs).toEqual(["ABC", "END"]);
   });
 });

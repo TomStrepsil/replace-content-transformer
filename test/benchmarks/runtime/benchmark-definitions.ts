@@ -1,29 +1,29 @@
 import {
-  StaticReplacementProcessor,
-  FunctionReplacementProcessor,
-  AsyncFunctionReplacementProcessor,
-  AsyncIterableFunctionReplacementProcessor
-} from "../../../src/replacement-processors/index.ts";
+  SyncReplacementTransformEngine,
+  AsyncSerialReplacementTransformEngine,
+  type ReplacementContext
+} from "../../../src/engines/index.ts";
 import {
   StringAnchorSearchStrategy
 } from "../../../src/search-strategies/index.ts";
 import type { LoopedIndexOfAnchoredSearchState as SearchState } from "../../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
-import type { ReplacementContext } from "../../../src/replacement-processors/replacement-processor.base.ts";
 
 /**
- * Core benchmark definitions - categorized object
+ * Core benchmark definitions - categorized object.
  * Each top-level key is a category containing an array of benchmarks.
+ *
+ * Search strategies are stateless and reusable across streams; they are
+ * created once per definition (outside the per-iteration setup closure) so
+ * benchmark measurements reflect engine + state-creation cost only.
  */
 
 export interface BenchmarkDefinition {
   name: string;
   description: string;
   setup: () => {
-    processor:
-      | StaticReplacementProcessor<SearchState>
-      | FunctionReplacementProcessor<SearchState>
-      | AsyncFunctionReplacementProcessor<SearchState>
-      | AsyncIterableFunctionReplacementProcessor<SearchState>;
+    engine:
+      | SyncReplacementTransformEngine<SearchState>
+      | AsyncSerialReplacementTransformEngine<SearchState>;
     input: string[];
   };
   validate: (result: string) => void;
@@ -41,13 +41,14 @@ export const benchmarkDefinitions: {
       name: "Simple string replacement - baseline streaming performance",
       description:
         "Single pattern replacement in single chunk - foundational performance",
-      setup: () => ({
-        processor: new StaticReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: "NEW"
-        }),
-        input: ["Hello OLD world OLD test OLD content"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Hello OLD world OLD test OLD content"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (!result.includes("NEW")) {
           throw new Error("Benchmark validation failed - no replacement found");
@@ -57,15 +58,14 @@ export const benchmarkDefinitions: {
     {
       name: "Simple text without replacement - baseline streaming performance",
       description: "Fast path validation - no matches found",
-      setup: () => ({
-        processor: new StaticReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy([
-            "NOTFOUND"
-          ]),
-          replacement: "NEW"
-        }),
-        input: ["Hello world test content no matches here"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["NOTFOUND"]);
+        const input = ["Hello world test content no matches here"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         const expected = "Hello world test content no matches here";
         if (result !== expected) {
@@ -76,13 +76,14 @@ export const benchmarkDefinitions: {
     {
       name: "Multiple replacements single chunk - baseline streaming performance",
       description: "Scaling performance with multiple matches",
-      setup: () => ({
-        processor: new StaticReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: "NEW"
-        }),
-        input: ["OLD".repeat(10) + "content" + "OLD".repeat(10)]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["OLD".repeat(10) + "content" + "OLD".repeat(10)];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (!result.includes("NEW") || result.includes("OLD")) {
           throw new Error(
@@ -95,13 +96,17 @@ export const benchmarkDefinitions: {
       name: "Function-based replacement - baseline streaming performance",
       description:
         "Function replacement with match indexing - new feature performance baseline",
-      setup: () => ({
-        processor: new FunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
-        }),
-        input: ["Hello OLD world OLD test OLD content"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Hello OLD world OLD test OLD content"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({
+            searchStrategy,
+            replacement: (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (
           !result.includes("NEW-0") ||
@@ -119,15 +124,14 @@ export const benchmarkDefinitions: {
     {
       name: "Cross-boundary pattern matching - buffering overhead measurement",
       description: "Multi-chunk scenario with pattern spanning boundaries",
-      setup: () => ({
-        processor: new StaticReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy([
-            "BOUNDARY"
-          ]),
-          replacement: "REPLACED"
-        }),
-        input: ["Hello BOUN", "DARY world test"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["BOUNDARY"]);
+        const input = ["Hello BOUN", "DARY world test"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "REPLACED" }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (!result.includes("REPLACED")) {
           throw new Error(
@@ -140,15 +144,14 @@ export const benchmarkDefinitions: {
       name: "Cross-boundary no match - partial match buffer overhead",
       description:
         "Multi-chunk scenario with partial matches requiring buffering",
-      setup: () => ({
-        processor: new StaticReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy([
-            "NOTFOUND"
-          ]),
-          replacement: "REPLACED"
-        }),
-        input: ["Hello NOT", "THERE world test"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["NOTFOUND"]);
+        const input = ["Hello NOT", "THERE world test"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "REPLACED" }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         const expected = "Hello NOTTHERE world test";
         if (result !== expected) {
@@ -165,21 +168,15 @@ export const benchmarkDefinitions: {
       description:
         "Single large chunk with no matches whose total length equals the 30-chunk test (for like-for-like comparison)",
       setup: (() => {
-        const precomputedInput = Array.from(
+        const searchStrategy = new StringAnchorSearchStrategy(["NOTFOUND"]);
+        const singleLong = Array.from(
           { length: 30 },
           (_, i) => `chunk ${i + 1} content no matches here`
-        );
-
-        const singleLong = precomputedInput.join("");
-
+        ).join("");
+        const input = [singleLong];
         return () => ({
-          processor: new StaticReplacementProcessor({
-            searchStrategy: new StringAnchorSearchStrategy([
-              "NOTFOUND"
-            ]),
-            replacement: "NEW"
-          }),
-          input: [singleLong]
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
         });
       })(),
       validate: (result: string) => {
@@ -195,17 +192,14 @@ export const benchmarkDefinitions: {
       description:
         "30 chunks each containing one match to test streaming replacement scaling",
       setup: (() => {
-        const precomputedInput = Array.from(
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = Array.from(
           { length: 30 },
           (_, i) => `chunk ${i + 1} content with OLD pattern here`
         );
-
         return () => ({
-          processor: new StaticReplacementProcessor({
-            searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-            replacement: "NEW"
-          }),
-          input: precomputedInput
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
         });
       })(),
       validate: (result: string) => {
@@ -227,19 +221,14 @@ export const benchmarkDefinitions: {
       description:
         "30 chunks with no matches to isolate pure chunk processing cost",
       setup: (() => {
-        const precomputedInput = Array.from(
+        const searchStrategy = new StringAnchorSearchStrategy(["NOTFOUND"]);
+        const input = Array.from(
           { length: 30 },
           (_, i) => `chunk ${i + 1} content no matches here`
         );
-
         return () => ({
-          processor: new StaticReplacementProcessor({
-            searchStrategy: new StringAnchorSearchStrategy([
-              "NOTFOUND"
-            ]),
-            replacement: "NEW"
-          }),
-          input: precomputedInput
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
         });
       })(),
       validate: (result: string) => {
@@ -258,34 +247,20 @@ export const benchmarkDefinitions: {
         "30 chunks with cross-boundary patterns at varying split positions to test KMP table utilization",
       setup: (() => {
         const pattern = "BOUNDARY";
+        const searchStrategy = new StringAnchorSearchStrategy([pattern]);
         const patternLength = pattern.length;
-        const precomputedInput: string[] = [];
-
-        // Create 15 cross-boundary matches across 30 chunks (every other pair)
+        const input: string[] = [];
         for (let i = 0; i < 15; i++) {
           const chunkIndex = i * 2;
-          // Vary split position: cycle through different positions in the pattern
-          const splitPos = (i % (patternLength - 1)) + 1; // 1 to 7
-
+          const splitPos = (i % (patternLength - 1)) + 1;
           const firstPart = pattern.substring(0, splitPos);
           const secondPart = pattern.substring(splitPos);
-
-          precomputedInput.push(
-            `chunk ${chunkIndex + 1} content with ${firstPart}`
-          );
-          precomputedInput.push(
-            `${secondPart} and more content chunk ${chunkIndex + 2}`
-          );
+          input.push(`chunk ${chunkIndex + 1} content with ${firstPart}`);
+          input.push(`${secondPart} and more content chunk ${chunkIndex + 2}`);
         }
-
         return () => ({
-          processor: new StaticReplacementProcessor({
-            searchStrategy: new StringAnchorSearchStrategy([
-              pattern
-            ]),
-            replacement: "REPLACED"
-          }),
-          input: precomputedInput
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "REPLACED" }),
+          input
         });
       })(),
       validate: (result: string) => {
@@ -294,7 +269,6 @@ export const benchmarkDefinitions: {
             "Benchmark validation failed - cross-boundary replacement incomplete"
           );
         }
-        // Should have exactly 15 replacements
         const replacementCount = (result.match(/REPLACED/g) || []).length;
         if (replacementCount !== 15) {
           throw new Error(
@@ -305,17 +279,18 @@ export const benchmarkDefinitions: {
     }
   ],
   async: [
+    // First two are sync-engine baselines (run via executeBenchmark)
     {
       name: "processChunkSync with string replacement",
-      description:
-        "Sync baseline - verify no performance regression from async feature",
-      setup: () => ({
-        processor: new StaticReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: "NEW"
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      description: "Sync baseline - verify no performance regression from async feature",
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         const expected = "Replace NEW and NEW and NEW content";
         if (result !== expected) {
@@ -326,13 +301,17 @@ export const benchmarkDefinitions: {
     {
       name: "processChunkSync with sync function replacement",
       description: "Sync function baseline - verify function call overhead",
-      setup: () => ({
-        processor: new FunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new SyncReplacementTransformEngine({
+            searchStrategy,
+            replacement: (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (
           !result.includes("NEW-0") ||
@@ -343,17 +322,21 @@ export const benchmarkDefinitions: {
         }
       }
     },
+    // Remaining six are async-engine benchmarks (run via executeBenchmarkAsync)
     {
       name: "processChunk with string replacement (async generator overhead)",
-      description:
-        "Measure overhead of async generator with string replacement",
-      setup: () => ({
-        processor: new AsyncFunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async () => "NEW"
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      description: "Measure overhead of async generator with string replacement",
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new AsyncSerialReplacementTransformEngine({
+            searchStrategy,
+            replacement: async () => "NEW"
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         const expected = "Replace NEW and NEW and NEW content";
         if (result !== expected) {
@@ -363,15 +346,18 @@ export const benchmarkDefinitions: {
     },
     {
       name: "processChunk with sync function (awaited)",
-      description:
-        "Measure overhead of awaiting sync function in async generator",
-      setup: () => ({
-        processor: new AsyncFunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      description: "Measure overhead of awaiting sync function in async generator",
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new AsyncSerialReplacementTransformEngine({
+            searchStrategy,
+            replacement: async (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (
           !result.includes("NEW-0") ||
@@ -385,16 +371,20 @@ export const benchmarkDefinitions: {
     {
       name: "processChunk with async function (Promise.resolve)",
       description: "Measure true async replacement with Promise.resolve",
-      setup: () => ({
-        processor: new AsyncFunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (_: string, { matchIndex }: ReplacementContext) => {
-            await Promise.resolve();
-            return `NEW-${matchIndex}`;
-          }
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new AsyncSerialReplacementTransformEngine({
+            searchStrategy,
+            replacement: async (_: string, { matchIndex }: ReplacementContext) => {
+              await Promise.resolve();
+              return `NEW-${matchIndex}`;
+            }
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (
           !result.includes("NEW-0") ||
@@ -408,15 +398,18 @@ export const benchmarkDefinitions: {
     {
       name: "processChunk with async function (immediate microtask)",
       description: "Measure async replacement returning immediate Promise",
-      setup: () => ({
-        processor: new AsyncFunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (_: string, { matchIndex }: ReplacementContext) => {
-            return Promise.resolve(`NEW-${matchIndex}`);
-          }
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new AsyncSerialReplacementTransformEngine({
+            searchStrategy,
+            replacement: (_: string, { matchIndex }: ReplacementContext) =>
+              Promise.resolve(`NEW-${matchIndex}`)
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (
           !result.includes("NEW-0") ||
@@ -429,21 +422,24 @@ export const benchmarkDefinitions: {
     },
     {
       name: "processChunk with async iterable replacement (single stream)",
-      description: "Measure streaming replacement with ReadableStream",
-      setup: () => ({
-        processor: new AsyncIterableFunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async () => {
-            return new ReadableStream({
-              start(controller) {
-                controller.enqueue("NEW");
-                controller.close();
-              }
-            });
-          }
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      description: "Measure streaming replacement with ReadableStream (single enqueue)",
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new AsyncSerialReplacementTransformEngine({
+            searchStrategy,
+            replacement: async () =>
+              new ReadableStream<string>({
+                start(controller) {
+                  controller.enqueue("NEW");
+                  controller.close();
+                }
+              })
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (!result.includes("NEW")) {
           throw new Error("Benchmark validation failed");
@@ -453,23 +449,26 @@ export const benchmarkDefinitions: {
     {
       name: "processChunk with async iterable replacement (multi-chunk stream)",
       description: "Measure streaming replacement with chunked ReadableStream",
-      setup: () => ({
-        processor: new AsyncIterableFunctionReplacementProcessor({
-          searchStrategy: new StringAnchorSearchStrategy(["OLD"]),
-          replacement: async (_: string, { matchIndex }: ReplacementContext) => {
-            return new ReadableStream({
-              start(controller) {
-                controller.enqueue("N");
-                controller.enqueue("E");
-                controller.enqueue("W");
-                controller.enqueue(`-${matchIndex}`);
-                controller.close();
-              }
-            });
-          }
-        }),
-        input: ["Replace OLD and OLD and OLD content"]
-      }),
+      setup: (() => {
+        const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
+        const input = ["Replace OLD and OLD and OLD content"];
+        return () => ({
+          engine: new AsyncSerialReplacementTransformEngine({
+            searchStrategy,
+            replacement: async (_: string, { matchIndex }: ReplacementContext) =>
+              new ReadableStream<string>({
+                start(controller) {
+                  controller.enqueue("N");
+                  controller.enqueue("E");
+                  controller.enqueue("W");
+                  controller.enqueue(`-${matchIndex}`);
+                  controller.close();
+                }
+              })
+          }),
+          input
+        });
+      })(),
       validate: (result: string) => {
         if (
           !result.includes("NEW-0") ||
@@ -483,64 +482,60 @@ export const benchmarkDefinitions: {
   ]
 };
 
-export function executeBenchmark(definition: BenchmarkDefinition) {
-  const { processor, input } = definition.setup();
+const _syncOutput: string[] = [];
+const _syncSink = {
+  enqueue: (chunk: string) => _syncOutput.push(chunk),
+  error: (err: unknown) => { throw err; }
+};
 
-  if (
-    !(processor instanceof StaticReplacementProcessor) &&
-    !(processor instanceof FunctionReplacementProcessor)
-  ) {
+const _asyncOutput: string[] = [];
+const _asyncSink = {
+  enqueue: (chunk: string) => _asyncOutput.push(chunk),
+  error: (err: unknown) => { throw err; }
+};
+
+export function executeBenchmark(definition: BenchmarkDefinition) {
+  const { engine, input } = definition.setup();
+
+  if (!(engine instanceof SyncReplacementTransformEngine)) {
     throw new Error(
-      "executeBenchmark requires StaticReplacementProcessor or FunctionReplacementProcessor"
+      "executeBenchmark requires a SyncReplacementTransformEngine"
     );
   }
 
-  const outputChunks: string[] = [];
+  _syncOutput.length = 0;
+  engine.start(_syncSink);
 
   for (const inputChunk of input) {
-    for (const chunk of processor.processChunk(inputChunk)) {
-      outputChunks.push(chunk);
-    }
+    engine.write(inputChunk);
   }
+  engine.end();
 
-  const flushResult = processor.flush();
-  if (flushResult) {
-    outputChunks.push(flushResult);
-  }
-
-  const result = outputChunks.join("");
+  const result = _syncOutput.join("");
   definition.validate(result);
 
-  return { result, chunkCount: outputChunks.length };
+  return { result, chunkCount: _syncOutput.length };
 }
 
 export async function executeBenchmarkAsync(definition: BenchmarkDefinition) {
-  const { processor, input } = definition.setup();
+  const { engine, input } = definition.setup();
 
-  if (
-    !(processor instanceof AsyncFunctionReplacementProcessor) &&
-    !(processor instanceof AsyncIterableFunctionReplacementProcessor)
-  ) {
+  if (!(engine instanceof AsyncSerialReplacementTransformEngine)) {
     throw new Error(
-      "executeBenchmarkAsync requires AsyncFunctionReplacementProcessor or AsyncIterableFunctionReplacementProcessor"
+      "executeBenchmarkAsync requires an AsyncSerialReplacementTransformEngine"
     );
   }
 
-  const outputChunks: string[] = [];
+  _asyncOutput.length = 0;
+  engine.start(_asyncSink);
 
   for (const inputChunk of input) {
-    for await (const chunk of processor.processChunk(inputChunk)) {
-      outputChunks.push(chunk);
-    }
+    await engine.write(inputChunk);
   }
+  engine.end();
 
-  const flushResult = processor.flush();
-  if (flushResult) {
-    outputChunks.push(flushResult);
-  }
-
-  const result = outputChunks.join("");
+  const result = _asyncOutput.join("");
   definition.validate(result);
 
-  return { result, chunkCount: outputChunks.length };
+  return { result, chunkCount: _asyncOutput.length };
 }

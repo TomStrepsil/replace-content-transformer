@@ -1,9 +1,9 @@
-import { FunctionReplacementProcessor } from "../../src/index.ts";
+import { SyncReplacementTransformEngine } from "../../src/engines/sync-transform-engine.ts";
+import { syncHarnessTransformer } from "./engine-harness.ts";
 import { RegexSearchStrategy } from "../../src/search-strategies/regex/search-strategy.ts";
-import { AnchorSequenceSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
-import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
+import { AnchorSequenceSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
 import type { StringBufferState } from "../../src/search-strategies/string-buffer-strategy-base.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const RegexAnchorSequenceHarness = {
   name: "Regex + Anchor Sequence",
@@ -26,10 +26,10 @@ export const RegexAnchorSequenceHarness = {
     strategy: AnchorSequenceSearchStrategy<StringBufferState, RegExpExecArray>;
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    new ReplaceContentTransformer(
-      new FunctionReplacementProcessor({
+    syncHarnessTransformer(
+      new SyncReplacementTransformEngine({
         searchStrategy: strategy,
-        replacement
+        replacement: (match, ctx) => replacement(match, ctx)
       })
     )
 };

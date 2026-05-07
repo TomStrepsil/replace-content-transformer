@@ -1,28 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { AsyncIterableFunctionReplacementProcessor } from "../../replacement-processors/async-iterable-function-replacement-processor.js";
-import { AsyncReplaceContentTransformer } from "./async-transformer.js";
-import { startTestHttpServer, streamToString } from "../../../test/utilities.js";
+import { text } from "node:stream/consumers";
+import { AsyncSerialReplacementTransformEngine } from "../../engines/async-serial-transform-engine.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
+import { startTestHttpServer, streamToString } from "../../../test/utilities.js";
+import { AsyncReplaceContentTransformer } from "./async-transformer.js";
+import { AsyncLookaheadTransformEngine } from "../../engines/async-lookahead-transform-engine/engine.js";
+import { SemaphoreStrategy } from "../../engines/async-lookahead-transform-engine/concurrency-strategy/semaphore-strategy.js";
+import {
+  asyncIterable,
+  mockSearchStrategyFactory,
+  mockTransformStreamDefaultControllerFactory
+} from "../../../test/utilities.js";
 
-describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProcessor + StringAnchorSearchStrategy", () => {
+describe("AsyncReplaceContentTransformer + AsyncSerialReplacementTransformEngine + StringAnchorSearchStrategy", () => {
   it("passes through new chunks after abort set between chunks when no buffered remainder exists", async () => {
     const abortController = new AbortController();
-    const replacement = (match: string) => match.toUpperCase();
     const transformer = new AsyncReplaceContentTransformer(
-      new AsyncIterableFunctionReplacementProcessor({
+      new AsyncSerialReplacementTransformEngine({
         searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
-        replacement: async (match: string) => {
-          return (async function* () {
-            yield replacement(match);
-          })();
-        }
-      }),
-      abortController.signal
+        replacement: async (match) => match.toUpperCase(),
+        stopReplacingSignal: abortController.signal
+      })
     );
 
     const stream = new TransformStream(transformer);
     const writer = stream.writable.getWriter();
-    const outputPromise = streamToString(stream.readable);
+    const outputPromise = text(stream.readable);
 
     await writer.write("plain ");
     abortController.abort();
@@ -34,22 +37,17 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
 
   it("flushes buffered partial content before passthrough when abort is set between chunks", async () => {
     const abortController = new AbortController();
-    const replacement = (match: string) => match.toUpperCase();
     const transformer = new AsyncReplaceContentTransformer(
-      new AsyncIterableFunctionReplacementProcessor({
+      new AsyncSerialReplacementTransformEngine({
         searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
-        replacement: async (match: string) => {
-          return (async function* () {
-            yield replacement(match);
-          })();
-        }
-      }),
-      abortController.signal
+        replacement: async (match) => match.toUpperCase(),
+        stopReplacingSignal: abortController.signal
+      })
     );
 
     const stream = new TransformStream(transformer);
     const writer = stream.writable.getWriter();
-    const outputPromise = streamToString(stream.readable);
+    const outputPromise = text(stream.readable);
 
     await writer.write("{{a");
     abortController.abort();
@@ -59,7 +57,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
     await expect(outputPromise).resolves.toBe("{{a}} next");
   });
 
-  it("should support streaming ReadableStream into the output", async () => {
+  it("supports streaming AsyncIterable<string> replacement via HTTP fetch", async () => {
     const httpServer = await startTestHttpServer({
       "/fragment": () => new Response("<h1>some fragment</h1>"),
       "/parent": (request) => {
@@ -69,7 +67,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
     });
 
     try {
-      const fetchAndDecode = async (url: string) => {
+      const fetchAndDecode = async (url: string): Promise<AsyncIterable<string>> => {
         const res = await fetch(url);
         return res.body!.pipeThrough(new TextDecoderStream());
       };
@@ -77,10 +75,10 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       const parentResponse = await fetchAndDecode(`${httpServer.baseUrl}/parent`);
 
       const result = await streamToString(
-        parentResponse.pipeThrough(
+        (parentResponse as ReadableStream<string>).pipeThrough(
           new TransformStream(
             new AsyncReplaceContentTransformer(
-              new AsyncIterableFunctionReplacementProcessor({
+              new AsyncSerialReplacementTransformEngine({
                 searchStrategy: new StringAnchorSearchStrategy([
                   "<esi:include",
                   ">"
@@ -101,7 +99,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
     }
   });
 
-  it("should support sharing an abort signal with a fetch request", async () => {
+  it("respects stopReplacingSignal when shared with an async operation", async () => {
     const abortController = new AbortController();
 
     const httpServer = await startTestHttpServer({
@@ -123,7 +121,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
     });
 
     try {
-      const fetchAndDecode = async (url: string, signal: AbortSignal) => {
+      const fetchAndDecode = async (url: string, signal: AbortSignal): Promise<AsyncIterable<string>> => {
         const res = await fetch(url, { signal });
         return res.body!.pipeThrough(new TextDecoderStream());
       };
@@ -134,7 +132,7 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       );
 
       const transformer = new AsyncReplaceContentTransformer(
-        new AsyncIterableFunctionReplacementProcessor({
+        new AsyncSerialReplacementTransformEngine({
           searchStrategy: new StringAnchorSearchStrategy([
             "<esi:include",
             ">"
@@ -151,9 +149,9 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
               }
               throw error;
             }
-          }
-        }),
-        abortController.signal
+          },
+          stopReplacingSignal: abortController.signal
+        })
       );
 
       const transformedStream = parentStream.pipeThrough(
@@ -167,71 +165,88 @@ describe("AsyncReplaceContentTransformer + AsyncIterableFunctionReplacementProce
       await httpServer.close();
     }
   });
+});
 
-  it("flushes the unprocessed remainder of a chunk when abort is signaled mid-transform", async () => {
-    const abortController = new AbortController();
+// Engine behaviour (scan/schedule/drain, nested re-scanning, backpressure,
+// error forwarding, replacement-arg pass-through) is verified directly in
+// `src/lookahead/engine.test.ts`. These tests cover only the adapter wiring:
+// mapping the WHATWG Transformer lifecycle onto LookaheadTransformEngine and
+// forwarding emissions to the TransformStreamDefaultController.
+
+describe("AsyncReplaceContentTransformer + LookaheadTransformEngine (web adapter)", () => {
+  it("forwards engine emissions to controller.enqueue", async () => {
+    const strategy = mockSearchStrategyFactory(
+      { isMatch: false, content: "a" },
+      { isMatch: false, content: "b" }
+    );
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory<string>(outputs);
+
     const transformer = new AsyncReplaceContentTransformer(
-      new AsyncIterableFunctionReplacementProcessor({
-        searchStrategy: new StringAnchorSearchStrategy(["{{x}}"]),
-        replacement: async () => {
-          abortController.abort();
-          return (async function* () {
-            yield "REPLACED";
-          })();
-        }
-      }),
-      abortController.signal
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => asyncIterable(""),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      })
     );
 
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode("{{x}}-tail"));
-        controller.enqueue(encoder.encode(" next"));
-        controller.close();
-      }
-    });
+    transformer.start(controller);
+    await transformer.transform("ab");
+    await transformer.flush();
 
-    const transformed = readable
-      .pipeThrough(new TextDecoderStream())
-      .pipeThrough(new TransformStream(transformer));
-
-    await expect(streamToString(transformed)).resolves.toBe("REPLACED-tail next");
+    expect(outputs.join("")).toBe("ab");
+    expect(controller.error).not.toHaveBeenCalled();
   });
 
-  it("stops discovering additional matches in the current chunk after mid-transform abort", async () => {
-    const abortController = new AbortController();
-    const replacement = vi
-      .fn()
-      .mockImplementation((match: string) => match.toUpperCase());
+  it("forwards engine errors to controller.error and rejects flush()", async () => {
+    const strategy = mockSearchStrategyFactory({
+      isMatch: true,
+      content: "M",
+      streamIndices: [0, 1]
+    });
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory<string>(outputs);
 
     const transformer = new AsyncReplaceContentTransformer(
-      new AsyncIterableFunctionReplacementProcessor({
-        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
-        replacement: async (match: string) => {
-          abortController.abort();
-          return (async function* () {
-            yield replacement(match);
-          })();
-        }
-      }),
-      abortController.signal
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => {
+          throw new Error("boom");
+        },
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      })
     );
 
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
+    transformer.start(controller);
+    await transformer.transform("M");
+    await expect(transformer.flush()).rejects.toThrow("boom");
+    expect(controller.error).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it("pipes end-to-end through a real TransformStream", async () => {
+    const strategy = mockSearchStrategyFactory(
+      { isMatch: false, content: "pre " },
+      { isMatch: true, content: "M", streamIndices: [4, 5] },
+      { isMatch: false, content: " post" }
+    );
+    const replacement = vi.fn(async () => asyncIterable("X"));
+    const transformer = new AsyncReplaceContentTransformer(
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      })
+    );
+
+    const source = new ReadableStream<string>({
       start(controller) {
-        controller.enqueue(encoder.encode("{{a}}{{b}}{{c}}"));
-        controller.enqueue(encoder.encode(" next"));
+        controller.enqueue("pre M post");
         controller.close();
       }
-    });
+    }).pipeThrough(new TransformStream(transformer));
 
-    const transformed = readable
-      .pipeThrough(new TextDecoderStream())
-      .pipeThrough(new TransformStream(transformer));
-
-    await expect(streamToString(transformed)).resolves.toBe("{{A}}{{b}}{{c}} next");
-    expect(replacement).toHaveBeenCalledTimes(1);
+    const chunks: string[] = [];
+    for await (const chunk of source) chunks.push(chunk);
+    expect(chunks.join("")).toBe("pre X post");
   });
 });

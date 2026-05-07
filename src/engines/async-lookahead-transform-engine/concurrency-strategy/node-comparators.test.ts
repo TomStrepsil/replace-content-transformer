@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { breadthFirst, streamOrder } from "./node-comparators.ts";
 import type { IterableSlotNode } from "../slot-tree/types.ts";
-import { createIterableSlotNode } from "../../../test/utilities.ts";
+import { createIterableSlotNode } from "../../../../test/utilities.ts";
 
 const node = (
   siblingIndex: number,

@@ -1,6 +1,6 @@
 import type { StreamIndices, SearchStrategy } from "../../../src/search-strategies/types.ts";
 import { StringAnchorSearchStrategy } from "../../../src/search-strategies/index.ts";
-import { Nested } from "../../../src/lookahead/nested.ts";
+import { Nested } from "../../../src/engines/async-lookahead-transform-engine/nested.ts";
 import { mulberry32 } from "./utils.ts";
 
 export type ReplacementFn = (

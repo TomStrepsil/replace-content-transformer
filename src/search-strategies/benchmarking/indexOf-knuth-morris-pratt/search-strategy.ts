@@ -1,8 +1,8 @@
-import type { SearchStrategy, MatchResult } from "../../types.js";
-import KMP from "./knuth-morris-pratt.js";
+import type { SearchStrategy, MatchResult } from "../../types.ts";
+import KMP from "./knuth-morris-pratt.ts";
 import StringBufferStrategyBase, {
   type StringBufferState
-} from "../../string-buffer-strategy-base.js";
+} from "../../string-buffer-strategy-base.ts";
 
 export interface IndexOfKnuthMorrisPrattSearchState extends StringBufferState {
   needleIndex: number;

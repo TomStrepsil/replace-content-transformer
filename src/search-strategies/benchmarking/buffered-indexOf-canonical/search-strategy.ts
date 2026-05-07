@@ -1,10 +1,7 @@
-import type { Transformer } from "node:stream/web";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
+import type { ReplacementContext } from "../../../engines/types.ts";
 
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
-export class BufferedIndexOfReplaceContentTransformer
-  implements Transformer<string>
-{
+export class BufferedIndexOfReplaceContentTransformer {
   private partialChunk: string;
   private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
@@ -26,7 +23,7 @@ export class BufferedIndexOfReplaceContentTransformer
 
   transform(
     chunk: string,
-    controller: TransformStreamDefaultController<string>
+    controller: { enqueue(chunk: string): void }
   ) {
     const bufferLength = this.partialChunk.length;
     const baseOffset = this.totalStreamOffset - bufferLength;
@@ -34,7 +31,7 @@ export class BufferedIndexOfReplaceContentTransformer
     this.partialChunk = "";
     this.lastIndex = 0;
     const chunkLength = chunk.length;
-    
+
     try {
       while (this.lastIndex < chunkLength) {
         let index = chunk.indexOf(this.startToken, this.lastIndex);
@@ -62,7 +59,7 @@ export class BufferedIndexOfReplaceContentTransformer
         if (endIndex !== -1) {
           this.lastIndex = endIndex + this.endToken.length;
           const match = chunk.substring(index, this.lastIndex);
-          let replacement = this.replacement(match, {
+          const replacement = this.replacement(match, {
             matchIndex: this.matchIndex++,
             streamIndices: [baseOffset + index, baseOffset + this.lastIndex]
           });
@@ -77,7 +74,7 @@ export class BufferedIndexOfReplaceContentTransformer
     }
   }
 
-  flush(controller: TransformStreamDefaultController<string>) {
+  flush(controller: { enqueue(chunk: string): void }) {
     if (this.partialChunk.length > 0) {
       controller.enqueue(this.partialChunk);
     }

@@ -22,6 +22,6 @@ tput civis
 "$(dirname "$0")/run.sh" > "$TEMP_JSON"
 
 echo "📄 Exporting succinct results..." >&2
-node --experimental-strip-types algorithm/export-results.ts < "$TEMP_JSON" > "$OUTPUT_FILE"
+node --import tsx algorithm/export-results.ts < "$TEMP_JSON" > "$OUTPUT_FILE"
 
 echo "✅ Benchmark results saved to: $OUTPUT_FILE" >&2

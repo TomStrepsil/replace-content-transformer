@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as harnesses from "../../harnesses/index.ts";
 import type { BaseHarness } from "../../harnesses/types.ts";
 import { mockTransformStreamDefaultControllerFactory } from "../../utilities.ts";
-import type { ReplacementContext } from "../../../src/replacement-processors/replacement-processor.base.ts";
+import type { ReplacementContext } from "../../../src/engines/types.ts";
 
 for (const harness of Object.values(harnesses) as BaseHarness[]) {
   const { name, createSearchStrategy, createTransformer, isAsync } = harness;

@@ -4,7 +4,7 @@ import { breadthFirst, streamOrder } from "./node-comparators.ts";
 import {
   createIterableSlotNode,
   settleMicrotasks
-} from "../../../test/utilities.ts";
+} from "../../../../test/utilities.ts";
 
 describe("PriorityQueueStrategy", () => {
   it("rejects concurrency < 1", () => {

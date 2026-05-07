@@ -1,48 +1,89 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ReplaceContentTransform } from "./sync-transform.js";
 import { Writable } from "node:stream";
-import { mockSyncProcessorFactory } from "../../../test/utilities.js";
+import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
 
-describe("ReplaceContentTransform (sync)", () => {
-  it("delegates to processor and writes output to stream", () => {
-    const mockProcessor = mockSyncProcessorFactory("ABC", "abc!");
+function collectWritable(): { writable: Writable; outputs: string[] } {
+  const outputs: string[] = [];
+  const writable = new Writable({
+    write(chunk, _encoding, callback) {
+      outputs.push(chunk.toString());
+      callback();
+    }
+  });
+  return { writable, outputs };
+}
 
-    const transform = new ReplaceContentTransform(mockProcessor);
-    const outputs: string[] = [];
-    const writable = new Writable({
-      write(chunk, _encoding, callback) {
-        outputs.push(chunk.toString());
-        callback();
-      }
-    });
+function mockSyncEngine() {
+  return {
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => void>(),
+    end: vi.fn<() => void>()
+  };
+}
+
+describe("ReplaceContentTransform (Node sync adapter)", () => {
+  it("calls engine.start with a sink that pushes to the stream", () => {
+    const engine = mockSyncEngine();
+    const transform = new ReplaceContentTransform(engine);
+    const { writable, outputs } = collectWritable();
+
+    transform.pipe(writable);
+    expect(engine.start).toHaveBeenCalledOnce();
+    const [sink] = engine.start.mock.calls[0];
+    sink.enqueue("hello");
+    expect(outputs).toContain("hello");
+  });
+
+  it("decodes incoming Buffer chunks as UTF-8 and passes to engine.write", () => {
+    const engine = mockSyncEngine();
+    const transform = new ReplaceContentTransform(engine);
+    const { writable } = collectWritable();
+
+    transform.pipe(writable);
+    transform.write(Buffer.from("abc", "utf8"));
+    transform.end();
+
+    expect(engine.write).toHaveBeenCalledWith("abc");
+  });
+
+  it("calls engine.end on _flush", () => {
+    const engine = mockSyncEngine();
+    const transform = new ReplaceContentTransform(engine);
+    const { writable } = collectWritable();
+
+    transform.pipe(writable);
+    transform.write("x");
+    transform.end();
+
+    expect(engine.end).toHaveBeenCalledOnce();
+  });
+
+  it("forwards streamHighWaterMark via TransformOptions", () => {
+    const engine: SyncTransformEngine = {
+      start: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn()
+    };
+    const transform = new ReplaceContentTransform(engine, { highWaterMark: 7 });
+    expect(transform.writableHighWaterMark).toBe(7);
+    expect(transform.readableHighWaterMark).toBe(7);
+  });
+
+  it("pipes end-to-end: engine output via sink reaches the writable", async () => {
+    let capturedSink!: EngineSink;
+    const engine: SyncTransformEngine = {
+      start: (sink) => { capturedSink = sink; },
+      write: (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
+      end: () => { capturedSink.enqueue("END"); }
+    };
+    const transform = new ReplaceContentTransform(engine);
+    const { writable, outputs } = collectWritable();
 
     transform.pipe(writable);
     transform.write("abc");
-    transform.end();
+    await new Promise((resolve) => transform.end(resolve));
 
-    expect(outputs).toContain("ABC");
-    expect(outputs).toContain("abc!");
-    expect(mockProcessor.processChunk).toHaveBeenCalledWith("abc");
-  });
-
-  it("flush writes flushed content to stream", () => {
-    const mockProcessor = mockSyncProcessorFactory();
-    mockProcessor.flush.mockReturnValue("<FLUSHED>");
-
-    const transform = new ReplaceContentTransform(mockProcessor);
-    const outputs: string[] = [];
-    const writable = new Writable({
-      write(chunk, _encoding, callback) {
-        outputs.push(chunk.toString());
-        callback();
-      }
-    });
-
-    transform.pipe(writable);
-    transform.write("irrelevant");
-    transform.end();
-
-    expect(outputs).toContain("<FLUSHED>");
-    expect(mockProcessor.flush).toHaveBeenCalled();
+    expect(outputs).toEqual(["ABC", "END"]);
   });
 });

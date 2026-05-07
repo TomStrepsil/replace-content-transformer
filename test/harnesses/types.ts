@@ -1,4 +1,4 @@
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
 
 type ReplacementFunction = (
   match: string,
@@ -8,7 +8,6 @@ type ReplacementFunction = (
 export type BaseHarness = {
   name: string;
   isAsync: boolean;
-  isStateful?: boolean;
   createSearchStrategy: (params: {
     tokens: string[];
     replacement?: ReplacementFunction;

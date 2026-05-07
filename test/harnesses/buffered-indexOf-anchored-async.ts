@@ -1,7 +1,7 @@
-import { AsyncFunctionReplacementProcessor } from "../../src/replacement-processors/async-function-replacement-processor.ts";
-import { AsyncReplaceContentTransformer } from "../../src/adapters/web/index.ts";
-import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/buffered-indexOf-anchored/search-strategy.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import { AsyncSerialReplacementTransformEngine } from "../../src/engines/async-serial-transform-engine.ts";
+import { asyncHarnessTransformer } from "./engine-harness.ts";
+import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
+import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const BufferedIndexOfAnchoredAsyncHarness = {
   name: "Buffered IndexOf Anchored (Async)",
@@ -21,8 +21,8 @@ export const BufferedIndexOfAnchoredAsyncHarness = {
     strategy: BufferedIndexOfAnchoredSearchStrategy;
     replacement: (match: string, context: ReplacementContext) => Promise<string>;
   }) =>
-    new AsyncReplaceContentTransformer(
-      new AsyncFunctionReplacementProcessor({
+    asyncHarnessTransformer(
+      new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
         replacement
       })

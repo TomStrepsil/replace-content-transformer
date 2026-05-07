@@ -1,129 +1,84 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AsyncReplaceContentTransformer } from "./async-transformer.js";
-import {
-  mockTransformStreamDefaultControllerFactory,
-  mockAsyncProcessorFactory
-} from "../../../test/utilities.js";
+import { mockTransformStreamDefaultControllerFactory } from "../../../test/utilities.js";
+import type { AsyncTransformEngine, EngineSink } from "../../engines/types.js";
 
-describe("AsyncReplaceContentTransformer", () => {
-  it("delegates to processor and enqueues output", async () => {
-    const mockProcessor = mockAsyncProcessorFactory("ABC", "abc!");
+function mockAsyncEngine() {
+  return {
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => Promise<void>>().mockResolvedValue(undefined),
+    end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    cancel: vi.fn<() => void>()
+  };
+}
 
-    const transformer = new AsyncReplaceContentTransformer(mockProcessor);
+describe("AsyncReplaceContentTransformer (async adapter)", () => {
+  it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {
+    const engine = mockAsyncEngine();
+    const transformer = new AsyncReplaceContentTransformer(engine);
     const outputs: string[] = [];
     const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
-    await transformer.transform("abc", controller);
+    transformer.start(controller);
 
-    expect(outputs).toContain("ABC");
-    expect(outputs).toContain("abc!");
-    expect(mockProcessor.processChunk).toHaveBeenCalledWith("abc");
+    expect(engine.start).toHaveBeenCalledOnce();
+    const [sink] = engine.start.mock.calls[0];
+    sink.enqueue("hello");
+    expect(outputs).toEqual(["hello"]);
   });
 
-  it("skips processing when abort signal is set prior to transformation", async () => {
-    const mockProcessor = mockAsyncProcessorFactory("transformed");
-    const abortController = new AbortController();
+  it("wires start(controller) to engine.start with a sink that forwards error", () => {
+    const engine = mockAsyncEngine();
+    const transformer = new AsyncReplaceContentTransformer(engine);
+    const outputs: string[] = [];
+    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+    transformer.start(controller);
+
+    const [sink] = engine.start.mock.calls[0];
+    const err = new Error("boom");
+    sink.error(err);
+    expect(controller.error).toHaveBeenCalledWith(err);
+  });
+
+  it("delegates transform(chunk) to engine.write(chunk) and returns its promise", async () => {
+    const engine = mockAsyncEngine();
+    const transformer = new AsyncReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+
+    const promise = transformer.transform("hello");
+
+    expect(engine.write).toHaveBeenCalledWith("hello");
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("delegates flush() to engine.end() and returns its promise", async () => {
+    const engine = mockAsyncEngine();
+    const transformer = new AsyncReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+
+    const promise = transformer.flush();
+
+    expect(engine.end).toHaveBeenCalledOnce();
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("calls engine.cancel() when cancel() is called and engine supports it", () => {
+    const engine = mockAsyncEngine();
+    const transformer = new AsyncReplaceContentTransformer(engine);
+
+    transformer.cancel("test reason");
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not throw when cancel() is called on an engine without cancel support", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cancel: _unused, ...engineWithoutCancel } = mockAsyncEngine();
     const transformer = new AsyncReplaceContentTransformer(
-      mockProcessor,
-      abortController.signal
+      engineWithoutCancel as AsyncTransformEngine
     );
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-    abortController.abort();
 
-    await transformer.transform("input", controller);
-
-    expect(outputs).toEqual(["input"]);
-    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
+    expect(() => transformer.cancel()).not.toThrow();
   });
-
-  it("stops processing mid-transformation when abort signal is set, and flushes remaining content", async () => {
-    const abortController = new AbortController();
-    const mockProcessor = mockAsyncProcessorFactory(() => {
-      abortController.abort();
-      return "PART1";
-    }, "PART2");
-    mockProcessor.flush.mockReturnValue("<FLUSHED>");
-    const transformer = new AsyncReplaceContentTransformer(
-      mockProcessor,
-      abortController.signal
-    );
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-
-    await transformer.transform("input", controller);
-
-    expect(outputs).toEqual(["PART1", "<FLUSHED>"]);
-    expect(mockProcessor.processChunk).toHaveBeenCalledWith("input");
-    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
-  });
-
-  it("flushes at most once after abort across multiple subsequent chunks", async () => {
-    const mockProcessor = mockAsyncProcessorFactory("OUT");
-    const abortController = new AbortController();
-    const transformer = new AsyncReplaceContentTransformer(
-      mockProcessor,
-      abortController.signal
-    );
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-    mockProcessor.flush.mockReturnValue("");
-
-    abortController.abort();
-    await transformer.transform("first", controller);
-    await transformer.transform("second", controller);
-
-    expect(outputs).toEqual(["first", "second"]);
-    expect(mockProcessor.processChunk).not.toHaveBeenCalled();
-    expect(mockProcessor.flush).toHaveBeenCalledTimes(1);
-  });
-
-  it("enqueues content when flush is called", () => {
-    const mockProcessor = mockAsyncProcessorFactory();
-    mockProcessor.flush.mockReturnValue("<FLUSHED>");
-
-    const transformer = new AsyncReplaceContentTransformer(mockProcessor);
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-
-    transformer.flush(controller);
-
-    expect(outputs).toContain("<FLUSHED>");
-    expect(mockProcessor.flush).toHaveBeenCalled();
-  });
-
-  it("stops enqueuing mid-transformation at next yield boundary when cancelled", async () => {
-    const transformer = new AsyncReplaceContentTransformer(
-      mockAsyncProcessorFactory("PART1", "PART2", "PART3")
-    );
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-
-    controller.enqueue = vi.fn().mockImplementation((chunk: string) => {
-      outputs.push(chunk);
-      if (chunk === "PART1") {
-        transformer.cancel();
-      }
-    });
-
-    await transformer.transform!("input", controller);
-
-    expect(outputs).toEqual(["PART1"]);
-  });
-
-  it.each([undefined, "test reason"])(
-    "stops processing before transform when cancelled",
-    async (reason) => {
-      const mockProcessor = mockAsyncProcessorFactory("OUTPUT");
-      const transformer = new AsyncReplaceContentTransformer(mockProcessor);
-      const outputs: string[] = [];
-      const controller = mockTransformStreamDefaultControllerFactory(outputs);
-
-      transformer.cancel(reason);
-      await transformer.transform!("input", controller);
-
-      expect(outputs).toEqual([]);
-      expect(mockProcessor.processChunk).not.toHaveBeenCalled();
-    }
-  );
 });

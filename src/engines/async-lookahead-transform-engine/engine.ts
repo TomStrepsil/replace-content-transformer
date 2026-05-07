@@ -1,10 +1,15 @@
 import type {
   SearchStrategy,
   StreamIndices
-} from "../search-strategies/types.ts";
-import type { ReplacementCallbackArgs } from "../replacement-processors/replacement-callback-types.ts";
+} from "../../search-strategies/types.ts";
+import type {
+  AsyncTransformEngine,
+  EngineSink,
+  ReplacementContext
+} from "../types.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { IterableSlotNode, SlotNode } from "./slot-tree/types.ts";
+import { TransformEngineBase } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
@@ -13,7 +18,7 @@ import { SLOT_KIND } from "./slot-tree/constants.ts";
  * Default backpressure limit on the internal slot queue. Scanning
  * suspends when this many slots are buffered ahead of the drain loop.
  * Tuned as a compromise between burst throughput and memory usage;
- * override via {@link LookaheadAsyncIterableTransformerOptions.highWaterMark}.
+ * override via {@link AsyncLookaheadTransformEngineOptions.highWaterMark}.
  */
 export const DEFAULT_HIGH_WATER_MARK = 32;
 
@@ -43,10 +48,11 @@ async function* slotHoldingIterable(
  * that shares this engine's configuration.
  */
 export type ReplacementFn<TMatch> = (
-  ...args: ReplacementCallbackArgs<TMatch>
+  match: TMatch,
+  context: ReplacementContext
 ) => Promise<AsyncIterable<string> | Nested>;
 
-export interface LookaheadAsyncIterableTransformerOptions<TState, TMatch> {
+export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
   /** Search strategy used to locate matches in the input stream. */
   searchStrategy: SearchStrategy<TState, TMatch>;
   /** Function invoked for every match; result is streamed in place of the match. */
@@ -68,19 +74,6 @@ export interface LookaheadAsyncIterableTransformerOptions<TState, TMatch> {
 }
 
 /**
- * Output sink for the engine. The hosting adapter supplies one of these
- * to translate engine emissions into its native push primitive (e.g.
- * `TransformStreamDefaultController.enqueue` for WHATWG, `push()` for
- * `stream.Transform`). `error` is called at most once with the first
- * failure observed by the engine; after `error`, no further `enqueue`
- * calls are made.
- */
-export interface LookaheadSink {
-  enqueue(chunk: string): void;
-  error(err: unknown): void;
-}
-
-/**
  * Stream-protocol-agnostic core of the lookahead transformer.
  *
  * Owns the scan → schedule → drain pipeline: input chunks are fed via
@@ -88,10 +81,10 @@ export interface LookaheadSink {
  * onto a bounded queue, and schedules replacement work through the
  * injected {@link ConcurrencyStrategy}. A concurrent drain loop
  * (started by {@link start}) dequeues slots in stream order and emits
- * chunks through the supplied {@link LookaheadSink}.
+ * chunks through the supplied {@link EngineSink}.
  *
- * Adapter classes (`LookaheadAsyncIterableTransformer` in web,
- * `LookaheadAsyncIterableTransform` in node) wrap this engine, mapping
+ * Adapter classes (`ReplaceContentTransformer` in web,
+ * `AsyncReplaceContentTransform` in node) wrap this engine, mapping
  * their runtime's transform lifecycle onto `start`/`write`/`end`.
  *
  * Nested re-scanning (returned via the `nested()` sentinel) is handled
@@ -101,40 +94,41 @@ export interface LookaheadSink {
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type
  */
-export class LookaheadEngine<TState, TMatch> {
-  readonly #options: LookaheadAsyncIterableTransformerOptions<TState, TMatch>;
-  readonly #sink: LookaheadSink;
+export class AsyncLookaheadTransformEngine<TState, TMatch>
+  extends TransformEngineBase<TState, TMatch>
+  implements AsyncTransformEngine
+{
+  readonly #options: AsyncLookaheadTransformEngineOptions<TState, TMatch>;
   readonly #parent: IterableSlotNode | null;
   readonly #queue: AsyncChildQueue;
-  readonly #state: TState;
 
-  #matchIndex = 0;
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
 
   constructor(
-    options: LookaheadAsyncIterableTransformerOptions<TState, TMatch>,
-    sink: LookaheadSink,
+    options: AsyncLookaheadTransformEngineOptions<TState, TMatch>,
     /**
      * @internal Set by the outer engine when spawning a child to re-scan
      * a {@link Nested} replacement. Not part of the public adapter API.
      */
     parent: IterableSlotNode | null = null
   ) {
+    super(options.searchStrategy);
     this.#options = options;
-    this.#sink = sink;
     this.#parent = parent;
     this.#queue = new AsyncChildQueue(
       options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
     );
-    this.#state = options.searchStrategy.createState();
   }
 
-  /** Start the drain loop. Must be called once before {@link write}. */
-  start(): void {
+  /**
+   * Attach the output sink and start the drain loop.
+   * Must be called exactly once before {@link write}.
+   */
+  override start(sink: EngineSink): void {
+    super.start(sink);
     this.#drainDone = this.#drain().catch((err) => {
-      this.#sink.error(err);
-      // Re-throw so end() surfaces the failure too.
+      this.sink!.error(err);
       throw err;
     });
   }
@@ -144,9 +138,9 @@ export class LookaheadEngine<TState, TMatch> {
    * queue is full (backpressure).
    */
   async write(chunk: string): Promise<void> {
-    for (const result of this.#options.searchStrategy.processChunk(
+    for (const result of this.searchStrategy.processChunk(
       chunk,
-      this.#state
+      this.state
     )) {
       if (!result.isMatch) {
         await this.#queue.push({
@@ -168,8 +162,8 @@ export class LookaheadEngine<TState, TMatch> {
    * Rejects with the first error raised by the drain loop or by any
    * scheduled replacement, so adapters can forward failures.
    */
-  async end(): Promise<void> {
-    const tail = this.#options.searchStrategy.flush(this.#state);
+  override async end(): Promise<void> {
+    const tail = this.searchStrategy.flush(this.state);
     if (tail.length > 0) {
       await this.#queue.push({
         kind: SLOT_KIND.text,
@@ -185,7 +179,7 @@ export class LookaheadEngine<TState, TMatch> {
     match: TMatch,
     streamIndices: StreamIndices
   ): IterableSlotNode {
-    const matchIndex = this.#matchIndex++;
+    const matchIndex = this.matchIndex++;
     const node: IterableSlotNode = {
       kind: SLOT_KIND.iterable,
       siblingIndex: this.#siblingIndex++,
@@ -205,15 +199,12 @@ export class LookaheadEngine<TState, TMatch> {
     const release = await this.#options.concurrencyStrategy.acquire(node);
     let result: AsyncIterable<string> | Nested;
     try {
-      result = await this.#options.replacement(match, matchIndex, streamIndices);
+      result = await this.#options.replacement(match, { matchIndex, streamIndices });
     } catch (err) {
       release();
       throw err;
     }
     if (result instanceof Nested) {
-      // Handoff: parent's "part" is done. Each match found while
-      // re-scanning the nested body acquires its own slot via the
-      // child engine — the parent's slot is freed immediately.
       release();
       return result;
     }
@@ -228,14 +219,14 @@ export class LookaheadEngine<TState, TMatch> {
 
   async #emitSlot(slot: SlotNode): Promise<void> {
     if (slot.kind === SLOT_KIND.text) {
-      this.#sink.enqueue(slot.value);
+      this.sink!.enqueue(slot.value);
       return;
     }
     const result = await slot.iterable;
     const iterable =
       result instanceof Nested ? this.#runNested(result.source, slot) : result;
     for await (const chunk of iterable) {
-      this.#sink.enqueue(chunk);
+      this.sink!.enqueue(chunk);
     }
   }
 
@@ -243,9 +234,6 @@ export class LookaheadEngine<TState, TMatch> {
    * Spawn a child engine to re-scan a nested replacement's output, and
    * return its emissions as an AsyncIterable that the outer drain loop
    * can consume in stream order.
-   *
-   * Push (child sink) → pull (outer for-await) bridging is a small
-   * internal buffer plus a single-slot notifier.
    */
   async *#runNested(
     source: AsyncIterable<string>,
@@ -261,22 +249,21 @@ export class LookaheadEngine<TState, TMatch> {
       pendingNotify?.();
     };
 
-    const child = new LookaheadEngine<TState, TMatch>(
+    const child = new AsyncLookaheadTransformEngine<TState, TMatch>(
       this.#options,
-      {
-        enqueue: (c) => {
-          buffer.push(c);
-          wake();
-        },
-        error: (e) => {
-          childErr = e;
-          childDone = true;
-          wake();
-        }
-      },
       parent
     );
-    child.start();
+    child.start({
+      enqueue: (c) => {
+        buffer.push(c);
+        wake();
+      },
+      error: (e) => {
+        childErr = e;
+        childDone = true;
+        wake();
+      }
+    });
 
     void (async () => {
       try {

@@ -1,7 +1,7 @@
 import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
-import type { IterableSlotNode } from "../src/lookahead/slot-tree/types.ts";
-import type { Nested } from "../src/lookahead/nested.ts";
-import { SLOT_KIND } from "../src/lookahead/slot-tree/constants.ts";
+import type { IterableSlotNode } from "../src/engines/async-lookahead-transform-engine/slot-tree/types.ts";
+import type { Nested } from "../src/engines/async-lookahead-transform-engine/nested.ts";
+import { SLOT_KIND } from "../src/engines/async-lookahead-transform-engine/slot-tree/constants.ts";
 import { vi, type Mocked } from "vitest";
 
 type TestHttpHandler = (request: Request) => Response | Promise<Response>;

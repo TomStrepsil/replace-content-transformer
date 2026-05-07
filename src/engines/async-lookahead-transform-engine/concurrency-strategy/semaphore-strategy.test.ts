@@ -3,7 +3,7 @@ import { SemaphoreStrategy } from "./semaphore-strategy.ts";
 import {
   createIterableSlotNode,
   settleMicrotasks
-} from "../../../test/utilities.ts";
+} from "../../../../test/utilities.ts";
 
 describe("SemaphoreStrategy", () => {
   it("rejects concurrency < 1", () => {

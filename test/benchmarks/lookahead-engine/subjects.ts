@@ -1,17 +1,18 @@
 import { AsyncReplaceContentTransformer } from "../../../src/adapters/web/async-transformer.ts";
-import { AsyncIterableFunctionReplacementProcessor } from "../../../src/replacement-processors/async-iterable-function-replacement-processor.ts";
-import { LookaheadAsyncIterableTransformer } from "../../../src/adapters/web/lookahead-async-iterable-transformer.ts";
-import { SemaphoreStrategy } from "../../../src/lookahead/concurrency-strategy/semaphore-strategy.ts";
-import { PriorityQueueStrategy } from "../../../src/lookahead/concurrency-strategy/priority-queue-strategy.ts";
-import { streamOrder, breadthFirst } from "../../../src/lookahead/concurrency-strategy/node-comparators.ts";
-import { Nested } from "../../../src/lookahead/nested.ts";
-import type { ReplacementCallbackArgs } from "../../../src/replacement-processors/replacement-callback-types.ts";
+import { AsyncSerialReplacementTransformEngine } from "../../../src/engines/async-serial-transform-engine.ts";
+import { AsyncLookaheadTransformEngine } from "../../../src/engines/async-lookahead-transform-engine/engine.ts";
+import { SemaphoreStrategy } from "../../../src/engines/async-lookahead-transform-engine/concurrency-strategy/semaphore-strategy.ts";
+import { PriorityQueueStrategy } from "../../../src/engines/async-lookahead-transform-engine/concurrency-strategy/priority-queue-strategy.ts";
+import { streamOrder, breadthFirst } from "../../../src/engines/async-lookahead-transform-engine/concurrency-strategy/node-comparators.ts";
+import { Nested } from "../../../src/engines/async-lookahead-transform-engine/nested.ts";
+import type { ReplacementContext } from "../../../src/engines/types.ts";
 import type { Scenario } from "./scenarios.ts";
 import { computeMeasurement, type Measurement, type TimelineEvent } from "./metrics.ts";
 
 // The engine's ReplacementFn admits Nested; alias used throughout.
 type ReplacementFn = (
-  ...args: ReplacementCallbackArgs<string>
+  match: string,
+  context: ReplacementContext
 ) => Promise<AsyncIterable<string> | Nested>;
 
 // ---------------------------------------------------------------------------
@@ -72,14 +73,14 @@ function pipeThrough(
 function makeManualNestingAdapter(
   instrumented: ReplacementFn,
   createSearchStrategy: () => ReturnType<Scenario["createSearchStrategy"]>
-): (...args: ReplacementCallbackArgs<string>) => Promise<AsyncIterable<string>> {
-  const adapted: (...args: ReplacementCallbackArgs<string>) => Promise<AsyncIterable<string>> =
-    async (...args) => {
-      const result = await instrumented(...args);
+): (match: string, context: ReplacementContext) => Promise<AsyncIterable<string>> {
+  const adapted: (match: string, context: ReplacementContext) => Promise<AsyncIterable<string>> =
+    async (match, context) => {
+      const result = await instrumented(match, context);
       if (!(result instanceof Nested)) return result as AsyncIterable<string>;
       // Manual nesting: re-scan via a fresh child transformer (same strategy).
       const childTransformer = new AsyncReplaceContentTransformer(
-        new AsyncIterableFunctionReplacementProcessor({
+        new AsyncSerialReplacementTransformEngine({
           searchStrategy: createSearchStrategy(),
           replacement: adapted
         })
@@ -119,7 +120,7 @@ export const subjects: Subject[] = [
         scenario.createSearchStrategy
       );
       return new AsyncReplaceContentTransformer(
-        new AsyncIterableFunctionReplacementProcessor({
+        new AsyncSerialReplacementTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           replacement: adapted
         })
@@ -130,7 +131,7 @@ export const subjects: Subject[] = [
     id: "A_prime",
     label: "Lookahead serial c=1 (A')",
     create: (scenario, wrappedReplacement) =>
-      new LookaheadAsyncIterableTransformer({
+      new AsyncLookaheadTransformEngine({
         searchStrategy: scenario.createSearchStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(1),
         replacement: wrappedReplacement
@@ -140,7 +141,7 @@ export const subjects: Subject[] = [
     id: "B",
     label: "Lookahead semaphore c=N (B)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new LookaheadAsyncIterableTransformer({
+      new AsyncLookaheadTransformEngine({
         searchStrategy: scenario.createSearchStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(concurrency),
         replacement: wrappedReplacement
@@ -150,7 +151,7 @@ export const subjects: Subject[] = [
     id: "C",
     label: "Lookahead streamOrder c=N (C)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new LookaheadAsyncIterableTransformer({
+      new AsyncLookaheadTransformEngine({
         searchStrategy: scenario.createSearchStrategy(),
         concurrencyStrategy: new PriorityQueueStrategy(concurrency, streamOrder),
         replacement: wrappedReplacement
@@ -160,7 +161,7 @@ export const subjects: Subject[] = [
     id: "D",
     label: "Lookahead breadthFirst c=N (D)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new LookaheadAsyncIterableTransformer({
+      new AsyncLookaheadTransformEngine({
         searchStrategy: scenario.createSearchStrategy(),
         concurrencyStrategy: new PriorityQueueStrategy(concurrency, breadthFirst),
         replacement: wrappedReplacement
@@ -186,11 +187,11 @@ function instrumentReplacement(
   timeline: TimelineEvent[],
   getElapsed: () => number
 ): ReplacementFn {
-  return async (...args: ReplacementCallbackArgs<string>) => {
-    const [, matchIndex] = args;
+  return async (match: string, context: ReplacementContext) => {
+    const { matchIndex } = context;
     timeline.push({ t: getElapsed(), event: "replacement-start", meta: { matchIndex } });
 
-    const result = await original(...args);
+    const result = await original(match, context);
 
     if (result instanceof Nested) {
       timeline.push({ t: getElapsed(), event: "replacement-end", meta: { matchIndex } });
@@ -232,7 +233,9 @@ export async function runSubject(
   const t0 = performance.now();
   const getElapsed = () => performance.now() - t0;
 
-  const wrappedReplacement = instrumentReplacement(scenario.replacement, timeline, getElapsed);
+  const scenarioReplacement: ReplacementFn = (match, context) =>
+    scenario.replacement(match, context.matchIndex, context.streamIndices);
+  const wrappedReplacement = instrumentReplacement(scenarioReplacement, timeline, getElapsed);
 
   const transformer = subject.create(scenario, wrappedReplacement, concurrency);
   const { writable, readable } = new TransformStream(transformer);

@@ -12,7 +12,11 @@ export type {
   SlotNode,
   TextSlotNode
 } from "./slot-tree/types.ts";
+export {
+  AsyncLookaheadTransformEngine,
+  DEFAULT_HIGH_WATER_MARK
+} from "./engine.ts";
 export type {
-  LookaheadAsyncIterableTransformerOptions,
+  AsyncLookaheadTransformEngineOptions,
   ReplacementFn
 } from "./engine.ts";

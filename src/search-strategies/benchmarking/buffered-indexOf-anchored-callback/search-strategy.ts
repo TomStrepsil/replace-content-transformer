@@ -1,9 +1,6 @@
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
+import type { ReplacementContext } from "../../../engines/types.ts";
 
-export class BufferedIndexOfAnchoredCallbackSearchStrategy
-  implements SyncCallbackProcessor
-{
+export class BufferedIndexOfAnchoredCallbackSearchStrategy {
   private partialChunk: string;
   private readonly replacement: (match: string, context: ReplacementContext) => string;
   private readonly delimiters: string[];
