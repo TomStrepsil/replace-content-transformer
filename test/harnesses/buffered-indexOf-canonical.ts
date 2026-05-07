@@ -1,6 +1,6 @@
-import { syncHarnessTransformer, legacyTransformerToEngine } from "./engine-harness.ts";
+import { legacyHarnessTransformer } from "./engine-harness.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
-import { BufferedIndexOfReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts"
+import { BufferedIndexOfReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const BufferedIndexOfCanonicalHarness = {
   name: "Buffered IndexOf Canonical",
@@ -13,9 +13,7 @@ export const BufferedIndexOfCanonicalHarness = {
     strategy: string[];
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    syncHarnessTransformer(
-      legacyTransformerToEngine(
-        new BufferedIndexOfReplaceContentTransformer(replacement, tokens)
-      )
+    legacyHarnessTransformer(
+      new BufferedIndexOfReplaceContentTransformer(replacement, tokens)
     )
 };

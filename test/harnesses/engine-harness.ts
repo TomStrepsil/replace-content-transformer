@@ -1,13 +1,9 @@
 import type { SyncTransformEngine, AsyncTransformEngine, EngineSink } from "../../src/engines/types.ts";
 
-function makeSink(controller: EngineSink): EngineSink {
-  return controller;
-}
-
 export function syncHarnessTransformer(engine: SyncTransformEngine) {
   let started = false;
   function ensureStarted(controller: EngineSink) {
-    if (!started) { engine.start(makeSink(controller)); started = true; }
+    if (!started) { engine.start(controller); started = true; }
   }
   return {
     transform(chunk: string, controller: EngineSink) {
@@ -24,7 +20,7 @@ export function syncHarnessTransformer(engine: SyncTransformEngine) {
 export function asyncHarnessTransformer(engine: AsyncTransformEngine) {
   let started = false;
   function ensureStarted(controller: EngineSink) {
-    if (!started) { engine.start(makeSink(controller)); started = true; }
+    if (!started) { engine.start(controller); started = true; }
   }
   return {
     transform(chunk: string, controller: EngineSink) {
@@ -38,39 +34,54 @@ export function asyncHarnessTransformer(engine: AsyncTransformEngine) {
   };
 }
 
-export function callbackProcessorToEngine(processor: {
+export function callbackHarnessTransformer(processor: {
   processChunk(chunk: string, enqueue: (out: string) => void): void;
   flush(): string;
-}): SyncTransformEngine {
-  let sink: EngineSink;
+}) {
+  let enqueue: (out: string) => void;
   return {
-    start(s) { sink = s; },
-    write(chunk) { processor.processChunk(chunk, (out) => sink.enqueue(out)); },
-    end() { const flushed = processor.flush(); if (flushed) sink.enqueue(flushed); }
+    transform(chunk: string, controller: EngineSink) {
+      if (!enqueue) enqueue = (out) => controller.enqueue(out);
+      processor.processChunk(chunk, enqueue);
+    },
+    flush(controller: EngineSink) {
+      const flushed = processor.flush();
+      if (flushed) controller.enqueue(flushed);
+    }
   };
 }
 
-export function generatorProcessorToEngine(processor: {
+export function generatorHarnessTransformer(processor: {
   processChunk(chunk: string): Generator<string, void, undefined>;
   flush(): string;
-}): SyncTransformEngine {
-  let sink: EngineSink;
+}) {
   return {
-    start(s) { sink = s; },
-    write(chunk) { for (const out of processor.processChunk(chunk)) sink.enqueue(out); },
-    end() { const flushed = processor.flush(); if (flushed) sink.enqueue(flushed); }
+    transform(chunk: string, controller: EngineSink) {
+      for (const out of processor.processChunk(chunk)) controller.enqueue(out);
+    },
+    flush(controller: EngineSink) {
+      const flushed = processor.flush();
+      if (flushed) controller.enqueue(flushed);
+    }
   };
 }
 
-export function legacyTransformerToEngine(transformer: {
+export function legacyHarnessTransformer(transformer: {
   transform(chunk: string, controller: { enqueue(chunk: string): void }): void;
   flush(controller: { enqueue(chunk: string): void }): void;
-}): SyncTransformEngine {
-  let sink: EngineSink;
-  const controller = { enqueue: (chunk: string) => sink.enqueue(chunk) };
+}) {
+  let controller: { enqueue(chunk: string): void };
+  function ensureController(sink: EngineSink) {
+    if (!controller) controller = { enqueue: (c) => sink.enqueue(c) };
+  }
   return {
-    start(s) { sink = s; },
-    write(chunk) { transformer.transform(chunk, controller); },
-    end() { transformer.flush(controller); }
+    transform(chunk: string, sink: EngineSink) {
+      ensureController(sink);
+      transformer.transform(chunk, controller);
+    },
+    flush(sink: EngineSink) {
+      ensureController(sink);
+      transformer.flush(controller);
+    }
   };
 }

@@ -1,6 +1,6 @@
-import { syncHarnessTransformer, callbackProcessorToEngine } from "./engine-harness.ts";
+import { callbackHarnessTransformer } from "./engine-harness.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
-import { BufferedIndexOfAnchoredCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
+import { BufferedIndexOfAnchoredCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const BufferedIndexOfAnchoredCallbackHarness = {
   name: "Buffered IndexOf Anchored Callback",
@@ -13,9 +13,7 @@ export const BufferedIndexOfAnchoredCallbackHarness = {
     strategy: string[];
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    syncHarnessTransformer(
-      callbackProcessorToEngine(
-        new BufferedIndexOfAnchoredCallbackSearchStrategy(replacement, tokens)
-      )
+    callbackHarnessTransformer(
+      new BufferedIndexOfAnchoredCallbackSearchStrategy(replacement, tokens)
     )
 };

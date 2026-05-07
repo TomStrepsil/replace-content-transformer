@@ -1,7 +1,7 @@
-import { syncHarnessTransformer, legacyTransformerToEngine } from "./engine-harness.ts";
+import { legacyHarnessTransformer } from "./engine-harness.ts";
 import createPartialMatchRegex from "regex-partial-match";
 import type { ReplacementContext } from "../../src/engines/types.ts";
-import { RegexReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts"
+import { RegexReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const RegexCanonicalHarness = {
   name: "Regex Canonical",
@@ -26,13 +26,11 @@ export const RegexCanonicalHarness = {
     strategy: { openRegex: RegExp; partialAtEndRegex: RegExp };
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    syncHarnessTransformer(
-      legacyTransformerToEngine(
-        new RegexReplaceContentTransformer(
-          replacement,
-          strategy.openRegex,
-          strategy.partialAtEndRegex
-        )
+    legacyHarnessTransformer(
+      new RegexReplaceContentTransformer(
+        replacement,
+        strategy.openRegex,
+        strategy.partialAtEndRegex
       )
     )
 };

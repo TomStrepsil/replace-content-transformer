@@ -1,6 +1,6 @@
-import { syncHarnessTransformer, callbackProcessorToEngine } from "./engine-harness.ts";
+import { callbackHarnessTransformer } from "./engine-harness.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
-import { RegexCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
+import { RegexCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const RegexCallbackHarness = {
   name: "Regex Callback",
@@ -22,9 +22,7 @@ export const RegexCallbackHarness = {
     strategy: { needle: RegExp };
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    syncHarnessTransformer(
-      callbackProcessorToEngine(
-        new RegexCallbackSearchStrategy(replacement, strategy.needle)
-      )
+    callbackHarnessTransformer(
+      new RegexCallbackSearchStrategy(replacement, strategy.needle)
     )
 };

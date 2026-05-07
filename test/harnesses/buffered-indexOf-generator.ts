@@ -1,6 +1,6 @@
-import { syncHarnessTransformer, generatorProcessorToEngine } from "./engine-harness.ts";
+import { generatorHarnessTransformer } from "./engine-harness.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
-import { BufferedIndexOfCanonicalAsGeneratorSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
+import { BufferedIndexOfCanonicalAsGeneratorSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 
 export const BufferedIndexOfGeneratorHarness = {
   name: "Buffered IndexOf Generator Canonical",
@@ -13,9 +13,7 @@ export const BufferedIndexOfGeneratorHarness = {
     strategy: string[];
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    syncHarnessTransformer(
-      generatorProcessorToEngine(
-        new BufferedIndexOfCanonicalAsGeneratorSearchStrategy(replacement, tokens)
-      )
+    generatorHarnessTransformer(
+      new BufferedIndexOfCanonicalAsGeneratorSearchStrategy(replacement, tokens)
     )
 };
