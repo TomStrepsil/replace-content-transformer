@@ -15,11 +15,11 @@ import type { EngineSink } from "./types.ts";
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
 export abstract class TransformEngineBase<TState, TMatch = string> {
-  protected readonly searchStrategy: SearchStrategy<TState, TMatch>;
-  protected readonly stopReplacingSignal: AbortSignal | undefined;
-  protected state: TState;
-  protected sink: EngineSink | null = null;
-  protected matchIndex = 0;
+  protected readonly _searchStrategy: SearchStrategy<TState, TMatch>;
+  protected readonly _stopReplacingSignal: AbortSignal | undefined;
+  protected _state: TState;
+  protected _sink: EngineSink | null = null;
+  protected _matchIndex = 0;
 
   #didFlushAfterAbort = false;
 
@@ -27,24 +27,24 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
     searchStrategy: SearchStrategy<TState, TMatch>,
     stopReplacingSignal?: AbortSignal
   ) {
-    this.searchStrategy = searchStrategy;
-    this.stopReplacingSignal = stopReplacingSignal;
-    this.state = searchStrategy.createState();
+    this._searchStrategy = searchStrategy;
+    this._stopReplacingSignal = stopReplacingSignal;
+    this._state = searchStrategy.createState();
   }
 
   start(sink: EngineSink): void {
-    this.sink = sink;
+    this._sink = sink;
   }
 
   end(): void | Promise<void> {
-    const tail = this.searchStrategy.flush(this.state);
-    if (tail) this.sink!.enqueue(tail);
+    const tail = this._searchStrategy.flush(this._state);
+    if (tail) this._sink!.enqueue(tail);
   }
 
-  protected flushAfterAbortIfNeeded(): void {
+  protected _flushAfterAbortIfNeeded(): void {
     if (this.#didFlushAfterAbort) return;
     this.#didFlushAfterAbort = true;
-    const tail = this.searchStrategy.flush(this.state);
-    if (tail) this.sink!.enqueue(tail);
+    const tail = this._searchStrategy.flush(this._state);
+    if (tail) this._sink!.enqueue(tail);
   }
 }

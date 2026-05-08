@@ -62,7 +62,7 @@ function updateIndices(
  * ```
  */
 export class RegexSearchStrategy
-  extends StringBufferStrategyBase
+  extends StringBufferStrategyBase<RegExpExecArray>
   implements SearchStrategy<StringBufferState, RegExpExecArray>
 {
   private readonly completeMatchRegex: RegExp;
@@ -140,5 +140,9 @@ export class RegexSearchStrategy
       }
       state.streamOffset += haystack.length - bufferLength;
     }
+  }
+
+  override matchToString(match: RegExpExecArray): string {
+    return match[0];
   }
 }

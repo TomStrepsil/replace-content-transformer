@@ -8,11 +8,25 @@ import type {
   ReplacementContext
 } from "../types.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
-import type { IterableSlotNode, SlotNode } from "./slot-tree/types.ts";
+import type { IterableSlotNode, SlotNode, TextSlotNode } from "./slot-tree/types.ts";
 import { TransformEngineBase } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
+
+/**
+ * Extension of {@link ReplacementContext} specific to the lookahead engine.
+ * Adds a {@link depth} field indicating the nesting level of the current
+ * replacement — always `0` for top-level matches, incremented by `1` for each
+ * recursive `nested()` level.
+ */
+export type LookaheadReplacementContext = ReplacementContext & {
+  /**
+   * Nesting depth of the current replacement.
+   * `0` for top-level matches; incremented by 1 for each {@link nested} level.
+   */
+  depth: number;
+};
 
 /**
  * Default backpressure limit on the internal slot queue. Scanning
@@ -28,6 +42,10 @@ export const DEFAULT_HIGH_WATER_MARK = 32;
  * exactly once when the producer reaches `done: true` (or throws, or
  * the consumer aborts the iterator early via `return()`).
  */
+function textSlot(siblingIndex: number, value: string): TextSlotNode {
+  return { kind: SLOT_KIND.text, siblingIndex, value };
+}
+
 async function* slotHoldingIterable(
   source: AsyncIterable<string>,
   release: () => void
@@ -49,7 +67,7 @@ async function* slotHoldingIterable(
  */
 export type ReplacementFn<TMatch> = (
   match: TMatch,
-  context: ReplacementContext
+  context: LookaheadReplacementContext
 ) => Promise<AsyncIterable<string> | Nested>;
 
 export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
@@ -71,6 +89,28 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    * @default 32
    */
   highWaterMark?: number;
+  /**
+   * When aborted, the scanner stops calling the replacement function.
+   * Matches discovered after the signal fires are emitted verbatim (using
+   * {@link SearchStrategy.matchToString}) rather than being passed to
+   * `replacement`. Any already-buffered partial match is flushed first so
+   * output stays in order. In-flight replacements that were scheduled
+   * before the signal fired are unaffected — they run to completion and
+   * their output is emitted normally. Pair with {@link abandonPendingSignal}
+   * to also abandon those.
+   */
+  stopReplacingSignal?: AbortSignal;
+  /**
+   * When aborted, any replacement whose output the drain loop has not yet
+   * begun consuming is abandoned: its iterable is closed and the original
+   * matched text is emitted in its place. A replacement the drain loop is
+   * already iterating is allowed to complete normally — no partial output.
+   * Scanning is also halted (implying {@link stopReplacingSignal} semantics)
+   * — there is no useful combination where pending work is abandoned but
+   * new replacements continue to be scheduled. Internally the engine
+   * combines both signals via `AbortSignal.any()`.
+   */
+  abandonPendingSignal?: AbortSignal;
 }
 
 /**
@@ -101,6 +141,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   readonly #options: AsyncLookaheadTransformEngineOptions<TState, TMatch>;
   readonly #parent: IterableSlotNode | null;
   readonly #queue: AsyncChildQueue;
+  readonly #depth: number;
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
@@ -111,11 +152,23 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
      * @internal Set by the outer engine when spawning a child to re-scan
      * a {@link Nested} replacement. Not part of the public adapter API.
      */
-    parent: IterableSlotNode | null = null
+    parent: IterableSlotNode | null = null,
+    /**
+     * @internal Nesting depth; 0 for the root engine, incremented by 1 for
+     * each child spawned via {@link #runNested}. Surfaced as
+     * {@link LookaheadReplacementContext.depth} in replacement callbacks.
+     */
+    depth: number = 0
   ) {
-    super(options.searchStrategy);
+    const scanSignals = [options.stopReplacingSignal, options.abandonPendingSignal]
+      .filter((s): s is AbortSignal => s !== undefined);
+    super(
+      options.searchStrategy,
+      scanSignals.length > 0 ? AbortSignal.any(scanSignals) : undefined
+    );
     this.#options = options;
     this.#parent = parent;
+    this.#depth = depth;
     this.#queue = new AsyncChildQueue(
       options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
     );
@@ -128,7 +181,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   override start(sink: EngineSink): void {
     super.start(sink);
     this.#drainDone = this.#drain().catch((err) => {
-      this.sink!.error(err);
+      this._sink!.error(err);
       throw err;
     });
   }
@@ -138,16 +191,22 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * queue is full (backpressure).
    */
   async write(chunk: string): Promise<void> {
-    for (const result of this.searchStrategy.processChunk(
-      chunk,
-      this.state
-    )) {
+    if (this._stopReplacingSignal?.aborted) {
+      const tail = this._searchStrategy.flush(this._state);
+      if (tail.length > 0) {
+        await this.#queue.push(textSlot(this.#siblingIndex++, tail));
+      }
+      await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
+      return;
+    }
+
+    for (const result of this._searchStrategy.processChunk(chunk, this._state)) {
       if (!result.isMatch) {
-        await this.#queue.push({
-          kind: SLOT_KIND.text,
-          siblingIndex: this.#siblingIndex++,
-          value: result.content
-        });
+        await this.#queue.push(textSlot(this.#siblingIndex++, result.content));
+        continue;
+      }
+      if (this._stopReplacingSignal?.aborted) {
+        await this.#queue.push(textSlot(this.#siblingIndex++, this._searchStrategy.matchToString(result.content)));
         continue;
       }
       await this.#queue.push(
@@ -163,7 +222,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * scheduled replacement, so adapters can forward failures.
    */
   override async end(): Promise<void> {
-    const tail = this.searchStrategy.flush(this.state);
+    const tail = this._searchStrategy.flush(this._state);
     if (tail.length > 0) {
       await this.#queue.push({
         kind: SLOT_KIND.text,
@@ -179,11 +238,15 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     match: TMatch,
     streamIndices: StreamIndices
   ): IterableSlotNode {
-    const matchIndex = this.matchIndex++;
+    const matchIndex = this._matchIndex++;
     const node: IterableSlotNode = {
       kind: SLOT_KIND.iterable,
       siblingIndex: this.#siblingIndex++,
       parent: this.#parent,
+      getOriginalContent:
+        this.#options.abandonPendingSignal !== undefined
+          ? () => this._searchStrategy.matchToString(match)
+          : undefined,
       iterable: undefined as unknown as Promise<AsyncIterable<string> | Nested>
     };
     node.iterable = this.#runSlot(node, match, matchIndex, streamIndices);
@@ -199,7 +262,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const release = await this.#options.concurrencyStrategy.acquire(node);
     let result: AsyncIterable<string> | Nested;
     try {
-      result = await this.#options.replacement(match, { matchIndex, streamIndices });
+      result = await this.#options.replacement(match, { matchIndex, streamIndices, depth: this.#depth });
     } catch (err) {
       release();
       throw err;
@@ -219,14 +282,24 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   async #emitSlot(slot: SlotNode): Promise<void> {
     if (slot.kind === SLOT_KIND.text) {
-      this.sink!.enqueue(slot.value);
+      this._sink!.enqueue(slot.value);
       return;
     }
     const result = await slot.iterable;
+    if (this.#options.abandonPendingSignal?.aborted) {
+      if (!(result instanceof Nested)) {
+        const iter = result[Symbol.asyncIterator]() as AsyncIterator<string>;
+        await iter.return?.();
+      }
+      if (slot.getOriginalContent !== undefined) {
+        this._sink!.enqueue(slot.getOriginalContent());
+      }
+      return;
+    }
     const iterable =
       result instanceof Nested ? this.#runNested(result.source, slot) : result;
     for await (const chunk of iterable) {
-      this.sink!.enqueue(chunk);
+      this._sink!.enqueue(chunk);
     }
   }
 
@@ -251,7 +324,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
     const child = new AsyncLookaheadTransformEngine<TState, TMatch>(
       this.#options,
-      parent
+      parent,
+      this.#depth + 1
     );
     child.start({
       enqueue: (c) => {

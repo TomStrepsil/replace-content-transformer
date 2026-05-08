@@ -12,11 +12,11 @@ import type { TransformEngine } from "../../engines/types.js";
  * mis-decoded.
  */
 export abstract class ReplaceContentTransformBase<T> extends Transform {
-  protected readonly engine: TransformEngine<T>;
+  protected readonly _engine: TransformEngine<T>;
 
   constructor(engine: TransformEngine<T>, options?: TransformOptions) {
     super(options);
-    this.engine = engine;
+    this._engine = engine;
     engine.start({
       enqueue: (chunk) => this.push(chunk),
       error: (err) =>

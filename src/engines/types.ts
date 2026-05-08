@@ -11,7 +11,7 @@ export interface EngineSink {
 }
 
 /**
- * Context passed to replacement callbacks, consistent across all engine modes.
+ * Context passed to replacement callbacks.
  *
  * @property matchIndex - Zero-based ordinal for the current match in the stream.
  * @property streamIndices - Absolute stream offsets as [startIndex, endIndex], where endIndex is exclusive.

@@ -38,7 +38,7 @@ export class AsyncReplaceContentTransformer
   extends TransformerBase<Promise<void>, AsyncTransformEngine>
 {
   async flush(): Promise<void> {
-    return await this.engine.end();
+    return await this._engine.end();
   }
 
   /**
@@ -48,6 +48,6 @@ export class AsyncReplaceContentTransformer
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- accepted for WHATWG callback compat
   cancel(reason?: unknown): void {
-    this.engine.cancel?.();
+    this._engine.cancel?.();
   }
 }

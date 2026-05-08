@@ -59,15 +59,15 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
 
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
-    const sink = this.sink!;
+    const sink = this._sink!;
 
-    if (this.stopReplacingSignal?.aborted) {
-      this.flushAfterAbortIfNeeded();
+    if (this._stopReplacingSignal?.aborted) {
+      this._flushAfterAbortIfNeeded();
       sink.enqueue(chunk);
       return;
     }
 
-    for (const result of this.searchStrategy.processChunk(chunk, this.state)) {
+    for (const result of this._searchStrategy.processChunk(chunk, this._state)) {
       if (this.#cancelled) return;
 
       if (!result.isMatch) {
@@ -75,13 +75,13 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         continue;
       }
 
-      if (this.stopReplacingSignal?.aborted) {
+      if (this._stopReplacingSignal?.aborted) {
         sink.enqueue(result.content as unknown as string);
         continue;
       }
 
       const ctx: ReplacementContext = {
-        matchIndex: this.matchIndex++,
+        matchIndex: this._matchIndex++,
         streamIndices: result.streamIndices
       };
       const raw = await this.#replacement(result.content, ctx);
@@ -94,7 +94,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         for await (const item of raw) {
           if (this.#cancelled) return;
           sink.enqueue(item);
-          if (this.stopReplacingSignal?.aborted) break;
+          if (this._stopReplacingSignal?.aborted) break;
         }
       }
     }

@@ -26,6 +26,6 @@ export class ReplaceContentTransformer extends TransformerBase<
   SyncTransformEngine
 > {
   flush(): void {
-    return this.engine.end();
+    return this._engine.end();
   }
 }

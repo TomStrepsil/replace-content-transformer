@@ -176,7 +176,8 @@ function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMat
         yield result;
       }
     }),
-    flush: vi.fn().mockReturnValue("")
+    flush: vi.fn().mockReturnValue(""),
+    matchToString: vi.fn().mockImplementation((match: TMatch) => String(match))
   };
 }
 

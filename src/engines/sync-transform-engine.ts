@@ -56,27 +56,27 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   }
 
   write(chunk: string): void {
-    const sink = this.sink!;
+    const sink = this._sink!;
 
-    if (this.stopReplacingSignal?.aborted) {
-      this.flushAfterAbortIfNeeded();
+    if (this._stopReplacingSignal?.aborted) {
+      this._flushAfterAbortIfNeeded();
       sink.enqueue(chunk);
       return;
     }
 
-    for (const result of this.searchStrategy.processChunk(chunk, this.state)) {
+    for (const result of this._searchStrategy.processChunk(chunk, this._state)) {
       if (!result.isMatch) {
         sink.enqueue(result.content);
         continue;
       }
 
-      if (this.stopReplacingSignal?.aborted) {
+      if (this._stopReplacingSignal?.aborted) {
         sink.enqueue(result.content as unknown as string);
         continue;
       }
 
       const ctx: ReplacementContext = {
-        matchIndex: this.matchIndex++,
+        matchIndex: this._matchIndex++,
         streamIndices: result.streamIndices
       };
       const replacement = this.#replacement(result.content, ctx);

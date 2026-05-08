@@ -178,8 +178,8 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       await runEngine(engine, sink, ["AB"]);
 
-      expect(replacement).toHaveBeenNthCalledWith(1, "A", { matchIndex: 0, streamIndices: [0, 1] });
-      expect(replacement).toHaveBeenNthCalledWith(2, "B", { matchIndex: 1, streamIndices: [3, 4] });
+      expect(replacement).toHaveBeenNthCalledWith(1, "A", { matchIndex: 0, streamIndices: [0, 1], depth: 0 });
+      expect(replacement).toHaveBeenNthCalledWith(2, "B", { matchIndex: 1, streamIndices: [3, 4], depth: 0 });
     });
 
     it("hands each match's slot to the concurrency strategy with a null parent at the root", async () => {
@@ -266,6 +266,240 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
   });
 
+  describe("stopReplacingSignal", () => {
+    it("passes chunk through without calling replacement when already aborted", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const fn = vi.fn(async () => asyncIterable("R"));
+      const ac = new AbortController();
+      ac.abort();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["M"]);
+      expect(chunks).toEqual(["M"]);
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it("flushes buffered search-strategy tail in-order before the first passthrough chunk", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
+      const ac = new AbortController();
+      ac.abort();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("X");
+      await engine.write("Y");
+      await engine.end();
+      expect(chunks).toEqual(["BUF", "X", "Y"]);
+    });
+
+    it("does not call replacement for matches scanned after signal aborts mid-chunk", async () => {
+      const ac = new AbortController();
+      const strategy = {
+        createState: vi.fn().mockReturnValue({}),
+        processChunk: vi.fn().mockImplementation(function* () {
+          yield { isMatch: true, content: "A", streamIndices: [0, 1] as [number, number] };
+          ac.abort();
+          yield { isMatch: true, content: "B", streamIndices: [1, 2] as [number, number] };
+        }),
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
+      };
+      const fn = vi.fn(async () => asyncIterable("R"));
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        replacement: fn,
+        concurrencyStrategy: new SemaphoreStrategy(2),
+        stopReplacingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["AB"]);
+      // "A" scheduled before abort — replacement runs, "R" emitted.
+      // "B" scanned after abort — pushed as text slot via matchToString, no replacement call.
+      expect(chunks).toEqual(["R", "B"]);
+      expect(fn).toHaveBeenCalledOnce();
+    });
+
+    it("uses matchToString to convert mid-chunk match text when emitting verbatim", async () => {
+      const ac = new AbortController();
+      const strategy = {
+        createState: vi.fn().mockReturnValue({}),
+        processChunk: vi.fn().mockImplementation(function* () {
+          ac.abort();
+          yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
+        }),
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockReturnValue("raw-M")
+      };
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["M"]);
+      expect(strategy.matchToString).toHaveBeenCalledWith("M");
+      expect(chunks).toEqual(["raw-M"]);
+    });
+  });
+
+  describe("abandonPendingSignal", () => {
+    it("emits original match content when signal is aborted before drain reaches an in-flight slot", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const ac = new AbortController();
+      const gate = deferred<AsyncIterable<string>>();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("M");
+      await settleMicrotasks(5);
+      ac.abort();
+      gate.resolve(asyncIterable("R"));
+      await engine.end();
+      expect(chunks).toEqual(["M"]);
+    });
+
+    it("allows a slot already being drained to complete when signal fires mid-stream", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const ac = new AbortController();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => (async function* () {
+          yield "first";
+          ac.abort();
+          yield "second";
+          yield "third";
+        })(),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["M"]);
+      expect(chunks).toEqual(["first", "second", "third"]);
+    });
+
+    it("emits original match content rather than running the nested engine when signal is aborted before drain", async () => {
+      let processCount = 0;
+      const strategy = {
+        createState: vi.fn().mockReturnValue({}),
+        processChunk: vi.fn().mockImplementation(function* (chunk: string) {
+          if (processCount++ === 0) {
+            yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
+          } else {
+            yield { isMatch: false, content: chunk };
+          }
+        }),
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
+      };
+      const ac = new AbortController();
+      const gate = deferred<void>();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        replacement: async () => {
+          await gate.promise;
+          return nested(asyncIterable("nested-content"));
+        },
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("M");
+      await settleMicrotasks(5);
+      ac.abort();
+      gate.resolve();
+      await engine.end();
+      expect(chunks).toEqual(["M"]);
+    });
+
+    it("does not store getOriginalContent on slot nodes when no signal is provided", async () => {
+      const scheduled: IterableSlotNode[] = [];
+      const spy: ConcurrencyStrategy = {
+        async acquire(node) {
+          scheduled.push(node);
+          return () => {};
+        }
+      };
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const { sink } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: spy
+      });
+      await runEngine(engine, sink, ["M"]);
+      expect(scheduled[0].getOriginalContent).toBeUndefined();
+    });
+
+    it("calls matchToString to derive getOriginalContent stored on each slot node", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      strategy.matchToString.mockReturnValue("raw-M");
+      const ac = new AbortController();
+      const gate = deferred<AsyncIterable<string>>();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("M");
+      await settleMicrotasks(5);
+      ac.abort();
+      gate.resolve(asyncIterable("R"));
+      await engine.end();
+      expect(strategy.matchToString).toHaveBeenCalledWith("M");
+      expect(chunks).toEqual(["raw-M"]);
+    });
+
+    it("also bypasses the scan loop — does not call replacement for new matches after signal fires", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const fn = vi.fn(async () => asyncIterable("R"));
+      const ac = new AbortController();
+      ac.abort();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["M"]);
+      expect(fn).not.toHaveBeenCalled();
+      expect(chunks).toEqual(["M"]);
+    });
+  });
+
   describe("nested re-scanning", () => {
     it("spawns a child engine to re-scan nested() content", async () => {
       const strategy = {
@@ -289,7 +523,8 @@ describe("AsyncLookaheadTransformEngine", () => {
             yield { isMatch: false, content: chunk.slice(last) };
           }
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
       };
 
       const { sink, chunks } = collectingSink();
@@ -460,7 +695,8 @@ describe("AsyncLookaheadTransformEngine", () => {
             streamIndices: [0, chunk.length]
           };
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
       };
 
       const { sink, chunks } = collectingSink();
@@ -476,6 +712,67 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       await runEngine(engine, sink, ["L0"]);
       expect(chunks.join("")).toBe("LEAF");
+    });
+  });
+
+  describe("depth in ReplacementContext", () => {
+    function matchAllStrategy() {
+      return {
+        createState: () => ({}),
+        processChunk: vi.fn().mockImplementation(function* (chunk: string) {
+          yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] as [number, number] };
+        }),
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
+      };
+    }
+
+    it("passes depth 0 for top-level matches", async () => {
+      const depths: number[] = [];
+      const { sink } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchAllStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (_match, ctx) => {
+          depths.push(ctx.depth);
+          return asyncIterable("x");
+        }
+      });
+      await runEngine(engine, sink, ["A", "B"]);
+      expect(depths).toEqual([0, 0]);
+    });
+
+    it("passes depth 1 for matches inside a nested() replacement", async () => {
+      const depths: number[] = [];
+      const { sink } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchAllStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (_match, ctx) => {
+          depths.push(ctx.depth);
+          if (ctx.depth === 0) return nested(asyncIterable("inner"));
+          return asyncIterable("leaf");
+        }
+      });
+      await runEngine(engine, sink, ["outer"]);
+      expect(depths).toEqual([0, 1]);
+    });
+
+    it("increments depth by 1 per nesting level", async () => {
+      const depths: number[] = [];
+      const { sink } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchAllStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (_match, ctx) => {
+          depths.push(ctx.depth);
+          if (ctx.depth === 0) return nested(asyncIterable("d1"));
+          if (ctx.depth === 1) return nested(asyncIterable("d2"));
+          return asyncIterable("leaf");
+        }
+      });
+      await runEngine(engine, sink, ["d0"]);
+      expect(depths).toEqual([0, 1, 2]);
     });
   });
 });

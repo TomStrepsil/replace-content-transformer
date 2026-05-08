@@ -1,52 +1,31 @@
-# LookaheadAsyncIterableTransformer
+# AsyncLookaheadTransformEngine
 
-A WHATWG `Transformer<string, string>` (and Node `stream.Transform` counterpart) for I/O-bound replacements where the `AsyncIterableFunctionReplacementProcessor` would stall on each replacement before scanning for the next, even when matches could be processed concurrently.
+A protocol-agnostic engine for I/O-bound replacements where the `AsyncSerialReplacementTransformEngine` would stall on each replacement before scanning for the next, even when matches could be processed concurrently.
 
-`LookaheadAsyncIterableTransformer` scans ahead and **initiates** later matches' replacement work while earlier ones are still in flight, with:
+`AsyncLookaheadTransformEngine` scans ahead and **initiates** later matches' replacement work while earlier ones are still pending, with:
 
 - 🔗 **In-order output** — chunks still emit in source order; a fast later replacement never overtakes a slow earlier one.
 - 🚦 **Pluggable concurrency control** — a `ConcurrencyStrategy` decides when (and in what order) queued work is dispatched. Two built-ins:
   - `SemaphoreStrategy(limit)` — FIFO arrival-order, bounded concurrency
   - `PriorityQueueStrategy(limit, comparator)` — heap-backed, tree-aware
-- 🪆 **Recursive composition** — opt in per-match via the `nested()` sentinel to re-scan a replacement's output with a child transformer sharing the same concurrency budget.
+- 🪆 **Recursive composition** — opt in per-match via the `nested()` sentinel to re-scan a replacement's output with a child engine sharing the same concurrency budget.
 
-Each transformer owns its scanning state, so construct a fresh instance per input stream.
+Each engine instance owns its scanning state, so construct a fresh instance per input stream.
 
-A Node `stream.Transform` counterpart is available from `replace-content-transformer/node` as `LookaheadAsyncIterableTransform` — same options, same semantics, wired for `.pipe()` pipelines.
+The engine is adapter-agnostic. Wrap it in `AsyncReplaceContentTransformer` (from `replace-content-transformer/web`) for WHATWG streams, or `AsyncReplaceContentTransform` (from `replace-content-transformer/node`) for Node `.pipe()` pipelines — same engine options, same semantics.
 
-## Basic Usage
-
-```typescript
-import { LookaheadAsyncIterableTransformer } from "replace-content-transformer/web";
-import {
-  SemaphoreStrategy,
-  searchStrategyFactory
-} from "replace-content-transformer";
-
-// `<esi:include src="..."/>` replaced with the fetched body — up to 8
-// fetches may be in flight at once; output stays in source order.
-const transformer = new LookaheadAsyncIterableTransformer({
-  searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
-  concurrencyStrategy: new SemaphoreStrategy(8),
-  replacement: async (match) => {
-    const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
-    const res = await fetch(url);
-    return res.body!.pipeThrough(new TextDecoderStream());
-  }
-});
-
-const replacedStream = readable
-  .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new TransformStream(transformer));
-```
+See the [main README](../../../README.md#-pipelined-async-replacement-with-asynclookaheadtransformengine) for full usage examples covering both WHATWG streams and Node.js pipelines.
 
 ## Recursive Replacement
 
-Replacements whose output may itself contain further matches can be re-scanned recursively by returning `nested(source)` instead of the raw source. The engine spawns a child sharing the same search strategy, concurrency strategy, and replacement function — so nested work competes for the same budget and is ordered across nesting levels by the scheduler:
+Replacements whose output may itself contain further matches can be re-scanned recursively by returning `nested(source)` instead of the raw source. The engine spawns a child sharing the same search strategy, concurrency strategy, and replacement function — so nested work competes for the same budget and is ordered across nesting levels by the scheduler.
+
+The `replacement` callback receives a `LookaheadReplacementContext` as its second argument: `{ matchIndex, streamIndices, depth }`. `depth` is `0` for top-level matches and increments by `1` per `nested()` level — the natural place to guard against unbounded recursion or vary behaviour by nesting level:
 
 ```typescript
-import { LookaheadAsyncIterableTransformer } from "replace-content-transformer/web";
+import { AsyncReplaceContentTransformer } from "replace-content-transformer/web";
 import {
+  AsyncLookaheadTransformEngine,
   PriorityQueueStrategy,
   nested,
   streamOrder,
@@ -54,20 +33,23 @@ import {
 } from "replace-content-transformer";
 
 // Earlier-in-output-stream work is prioritised (via LCA in the slot tree).
-const transformer = new LookaheadAsyncIterableTransformer({
-  searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
-  concurrencyStrategy: new PriorityQueueStrategy(8, streamOrder),
-  replacement: async (match) => {
-    const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
-    const res = await fetch(url);
-    const body = res.body!.pipeThrough(new TextDecoderStream());
-    // Re-scan the fetched body; nested fetches share the same budget of 8.
-    return nested(body);
-  }
-});
+// depth guards against fetched fragments that themselves contain <esi:include>.
+const transformer = new AsyncReplaceContentTransformer(
+  new AsyncLookaheadTransformEngine({
+    searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
+    concurrencyStrategy: new PriorityQueueStrategy(8, streamOrder),
+    replacement: async (match, { depth }) => {
+      const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
+      const res = await fetch(url);
+      const body = res.body!.pipeThrough(new TextDecoderStream());
+      // Re-scan one level deep; emit verbatim beyond that.
+      return depth === 0 ? nested(body) : body;
+    }
+  })
+);
 ```
 
-Returning a plain `AsyncIterable<string>` (no `nested()` wrapper) emits the replacement's chunks verbatim without re-scanning — useful when the fragment body is already trusted content or when you want to terminate recursion.
+See the [full usage examples](../../README.md#-pipelined-async-replacement-with-asynclookaheadtransformengine) in the main README.
 
 ### Comparators
 
@@ -80,10 +62,10 @@ Implement `NodeComparator` for custom policies.
 
 ## Backpressure and `highWaterMark`
 
-Internally the transformer runs two concurrent loops — a **scanner** (driven by `transform()` as chunks arrive) and a **drainer** (emitting to downstream in stream order) — connected by a bounded queue of slots. The `highWaterMark` option caps how many slots the scanner may buffer ahead of the drainer:
+Internally the engine runs two concurrent loops — a **scanner** (driven by each `write()` call as chunks arrive) and a **drainer** (emitting to downstream in stream order) — connected by a bounded queue of slots. The `highWaterMark` option caps how many slots the scanner may buffer ahead of the drainer:
 
 ```typescript
-new LookaheadAsyncIterableTransformer({
+new AsyncLookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
@@ -91,15 +73,15 @@ new LookaheadAsyncIterableTransformer({
 });
 ```
 
-When the queue is full, scanning suspends; that pauses `transform()`, which in turn suspends upstream pulls — so memory use is bounded even if downstream stalls. Concurrency is bounded by the `ConcurrencyStrategy`; queued **output** is bounded by `highWaterMark`.
+When the queue is full, scanning suspends; that pauses upstream pulls — so memory use is bounded even if downstream stalls. Concurrency is bounded by the `ConcurrencyStrategy`; queued **output** is bounded by `highWaterMark`.
 
 To opt into unfettered dispatch initiation, use `new SemaphoreStrategy(Infinity)` explicitly.
 
 Pick higher values to absorb burstier input (more pipelining, more memory); lower values to tighten the memory ceiling at the cost of throughput under load. `32` is a compromise suited to typical fragment-fetch workloads.
 
-## Slot lifetime: in-flight, not just initiation
+## Slot lifetime
 
-A concurrency slot is held across the **entire in-flight lifetime** of a replacement: from before `await replacement(match)` until the producer pulls the last chunk from the returned `AsyncIterable`. The strategy bounds *concurrent iterables*, not just request initiation.
+A concurrency slot is held across the **entire active lifetime** of a replacement: from before `await replacement(match)` until the producer pulls the last chunk from the returned `AsyncIterable`. The strategy bounds *concurrent iterables*, not just request initiation.
 
 For a typical `fetch`-based replacement this means:
 
@@ -124,4 +106,83 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ## Cancellation
 
-`LookaheadAsyncIterableTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path. For cancelling in-flight replacement work itself (e.g. pending `fetch`es), share an `AbortController` between your replacement function and downstream teardown.
+### Stream teardown
+
+`AsyncReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
+
+### Stopping new replacements (`stopReplacingSignal`)
+
+When aborted, the **scanner** stops calling `replacement()`. Matches discovered after the signal fires are emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring); any partial match the search strategy had buffered is flushed first so output stays in order. Replacements that were already scheduled before the signal fired run to completion unaffected.
+
+```typescript
+const ac = new AbortController();
+
+const engine = new AsyncLookaheadTransformEngine({
+  searchStrategy,
+  replacement,
+  concurrencyStrategy: new SemaphoreStrategy(8),
+  stopReplacingSignal: ac.signal
+});
+```
+
+### Abandoning pending work (`abandonPendingSignal`)
+
+When aborted, **both the scanner and the drain loop** switch mode:
+
+- **Scanner** — stops calling `replacement()`, the same as `stopReplacingSignal`. Matches discovered after the signal fires are emitted verbatim via `SearchStrategy.matchToString`; any buffered partial match is flushed first.
+- **Drain loop, queued slot** — the replacement function has returned but the drain loop hasn't started consuming its output yet. The iterable is closed immediately and the raw matched text is emitted in its place.
+- **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
+
+```typescript
+const ac = new AbortController();
+
+const engine = new AsyncLookaheadTransformEngine({
+  searchStrategy,
+  replacement,
+  concurrencyStrategy: new SemaphoreStrategy(8),
+  abandonPendingSignal: ac.signal
+});
+```
+
+### Combining both signals
+
+`abandonPendingSignal` implies scan-loop bypass — when it fires, the scanner also stops calling `replacement()`, the same as if `stopReplacingSignal` had fired. This is intentional: there is no useful combination where you abandon the backlog but keep scheduling new work. Internally, the engine combines both signals with `AbortSignal.any()` to drive the scan loop.
+
+| Signal | Stops scanning | Abandons pending slots |
+|--------|---------------|----------------------|
+| `stopReplacingSignal` | ✅ | ❌ — queued slots drain normally |
+| `abandonPendingSignal` | ✅ (implied) | ✅ — queued slots substituted with original text |
+
+The two signals can be on separate controllers when you want staged shutdown — stop scanning first, then decide later whether to also abandon the queue:
+
+```typescript
+const stopAC = new AbortController();
+const abandonAC = new AbortController();
+
+const engine = new AsyncLookaheadTransformEngine({
+  searchStrategy,
+  replacement,
+  concurrencyStrategy: new SemaphoreStrategy(8),
+  stopReplacingSignal: stopAC.signal,
+  abandonPendingSignal: abandonAC.signal
+});
+
+// Later: stop scheduling new replacements, let queue drain normally.
+stopAC.abort();
+
+// Even later, if needed: also clear the remaining queue.
+abandonAC.abort();
+```
+
+Or pass the same controller to both when a single abort should do everything:
+
+```typescript
+const ac = new AbortController();
+const engine = new AsyncLookaheadTransformEngine({
+  ...
+  stopReplacingSignal: ac.signal,
+  abandonPendingSignal: ac.signal
+});
+
+// Later: ac.abort() stops both scanning and draining simultaneously.
+```

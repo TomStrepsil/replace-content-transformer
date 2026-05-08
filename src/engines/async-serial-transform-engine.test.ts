@@ -72,7 +72,8 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockResolvedValue("R");
       const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: fn });
@@ -107,7 +108,8 @@ describe("AsyncSerialReplacementTransformEngine", () => {
           yield { isMatch: true, content: `M${call}`, streamIndices: [call, call + 1] as [number, number] };
           call++;
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
@@ -137,7 +139,8 @@ describe("AsyncSerialReplacementTransformEngine", () => {
             yield { isMatch: false, content: " end" };
           }
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
@@ -258,7 +261,8 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockResolvedValue("R");
       const engine = new AsyncSerialReplacementTransformEngine({

@@ -74,7 +74,8 @@ describe("SyncTransformEngine", () => {
           yield { isMatch: true, content: "M", streamIndices: [call * 10, call * 10 + 1] as [number, number] };
           call++;
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockReturnValue("R");
       const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: fn });
@@ -131,7 +132,8 @@ describe("SyncTransformEngine", () => {
             yield { isMatch: false, content: " end" };
           }
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "NEW" });
       const { sink, chunks } = collectingSink();
@@ -249,7 +251,8 @@ describe("SyncTransformEngine", () => {
           yield { isMatch: true, content: "A", streamIndices: [0, 1] as [number, number] };
           yield { isMatch: true, content: "B", streamIndices: [1, 2] as [number, number] };
         }),
-        flush: vi.fn().mockReturnValue("")
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockImplementation(() => {
         if (call++ === 0) ac.abort();

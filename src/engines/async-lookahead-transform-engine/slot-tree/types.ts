@@ -32,6 +32,8 @@ export interface IterableSlotNode {
   readonly kind: typeof SLOT_KIND.iterable;
   readonly siblingIndex: number;
   readonly parent: IterableSlotNode | null;
+  /** Lazily produces the original match text; called by the drain loop only if abandonPendingSignal is aborted. */
+  readonly getOriginalContent?: () => string;
   /**
    * Set by the engine immediately after the node is constructed.
    * Never read before `iterable` is assigned, but typed as possibly

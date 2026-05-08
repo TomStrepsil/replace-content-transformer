@@ -465,4 +465,14 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       });
     });
   });
+
+  describe("matchToString", () => {
+    it("returns the matched string unchanged", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+      const results = [...strategy.processChunk("before {{token}} after", state)];
+      const match = results.find((r) => r.isMatch)!;
+      expect(strategy.matchToString(match.content)).toBe("{{token}}");
+    });
+  });
 });

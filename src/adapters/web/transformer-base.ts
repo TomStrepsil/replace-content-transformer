@@ -1,20 +1,20 @@
 import type { TransformEngine } from "../../engines/types.js";
 
 export abstract class TransformerBase<T, U extends TransformEngine<T>> {
-  protected readonly engine: U;
+  protected readonly _engine: U;
 
   constructor(engine: U) {
-    this.engine = engine;
+    this._engine = engine;
   }
 
   start(controller: TransformStreamDefaultController<string>): void {
-    this.engine.start({
+    this._engine.start({
       enqueue: (chunk) => controller.enqueue(chunk),
       error: (err) => controller.error(err)
     });
   }
 
   transform(chunk: string): T {
-    return this.engine.write(chunk);
+    return this._engine.write(chunk);
   }
 }
