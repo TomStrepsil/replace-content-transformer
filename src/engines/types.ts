@@ -21,7 +21,7 @@ export type ReplacementContext = {
   streamIndices: StreamIndices;
 };
 
-export interface TransformEngine<T> extends Transformer<string, string> {
+export interface TransformEngine<T> {
   /** Attach the output sink. Must be called exactly once before {@link write}. */
   start(sink: EngineSink): void;
   write(chunk: string): T;

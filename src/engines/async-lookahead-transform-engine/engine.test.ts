@@ -305,6 +305,26 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks).toEqual(["BUF", "X", "Y"]);
     });
 
+    it("calls flush() exactly once across multiple writes and end() when the signal is pre-aborted", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "" });
+      strategy.flush.mockReturnValue("BUF");
+      const ac = new AbortController();
+      ac.abort();
+      const { sink, chunks } = collectingSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("X");
+      await engine.write("Y");
+      await engine.end();
+      expect(strategy.flush).toHaveBeenCalledOnce();
+      expect(chunks).toEqual(["BUF", "X", "Y"]);
+    });
+
     it("does not call replacement for matches scanned after signal aborts mid-chunk", async () => {
       const ac = new AbortController();
       const strategy = {

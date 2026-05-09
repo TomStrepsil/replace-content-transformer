@@ -56,7 +56,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   }
 
   write(chunk: string): void {
-    const sink = this._sink!;
+    const sink = this._sink;
 
     if (this._stopReplacingSignal?.aborted) {
       this._flushAfterAbortIfNeeded();

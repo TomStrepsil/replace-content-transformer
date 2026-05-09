@@ -123,7 +123,7 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * (started by {@link start}) dequeues slots in stream order and emits
  * chunks through the supplied {@link EngineSink}.
  *
- * Adapter classes (`ReplaceContentTransformer` in web,
+ * Adapter classes (`AsyncReplaceContentTransformer` in web,
  * `AsyncReplaceContentTransform` in node) wrap this engine, mapping
  * their runtime's transform lifecycle onto `start`/`write`/`end`.
  *
@@ -145,6 +145,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
+  #flushedAfterAbort = false;
 
   constructor(
     options: AsyncLookaheadTransformEngineOptions<TState, TMatch>,
@@ -181,7 +182,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   override start(sink: EngineSink): void {
     super.start(sink);
     this.#drainDone = this.#drain().catch((err) => {
-      this._sink!.error(err);
+      this._sink.error(err);
       throw err;
     });
   }
@@ -192,9 +193,12 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    */
   async write(chunk: string): Promise<void> {
     if (this._stopReplacingSignal?.aborted) {
-      const tail = this._searchStrategy.flush(this._state);
-      if (tail.length > 0) {
-        await this.#queue.push(textSlot(this.#siblingIndex++, tail));
+      if (!this.#flushedAfterAbort) {
+        this.#flushedAfterAbort = true;
+        const tail = this._searchStrategy.flush(this._state);
+        if (tail) {
+          await this.#queue.push(textSlot(this.#siblingIndex++, tail));
+        }
       }
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
@@ -222,13 +226,11 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * scheduled replacement, so adapters can forward failures.
    */
   override async end(): Promise<void> {
-    const tail = this._searchStrategy.flush(this._state);
-    if (tail.length > 0) {
-      await this.#queue.push({
-        kind: SLOT_KIND.text,
-        siblingIndex: this.#siblingIndex++,
-        value: tail
-      });
+    if (!this.#flushedAfterAbort) {
+      const tail = this._searchStrategy.flush(this._state);
+      if (tail) {
+        await this.#queue.push(textSlot(this.#siblingIndex++, tail));
+      }
     }
     this.#queue.close();
     await this.#drainDone;
@@ -283,7 +285,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   async #emitSlot(slot: SlotNode): Promise<void> {
     if (slot.kind === SLOT_KIND.text) {
-      this._sink!.enqueue(slot.value);
+      this._sink.enqueue(slot.value);
       return;
     }
     const result = await slot.iterable!;
@@ -293,14 +295,14 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
         await iter.return?.();
       }
       if (slot.getOriginalContent !== undefined) {
-        this._sink!.enqueue(slot.getOriginalContent());
+        this._sink.enqueue(slot.getOriginalContent());
       }
       return;
     }
     const iterable =
       result instanceof Nested ? this.#runNested(result.source, slot) : result;
     for await (const chunk of iterable) {
-      this._sink!.enqueue(chunk);
+      this._sink.enqueue(chunk);
     }
   }
 

@@ -59,7 +59,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
 
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
-    const sink = this._sink!;
+    const sink = this._sink;
 
     if (this._stopReplacingSignal?.aborted) {
       this._flushAfterAbortIfNeeded();
