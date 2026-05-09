@@ -5,18 +5,19 @@ import { TransformerBase } from "./transformer-base.js";
  * A synchronous transformer for the WHATWG Streams API that replaces
  * content in streaming text.
  *
- * Accepts any {@link SyncTransformEngine} — use {@link SyncTransformEngine}
- * for string / iterable / static replacements.
+ * Accepts any {@link SyncTransformEngine} — use
+ * {@link SyncReplacementTransformEngine} for string, iterable, or static
+ * replacements.
  *
  * For async replacement use cases, see {@link AsyncReplaceContentTransformer}.
  *
  * @example
  * ```typescript
- * import { SyncTransformEngine } from 'replace-content-transformer';
+ * import { SyncReplacementTransformEngine } from 'replace-content-transformer';
  * import { ReplaceContentTransformer } from 'replace-content-transformer/web';
  *
  * const transformer = new ReplaceContentTransformer(
- *   new SyncTransformEngine({ searchStrategy, replacement: "NEW" })
+ *   new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" })
  * );
  * const stream = new TransformStream(transformer);
  * ```

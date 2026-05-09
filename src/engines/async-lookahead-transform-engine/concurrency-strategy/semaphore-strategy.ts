@@ -24,8 +24,8 @@ export class SemaphoreStrategy implements ConcurrencyStrategy {
     this.#semaphore = new Semaphore(concurrency);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async acquire(_node: IterableSlotNode): Promise<() => void> {
-    void _node;
     await this.#semaphore.acquire();
     let released = false;
     return () => {

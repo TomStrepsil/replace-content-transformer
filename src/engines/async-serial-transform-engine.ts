@@ -36,7 +36,7 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
  * consumed before the engine scans for the next match; this guarantees
  * in-order output without a concurrency strategy.
  *
- * For concurrent lookahead scheduling, use {@link LookaheadTransformEngine}.
+ * For concurrent lookahead scheduling, use {@link AsyncLookaheadTransformEngine}.
  *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
@@ -76,7 +76,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
       }
 
       if (this._stopReplacingSignal?.aborted) {
-        sink.enqueue(result.content as unknown as string);
+        sink.enqueue(this._searchStrategy.matchToString(result.content));
         continue;
       }
 

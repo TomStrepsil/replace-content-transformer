@@ -6,14 +6,14 @@ import { TransformerBase } from "./transformer-base.js";
  * content in streaming text.
  *
  * Accepts any {@link AsyncTransformEngine} — use
- * {@link AsyncSerialTransformEngine} for serial async replacements, or
- * {@link LookaheadTransformEngine} for concurrent pipelined replacements
+ * {@link AsyncSerialReplacementTransformEngine} for serial async replacements,
+ * or {@link AsyncLookaheadTransformEngine} for concurrent pipelined replacements
  * with pluggable concurrency control.
  *
  * @example Serial async replacement
  * ```typescript
  * const transformer = new AsyncReplaceContentTransformer(
- *   new AsyncSerialTransformEngine({
+ *   new AsyncSerialReplacementTransformEngine({
  *     searchStrategy,
  *     replacement: async (match) => (await kv.get(match)) ?? ""
  *   })
@@ -23,7 +23,7 @@ import { TransformerBase } from "./transformer-base.js";
  * @example Pipelined lookahead replacement
  * ```typescript
  * const transformer = new AsyncReplaceContentTransformer(
- *   new LookaheadTransformEngine({
+ *   new AsyncLookaheadTransformEngine({
  *     searchStrategy,
  *     replacement: async (match) => {
  *       const res = await fetch(`/api/${match}`);

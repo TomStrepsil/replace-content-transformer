@@ -242,12 +242,13 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const node: IterableSlotNode = {
       kind: SLOT_KIND.iterable,
       siblingIndex: this.#siblingIndex++,
+      depth: this.#depth,
       parent: this.#parent,
       getOriginalContent:
         this.#options.abandonPendingSignal !== undefined
           ? () => this._searchStrategy.matchToString(match)
           : undefined,
-      iterable: undefined as unknown as Promise<AsyncIterable<string> | Nested>
+      iterable: undefined
     };
     node.iterable = this.#runSlot(node, match, matchIndex, streamIndices);
     return node;
@@ -285,7 +286,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       this._sink!.enqueue(slot.value);
       return;
     }
-    const result = await slot.iterable;
+    const result = await slot.iterable!;
     if (this.#options.abandonPendingSignal?.aborted) {
       if (!(result instanceof Nested)) {
         const iter = result[Symbol.asyncIterator]() as AsyncIterator<string>;

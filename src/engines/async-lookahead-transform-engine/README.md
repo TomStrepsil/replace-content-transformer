@@ -51,6 +51,9 @@ const transformer = new AsyncReplaceContentTransformer(
 
 See the [full usage examples](../../README.md#-pipelined-async-replacement-with-asynclookaheadtransformengine) in the main README.
 
+> [!NOTE]
+> When a child engine errors, any chunks it had already enqueued into its internal buffer are yielded to the outer drain loop before the error is thrown. The outer stream may therefore emit partial output before the rejection surfaces — this is intentional, preserving the "emit what you have" semantics consistent with the rest of the drain loop.
+
 ### Comparators
 
 - **`streamOrder`** (default) — dispatches earlier-in-output-stream work first, via lowest-common-ancestor in the slot tree. Best when users see output progressively and earlier chunks matter more.

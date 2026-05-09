@@ -4,8 +4,7 @@ import { AsyncSerialReplacementTransformEngine } from "../../engines/async-seria
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
 import { startTestHttpServer, streamToString } from "../../../test/utilities.js";
 import { AsyncReplaceContentTransformer } from "./async-transformer.js";
-import { AsyncLookaheadTransformEngine } from "../../engines/async-lookahead-transform-engine/engine.js";
-import { SemaphoreStrategy } from "../../engines/async-lookahead-transform-engine/concurrency-strategy/semaphore-strategy.js";
+import { AsyncLookaheadTransformEngine, SemaphoreStrategy } from "../../engines/index.js";
 import {
   asyncIterable,
   mockSearchStrategyFactory,
@@ -169,11 +168,12 @@ describe("AsyncReplaceContentTransformer + AsyncSerialReplacementTransformEngine
 
 // Engine behaviour (scan/schedule/drain, nested re-scanning, backpressure,
 // error forwarding, replacement-arg pass-through) is verified directly in
-// `src/lookahead/engine.test.ts`. These tests cover only the adapter wiring:
-// mapping the WHATWG Transformer lifecycle onto LookaheadTransformEngine and
-// forwarding emissions to the TransformStreamDefaultController.
+// `src/engines/async-lookahead-transform-engine/engine.test.ts`. These tests
+// cover only the adapter wiring: mapping the WHATWG Transformer lifecycle onto
+// AsyncLookaheadTransformEngine and forwarding emissions to the
+// TransformStreamDefaultController.
 
-describe("AsyncReplaceContentTransformer + LookaheadTransformEngine (web adapter)", () => {
+describe("AsyncReplaceContentTransformer + AsyncLookaheadTransformEngine (web adapter)", () => {
   it("forwards engine emissions to controller.enqueue", async () => {
     const strategy = mockSearchStrategyFactory(
       { isMatch: false, content: "a" },

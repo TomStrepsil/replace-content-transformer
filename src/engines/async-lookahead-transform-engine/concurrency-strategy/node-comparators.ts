@@ -10,16 +10,6 @@ import type { IterableSlotNode } from "../slot-tree/types.ts";
  */
 export type NodeComparator = (a: IterableSlotNode, b: IterableSlotNode) => number;
 
-function depth(node: IterableSlotNode): number {
-  let count = 0;
-  let current: IterableSlotNode | null = node;
-  while (current !== null) {
-    count++;
-    current = current.parent;
-  }
-  return count;
-}
-
 /**
  * Compare by tree depth — shallower nodes (closer to root) first.
  *
@@ -32,7 +22,7 @@ function depth(node: IterableSlotNode): number {
  * the scheduler starts nested work.
  */
 export const breadthFirst: NodeComparator = (a, b) => {
-  const depthDelta = depth(a) - depth(b);
+  const depthDelta = a.depth - b.depth;
   if (depthDelta !== 0) return depthDelta;
   return a.siblingIndex - b.siblingIndex;
 };
@@ -45,16 +35,17 @@ export const breadthFirst: NodeComparator = (a, b) => {
  * together until they share a parent, and compare sibling indices at
  * that level.
  *
- * Complexity O(depth), typically O(3–10). Best default when
- * earlier-in-stream content matters more than later content.
+ * Depth is an O(1) field read; the LCA walk is O(min(depthA, depthB)),
+ * typically O(3–10). Best default when earlier-in-stream content matters
+ * more than later content.
  */
 export const streamOrder: NodeComparator = (a, b) => {
   if (a === b) return 0;
 
   let cursorA: IterableSlotNode = a;
   let cursorB: IterableSlotNode = b;
-  let depthA = depth(a);
-  let depthB = depth(b);
+  let depthA = a.depth;
+  let depthB = b.depth;
 
   // Walk the deeper node up until depths match.
   while (depthA > depthB) {

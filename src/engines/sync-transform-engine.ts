@@ -71,7 +71,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
       }
 
       if (this._stopReplacingSignal?.aborted) {
-        sink.enqueue(result.content as unknown as string);
+        sink.enqueue(this._searchStrategy.matchToString(result.content));
         continue;
       }
 
