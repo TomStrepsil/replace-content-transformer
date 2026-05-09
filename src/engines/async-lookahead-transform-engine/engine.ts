@@ -31,8 +31,8 @@ export type LookaheadReplacementContext = ReplacementContext & {
 /**
  * Default backpressure limit on the internal slot queue. Scanning
  * suspends when this many slots are buffered ahead of the drain loop.
- * Tuned as a compromise between burst throughput and memory usage;
- * override via {@link AsyncLookaheadTransformEngineOptions.highWaterMark}.
+ * Override via {@link AsyncLookaheadTransformEngineOptions.highWaterMark}
+ * if your platform's sub-request ceiling exceeds this.
  */
 export const DEFAULT_HIGH_WATER_MARK = 32;
 

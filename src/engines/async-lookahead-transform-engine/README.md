@@ -77,7 +77,7 @@ When the queue is full, scanning suspends; that pauses upstream pulls — so mem
 
 To opt into unfettered dispatch initiation, use `new SemaphoreStrategy(Infinity)` explicitly.
 
-Pick higher values to absorb burstier input (more pipelining, more memory); lower values to tighten the memory ceiling at the cost of throughput under load. `32` is a compromise suited to typical fragment-fetch workloads.
+Pick higher values to absorb burstier input (more pipelining, more memory); lower values to tighten the memory ceiling. `32` covers typical transclusion use-cases - for example, an Akamai EdgeWorkers `responseProvider` is [capped at 50 total sub-requests and 5 parallel](https://techdocs.akamai.com/edgeworkers/docs/resource-tier-limitations) (Basic/Dynamic tier); a 15-fragment document produces roughly 31 queued slots (text and match interleaved), which fits without scanner stalls. Set `highWaterMark` to your platform's sub-request ceiling if your documents routinely approach it, and pair `SemaphoreStrategy` with the platform's parallel limit.
 
 ## Slot lifetime
 

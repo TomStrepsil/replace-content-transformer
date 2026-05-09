@@ -49,16 +49,7 @@ function pipeThrough(
     }
   })();
   return (async function* () {
-    const reader = readable.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        yield value;
-      }
-    } finally {
-      reader.releaseLock();
-    }
+    yield* readable;
   })();
 }
 
@@ -131,41 +122,49 @@ export const subjects: Subject[] = [
     id: "A_prime",
     label: "Lookahead serial c=1 (A')",
     create: (scenario, wrappedReplacement) =>
-      new AsyncLookaheadTransformEngine({
-        searchStrategy: scenario.createSearchStrategy(),
-        concurrencyStrategy: new SemaphoreStrategy(1),
-        replacement: wrappedReplacement
-      })
+      new AsyncReplaceContentTransformer(
+        new AsyncLookaheadTransformEngine({
+          searchStrategy: scenario.createSearchStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(1),
+          replacement: wrappedReplacement
+        })
+      )
   },
   {
     id: "B",
     label: "Lookahead semaphore c=N (B)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new AsyncLookaheadTransformEngine({
-        searchStrategy: scenario.createSearchStrategy(),
-        concurrencyStrategy: new SemaphoreStrategy(concurrency),
-        replacement: wrappedReplacement
-      })
+      new AsyncReplaceContentTransformer(
+        new AsyncLookaheadTransformEngine({
+          searchStrategy: scenario.createSearchStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(concurrency),
+          replacement: wrappedReplacement
+        })
+      )
   },
   {
     id: "C",
     label: "Lookahead streamOrder c=N (C)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new AsyncLookaheadTransformEngine({
-        searchStrategy: scenario.createSearchStrategy(),
-        concurrencyStrategy: new PriorityQueueStrategy(concurrency, streamOrder),
-        replacement: wrappedReplacement
-      })
+      new AsyncReplaceContentTransformer(
+        new AsyncLookaheadTransformEngine({
+          searchStrategy: scenario.createSearchStrategy(),
+          concurrencyStrategy: new PriorityQueueStrategy(concurrency, streamOrder),
+          replacement: wrappedReplacement
+        })
+      )
   },
   {
     id: "D",
     label: "Lookahead breadthFirst c=N (D)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new AsyncLookaheadTransformEngine({
-        searchStrategy: scenario.createSearchStrategy(),
-        concurrencyStrategy: new PriorityQueueStrategy(concurrency, breadthFirst),
-        replacement: wrappedReplacement
-      })
+      new AsyncReplaceContentTransformer(
+        new AsyncLookaheadTransformEngine({
+          searchStrategy: scenario.createSearchStrategy(),
+          concurrencyStrategy: new PriorityQueueStrategy(concurrency, breadthFirst),
+          replacement: wrappedReplacement
+        })
+      )
   }
 ];
 
@@ -200,9 +199,7 @@ function instrumentReplacement(
 
     return (async function* () {
       try {
-        for await (const chunk of result) {
-          yield chunk;
-        }
+        yield* result;
       } finally {
         timeline.push({ t: getElapsed(), event: "replacement-end", meta: { matchIndex } });
       }
@@ -240,14 +237,11 @@ export async function runSubject(
   const transformer = subject.create(scenario, wrappedReplacement, concurrency);
   const { writable, readable } = new TransformStream(transformer);
   const writer = writable.getWriter();
-  const reader = readable.getReader();
 
   const outputChunks: string[] = [];
 
   const readAll = async () => {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for await (const value of readable) {
       chunkTimes.push(getElapsed());
       timeline.push({ t: chunkTimes[chunkTimes.length - 1], event: "chunk-emitted" });
       outputChunks.push(value);
