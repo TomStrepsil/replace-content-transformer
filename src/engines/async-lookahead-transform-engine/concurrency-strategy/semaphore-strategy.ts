@@ -1,5 +1,4 @@
 import type { ConcurrencyStrategy } from "./types.ts";
-import type { IterableSlotNode } from "../slot-tree/types.ts";
 import { Semaphore } from "./semaphore.ts";
 
 /**
@@ -24,8 +23,7 @@ export class SemaphoreStrategy implements ConcurrencyStrategy {
     this.#semaphore = new Semaphore(concurrency);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async acquire(_node: IterableSlotNode): Promise<() => void> {
+  async acquire(): Promise<() => void> {
     await this.#semaphore.acquire();
     let released = false;
     return () => {

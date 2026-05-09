@@ -8,6 +8,7 @@ export {
   type NodeComparator
 } from "./concurrency-strategy/node-comparators.ts";
 export type {
+  SlotTreeNode,
   IterableSlotNode,
   SlotNode,
   TextSlotNode

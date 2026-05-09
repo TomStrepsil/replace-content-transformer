@@ -1,10 +1,10 @@
 import type { ConcurrencyStrategy } from "./types.ts";
-import type { IterableSlotNode } from "../slot-tree/types.ts";
+import type { SlotTreeNode } from "../slot-tree/types.ts";
 import { MinHeap } from "./min-heap.ts";
 import { streamOrder, type NodeComparator } from "./node-comparators.ts";
 
 interface QueuedAcquire {
-  readonly node: IterableSlotNode;
+  readonly node: SlotTreeNode;
   readonly resolve: (release: () => void) => void;
 }
 
@@ -37,7 +37,7 @@ export class PriorityQueueStrategy implements ConcurrencyStrategy {
     this.#heap = new MinHeap<QueuedAcquire>((a, b) => comparator(a.node, b.node));
   }
 
-  acquire(node: IterableSlotNode): Promise<() => void> {
+  acquire(node: SlotTreeNode): Promise<() => void> {
     return new Promise<() => void>((resolve) => {
       this.#heap.push({ node, resolve });
       this.#tryNext();

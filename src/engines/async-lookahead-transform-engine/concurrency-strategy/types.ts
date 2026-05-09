@@ -1,4 +1,4 @@
-import type { IterableSlotNode } from "../slot-tree/types.ts";
+import type { SlotTreeNode } from "../slot-tree/types.ts";
 
 /**
  * Controls when (and in what order) iterable slot work is dispatched,
@@ -13,5 +13,5 @@ import type { IterableSlotNode } from "../slot-tree/types.ts";
  * or replacement-fn rejection). `release()` is idempotent.
  */
 export interface ConcurrencyStrategy {
-  acquire(node: IterableSlotNode): Promise<() => void>;
+  acquire(node: SlotTreeNode): Promise<() => void>;
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { AsyncLookaheadTransformEngine } from "./engine.ts";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
-import type { IterableSlotNode } from "./slot-tree/types.ts";
+import type { SlotTreeNode, IterableSlotNode } from "./slot-tree/types.ts";
 import { nested } from "./nested.ts";
 import type { EngineSink } from "../types.ts";
 import {
@@ -183,7 +183,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("hands each match's slot to the concurrency strategy with a null parent at the root", async () => {
-      const scheduled: IterableSlotNode[] = [];
+      const scheduled: SlotTreeNode[] = [];
       const spy: ConcurrencyStrategy = {
         async acquire(node) {
           scheduled.push(node);
@@ -436,7 +436,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("does not store getOriginalContent on slot nodes when no signal is provided", async () => {
-      const scheduled: IterableSlotNode[] = [];
+      const scheduled: SlotTreeNode[] = [];
       const spy: ConcurrencyStrategy = {
         async acquire(node) {
           scheduled.push(node);
@@ -453,7 +453,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         concurrencyStrategy: spy
       });
       await runEngine(engine, sink, ["M"]);
-      expect(scheduled[0].getOriginalContent).toBeUndefined();
+      expect((scheduled[0] as IterableSlotNode).getOriginalContent).toBeUndefined();
     });
 
     it("calls matchToString to derive getOriginalContent stored on each slot node", async () => {
@@ -543,7 +543,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("attaches nested match slots to the parent slot in the slot tree", async () => {
-      const scheduled: IterableSlotNode[] = [];
+      const scheduled: SlotTreeNode[] = [];
       const spy: ConcurrencyStrategy = {
         async acquire(node) {
           scheduled.push(node);

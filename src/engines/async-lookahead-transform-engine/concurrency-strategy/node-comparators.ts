@@ -1,21 +1,21 @@
-import type { IterableSlotNode } from "../slot-tree/types.ts";
+import type { SlotTreeNode } from "../slot-tree/types.ts";
 
 /**
- * A comparison function over two {@link IterableSlotNode}s, following the
+ * A comparison function over two {@link SlotTreeNode}s, following the
  * {@link Array.prototype.sort} convention:
  *
  * - negative if `a` has higher priority (should dispatch before `b`)
  * - positive if `b` has higher priority
  * - zero if equivalent
  */
-export type NodeComparator = (a: IterableSlotNode, b: IterableSlotNode) => number;
+export type NodeComparator = (a: SlotTreeNode, b: SlotTreeNode) => number;
 
 /**
  * Compare by tree depth — shallower nodes (closer to root) first.
  *
  * All level-N slots dispatch before any level-N+1 slot, regardless of
  * their position in the output stream. Ties (equal depth) are broken by
- * {@link IterableSlotNode.siblingIndex}.
+ * {@link SlotTreeNode.siblingIndex}.
  *
  * Useful when the input has many independent sibling sections of equal
  * weight and you want all sources to begin work simultaneously before
@@ -42,8 +42,8 @@ export const breadthFirst: NodeComparator = (a, b) => {
 export const streamOrder: NodeComparator = (a, b) => {
   if (a === b) return 0;
 
-  let cursorA: IterableSlotNode = a;
-  let cursorB: IterableSlotNode = b;
+  let cursorA: SlotTreeNode = a;
+  let cursorB: SlotTreeNode = b;
   let depthA = a.depth;
   let depthB = b.depth;
 

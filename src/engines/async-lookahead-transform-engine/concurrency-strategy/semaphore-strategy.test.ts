@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SemaphoreStrategy } from "./semaphore-strategy.ts";
-import {
-  createIterableSlotNode,
-  settleMicrotasks
-} from "../../../../test/utilities.ts";
+import { settleMicrotasks } from "../../../../test/utilities.ts";
 
 describe("SemaphoreStrategy", () => {
   it("rejects concurrency < 1", () => {
@@ -12,18 +9,18 @@ describe("SemaphoreStrategy", () => {
 
   it("acquire() resolves to a release function when capacity is available", async () => {
     const strategy = new SemaphoreStrategy(2);
-    const release = await strategy.acquire(createIterableSlotNode(0, null));
+    const release = await strategy.acquire();
     expect(typeof release).toBe("function");
     release();
   });
 
   it("blocks acquire() once the limit is saturated, and unblocks on release", async () => {
     const strategy = new SemaphoreStrategy(1);
-    const releaseFirst = await strategy.acquire(createIterableSlotNode(0, null));
+    const releaseFirst = await strategy.acquire();
 
     let secondAcquired = false;
     const secondPromise = strategy
-      .acquire(createIterableSlotNode(1, null))
+      .acquire()
       .then((release) => {
         secondAcquired = true;
         return release;
@@ -39,11 +36,11 @@ describe("SemaphoreStrategy", () => {
 
   it("dispatches pending acquires in FIFO order", async () => {
     const strategy = new SemaphoreStrategy(1);
-    const held = await strategy.acquire(createIterableSlotNode(0, null));
+    const held = await strategy.acquire();
 
     const order: number[] = [];
     const releases = [1, 2, 3].map((i) =>
-      strategy.acquire(createIterableSlotNode(i, null)).then((release) => {
+      strategy.acquire().then((release) => {
         order.push(i);
         return release;
       })
@@ -61,14 +58,14 @@ describe("SemaphoreStrategy", () => {
 
   it("release is idempotent", async () => {
     const strategy = new SemaphoreStrategy(1);
-    const release = await strategy.acquire(createIterableSlotNode(0, null));
+    const release = await strategy.acquire();
     release();
     release(); // should not add capacity beyond the original limit
 
-    const next = await strategy.acquire(createIterableSlotNode(1, null));
+    const next = await strategy.acquire();
     let extraAcquired = false;
     void strategy
-      .acquire(createIterableSlotNode(2, null))
+      .acquire()
       .then(() => (extraAcquired = true));
 
     await settleMicrotasks(3);

@@ -1,6 +1,19 @@
 import { SLOT_KIND } from "./constants.ts";
 
 /**
+ * The tree-position descriptor for an iterable slot.
+ *
+ * This is the type exposed to {@link ConcurrencyStrategy} implementors and
+ * {@link NodeComparator} authors — it contains exactly the fields needed to
+ * determine scheduling order and nothing about the slot's content.
+ */
+export interface SlotTreeNode {
+  readonly siblingIndex: number;
+  readonly depth: number;
+  readonly parent: SlotTreeNode | null;
+}
+
+/**
  * A passthrough slot — a literal string that appears in the output at a
  * fixed position in the stream order.
  *
@@ -22,25 +35,28 @@ import type { Nested } from "../nested.ts";
  * {@link Nested} marker signalling that the replacement's output should
  * be re-scanned by a child transformer.
  *
+ * Extends {@link SlotTreeNode} with the engine-internal fields for content
+ * production. The `ConcurrencyStrategy` receives only the {@link SlotTreeNode}
+ * projection; `iterable` and `getOriginalContent` are not part of the
+ * scheduling contract.
+ *
  * The `iterable` promise is resolved by the engine once the
  * `ConcurrencyStrategy` has granted a slot and the replacement function
  * has returned. The slot itself is held through the iterable's
  * production (released when the producer pulls `done: true`), or
  * released immediately on `Nested` handoff or replacement-fn rejection.
  */
-export interface IterableSlotNode {
+export interface IterableSlotNode extends SlotTreeNode {
   readonly kind: typeof SLOT_KIND.iterable;
-  readonly siblingIndex: number;
-  readonly parent: IterableSlotNode | null;
   /** Lazily produces the original match text; called by the drain loop only if abandonPendingSignal is aborted. */
   readonly getOriginalContent?: () => string;
   /**
-   * Set by the engine immediately after the node is constructed.
-   * Never read before `iterable` is assigned, but typed as possibly
-   * `undefined` to satisfy the staged construction (the engine needs
-   * the node reference to wire the promise that depends on it).
+   * Assigned by the engine immediately after construction. `undefined` only
+   * during the two-statement staged init in `#scheduleMatch` (the node
+   * reference is needed to wire the promise that depends on it). Never
+   * read before assignment.
    */
-  iterable: Promise<AsyncIterable<string> | Nested>;
+  iterable: Promise<AsyncIterable<string> | Nested> | undefined;
 }
 
 export type SlotNode = TextSlotNode | IterableSlotNode;
