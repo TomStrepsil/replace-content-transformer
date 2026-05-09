@@ -11,7 +11,7 @@ import type { TransformEngine } from "../../engines/types.js";
  * UTF-8) to recover the string. Non-UTF-8 byte streams will be
  * mis-decoded.
  */
-export abstract class ReplaceContentTransformBase<T> extends Transform {
+export abstract class TransformBase<T> extends Transform {
   protected readonly _engine: TransformEngine<T>;
 
   constructor(engine: TransformEngine<T>, options?: TransformOptions) {

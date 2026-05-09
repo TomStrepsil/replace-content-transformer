@@ -2,21 +2,21 @@ import { describe, it, expect } from "vitest";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
-import { AsyncLookaheadTransformEngine } from "../../engines/async-lookahead-transform-engine/engine.js";
+import { AsyncLookaheadTransformEngine, SemaphoreStrategy } from "../../engines/index.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
-import { SemaphoreStrategy } from "../../engines/async-lookahead-transform-engine/concurrency-strategy/semaphore-strategy.js";
 
 // Engine behaviour (scan/schedule/drain, nested re-scanning, backpressure,
 // error forwarding, in-order output) is verified directly in
-// `src/lookahead/engine.test.ts`. These tests cover only the Node-adapter
-// specifics: Buffer decoding, `'error'` event emission via destroy(), and
-// `highWaterMark` forwarding onto the underlying stream.Transform.
+// `src/engines/async-lookahead-transform-engine/engine.test.ts`. These tests
+// cover only the Node-adapter specifics: Buffer decoding, `'error'` event
+// emission via destroy(), and `highWaterMark` forwarding onto the underlying
+// stream.Transform.
 
 function sourceOf(...chunks: (string | Buffer)[]): Readable {
   return Readable.from(chunks, { objectMode: true });
 }
 
-describe("AsyncReplaceContentTransform + LookaheadTransformEngine (Node adapter)", () => {
+describe("AsyncReplaceContentTransform + AsyncLookaheadTransformEngine (Node adapter)", () => {
   it("decodes incoming Buffer chunks as UTF-8", async () => {
     const transform = new AsyncReplaceContentTransform(
       new AsyncLookaheadTransformEngine({

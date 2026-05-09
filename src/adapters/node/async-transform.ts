@@ -1,21 +1,21 @@
 import type { TransformCallback, TransformOptions } from "node:stream";
-import { ReplaceContentTransformBase } from "./transform-base.js";
+import { TransformBase } from "./transform-base.js";
 import type { AsyncTransformEngine } from "../../engines/types.js";
 
 /**
  * An asynchronous Transform stream for Node.js that replaces content in streaming text.
  *
- * Wraps any {@link AsyncTransformEngine} (e.g. `AsyncSerialTransformEngine` or
- * `LookaheadTransformEngine`) as a native `stream.Transform`. Use with `.pipe()`
- * or `stream.pipeline()`.
+ * Wraps any {@link AsyncTransformEngine} (e.g. `AsyncSerialReplacementTransformEngine`
+ * or `AsyncLookaheadTransformEngine`) as a native `stream.Transform`. Use with
+ * `.pipe()` or `stream.pipeline()`.
  *
  * @example
  * ```typescript
  * import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
- * import { AsyncSerialTransformEngine } from "replace-content-transformer";
+ * import { AsyncSerialReplacementTransformEngine } from "replace-content-transformer";
  *
  * const transform = new AsyncReplaceContentTransform(
- *   new AsyncSerialTransformEngine({
+ *   new AsyncSerialReplacementTransformEngine({
  *     searchStrategy,
  *     replacement: async (match) => (await kv.get(match)) ?? ""
  *   })
@@ -27,7 +27,7 @@ import type { AsyncTransformEngine } from "../../engines/types.js";
  * @example Lookahead replacement
  * ```typescript
  * const transform = new AsyncReplaceContentTransform(
- *   new LookaheadTransformEngine({
+ *   new AsyncLookaheadTransformEngine({
  *     searchStrategy,
  *     concurrencyStrategy: new SemaphoreStrategy(8),
  *     replacement: async (match) => {
@@ -38,7 +38,7 @@ import type { AsyncTransformEngine } from "../../engines/types.js";
  * );
  * ```
  */
-export class AsyncReplaceContentTransform extends ReplaceContentTransformBase<
+export class AsyncReplaceContentTransform extends TransformBase<
   Promise<void>
 > {
   readonly #engine: AsyncTransformEngine;
