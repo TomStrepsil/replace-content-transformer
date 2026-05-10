@@ -38,7 +38,7 @@ export function callbackHarnessTransformer(processor: {
   processChunk(chunk: string, enqueue: (out: string) => void): void;
   flush(): string;
 }) {
-  let enqueue: (out: string) => void;
+  let enqueue: ((out: string) => void) | undefined;
   return {
     transform(chunk: string, controller: EngineSink) {
       if (!enqueue) enqueue = (out) => controller.enqueue(out);
@@ -70,18 +70,17 @@ export function legacyHarnessTransformer(transformer: {
   transform(chunk: string, controller: { enqueue(chunk: string): void }): void;
   flush(controller: { enqueue(chunk: string): void }): void;
 }) {
-  let controller: { enqueue(chunk: string): void };
-  function ensureController(sink: EngineSink) {
+  let controller: { enqueue(chunk: string): void } | undefined;
+  function ensureController(sink: EngineSink): { enqueue(chunk: string): void } {
     if (!controller) controller = { enqueue: (c) => sink.enqueue(c) };
+    return controller;
   }
   return {
     transform(chunk: string, sink: EngineSink) {
-      ensureController(sink);
-      transformer.transform(chunk, controller);
+      transformer.transform(chunk, ensureController(sink));
     },
     flush(sink: EngineSink) {
-      ensureController(sink);
-      transformer.flush(controller);
+      transformer.flush(ensureController(sink));
     }
   };
 }
