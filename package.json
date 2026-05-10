@@ -99,7 +99,7 @@
     "bench": "npm run bench:node -w test/benchmarks",
     "bench:runtimes": "npm run bench:runtimes -w test/benchmarks",
     "bench:algorithms": "npm run bench:algorithms -w test/benchmarks",
-    "bench:lookahead-strategies": "npm run bench:lookahead-strategies -w test/benchmarks",
+    "bench:lookahead-engine": "npm run bench:lookahead-engine -w test/benchmarks",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prepare": "simple-git-hooks"
