@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `stopReplacingSignal` has moved into engine options (`SyncReplacementTransformEngineOptions`, `AsyncSerialReplacementTransformEngineOptions`, `AsyncLookaheadTransformEngineOptions`).
 - **BREAKING:** `SyncReplacementTransformEngineOptions` (nee `FunctionReplacementProcessor`) no longer accepts a `Promise<string>` replacement type; its replacement function must now return `string`. The previous pattern of enqueuing promises onto the stream for downstream `await` has been superseded by `AsyncLookaheadTransformEngine`, which provides pipelined async replacement with in-order output and bounded concurrency. Consequently:
   - `ReplaceContentTransformer` drops its `T extends string | Promise<string>` type parameter; it is now typed `void`
-  - Migration: replace `new ReplaceContentTransformer<Promise<string>>(new FunctionReplacementProcessor<Promise<string>>({...}))` with `new AsyncReplaceContentTransformer(new AsyncLookaheadTransformEngine({...}))` — `AsyncReplaceContentTransformer` from `replace-content-transformer/web`, `AsyncLookaheadTransformEngine` from `replace-content-transformer`.
+  - Migration: see [codemods](../codemods/transforms/v1-v2/README.md)
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
