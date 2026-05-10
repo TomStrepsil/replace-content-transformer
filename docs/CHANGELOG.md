@@ -12,12 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Replacement callbacks now receive `match` as the first parameter and `context` as the second: `(match, context: ReplacementContext) => ...`
 - **BREAKING:** Made Node minimum version 22 (LTS)
   - support for `import.meta.dirname` required Node 20+, and the project baseline was aligned to Node 22 LTS, to allow use of [`Promise.withResolvers`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers)
-- **BREAKING:** `FunctionReplacementProcessor` no longer accepts a `Promise<string>` replacement type; its replacement function must now return `string`. The previous pattern of enqueuing promises onto the stream for downstream `await` has been superseded by `AsyncLookaheadTransformEngine`, which provides pipelined async replacement with in-order output and bounded concurrency. Consequently:
-  - `FunctionReplacementProcessor` drops its third `R extends string | Promise<string>` type parameter.
-  - `ReplaceContentTransformer` drops its `T extends string | Promise<string>` type parameter; output is always `string`.
-  - `SyncProcessor` drops its `T` type parameter.
+- **BREAKING:** `ReplaceContentTransformer` and `AsyncReplaceContentTransformer` (web) and `ReplaceContentTransform` and `AsyncReplaceContentTransform` (Node) now accept an engine as their sole constructor argument, replacing the former `(processor, stopReplacingSignal?)` signature; see "added" below
+  - `stopReplacingSignal` has moved into engine options (`SyncReplacementTransformEngineOptions`, `AsyncSerialReplacementTransformEngineOptions`, `AsyncLookaheadTransformEngineOptions`).
+- **BREAKING:** `SyncReplacementTransformEngineOptions` (nee `FunctionReplacementProcessor`) no longer accepts a `Promise<string>` replacement type; its replacement function must now return `string`. The previous pattern of enqueuing promises onto the stream for downstream `await` has been superseded by `AsyncLookaheadTransformEngine`, which provides pipelined async replacement with in-order output and bounded concurrency. Consequently:
+  - `ReplaceContentTransformer` drops its `T extends string | Promise<string>` type parameter; it is now typed `void`
   - Migration: replace `new ReplaceContentTransformer<Promise<string>>(new FunctionReplacementProcessor<Promise<string>>({...}))` with `new AsyncReplaceContentTransformer(new AsyncLookaheadTransformEngine({...}))` — `AsyncReplaceContentTransformer` from `replace-content-transformer/web`, `AsyncLookaheadTransformEngine` from `replace-content-transformer`.
-- **BREAKING:** `ReplaceContentTransformer` and `AsyncReplaceContentTransformer` (web) and `ReplaceContentTransform` and `AsyncReplaceContentTransform` (Node) now accept an engine as their sole constructor argument, replacing the former `(processor, stopReplacingSignal?)` signature. `stopReplacingSignal` has moved into engine options (`SyncReplacementTransformEngineOptions`, `AsyncSerialReplacementTransformEngineOptions`, `AsyncLookaheadTransformEngineOptions`).
 - Updated `regex-partial-match` to [v0.3.0](https://github.com/TomStrepsil/regex-partial-match/releases/tag/v0.3.0)
 - Updated eslint config to use [`projectService`](https://typescript-eslint.io/blog/project-service/) for improved typescript integration
 - Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
@@ -54,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PriorityQueueStrategy` — heap-backed, slot-tree-aware, pairs with a `NodeComparator` to order queued work across nesting levels
 - Two built-in comparators for `PriorityQueueStrategy`: `streamOrder` (earlier-in-output-stream first, via LCA) and `breadthFirst` (shallower first, siblingIndex tie-break)
 - Supporting types for custom `ConcurrencyStrategy` implementations: `SlotTreeNode`, `IterableSlotNode`, `TextSlotNode`, `SlotNode`, `NodeComparator`
+
+### Removed
+
+- Replacement processors and `SyncProcessor` / `AsyncProcessor` types, supporting move to "engines" mentioned above
 
 ### Fixed
 

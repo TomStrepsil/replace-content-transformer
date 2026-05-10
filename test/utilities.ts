@@ -195,43 +195,11 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
   };
 }
 
-function mockSyncProcessorFactory(...output: (string | (() => string))[]) {
-  return {
-    processChunk: vi.fn().mockImplementation(function* () {
-      for (const chunk of output) {
-        if (typeof chunk === "function") {
-          yield chunk();
-          continue;
-        }
-        yield chunk;
-      }
-    }),
-    flush: vi.fn().mockReturnValue("")
-  };
-}
-
-function mockAsyncProcessorFactory(...output: (string | (() => string))[]) {
-  return {
-    processChunk: vi.fn().mockImplementation(async function* () {
-      for (const chunk of output) {
-        if (typeof chunk === "function") {
-          yield chunk();
-          continue;
-        }
-        yield chunk;
-      }
-    }),
-    flush: vi.fn().mockReturnValue("")
-  };
-}
-
 export {
   asyncIterable,
   createIterableSlotNode,
   deferred,
-  mockAsyncProcessorFactory,
   mockSearchStrategyFactory,
-  mockSyncProcessorFactory,
   mockTransformStreamDefaultControllerFactory,
   settleMicrotasks,
   startTestHttpServer,
