@@ -1,6 +1,6 @@
 import { SyncReplacementTransformEngine } from "../../src/engines/sync-transform-engine.ts";
 import { syncHarnessTransformer } from "./engine-harness.ts";
-import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
+import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const BufferedIndexOfAnchoredHarness = {

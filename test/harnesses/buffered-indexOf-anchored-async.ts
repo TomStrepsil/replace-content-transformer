@@ -1,6 +1,6 @@
 import { AsyncSerialReplacementTransformEngine } from "../../src/engines/async-serial-transform-engine.ts";
 import { asyncHarnessTransformer } from "./engine-harness.ts";
-import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts"
+import { BufferedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const BufferedIndexOfAnchoredAsyncHarness = {
