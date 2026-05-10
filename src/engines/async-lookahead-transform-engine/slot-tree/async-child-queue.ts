@@ -41,6 +41,7 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
     if (this.#buffer.length >= this.#limit) {
       await new Promise<void>((resolve) => this.#pendingProducers.push(resolve));
     }
+    if (this.#closed) return;
     this.#buffer.push(node);
   }
 
@@ -49,6 +50,9 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
     this.#closed = true;
     while (this.#pendingConsumers.length > 0) {
       this.#pendingConsumers.shift()!({ value: undefined, done: true });
+    }
+    while (this.#pendingProducers.length > 0) {
+      this.#pendingProducers.shift()!();
     }
   }
 

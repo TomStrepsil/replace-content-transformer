@@ -46,16 +46,7 @@ function textSlot(siblingIndex: number, value: string): TextSlotNode {
   return { kind: SLOT_KIND.text, siblingIndex, value };
 }
 
-async function* slotHoldingIterable(
-  source: AsyncIterable<string>,
-  release: () => void
-): AsyncGenerator<string> {
-  try {
-    yield* source;
-  } finally {
-    release();
-  }
-}
+const isDefinedSignal = (s?: AbortSignal): s is AbortSignal => s !== undefined;
 
 /**
  * Async function called for each match to produce its replacement content.
@@ -142,10 +133,13 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   readonly #parent: IterableSlotNode | null;
   readonly #queue: AsyncChildQueue;
   readonly #depth: number;
+  readonly #cancelAbortController: AbortController;
+  readonly #abandonSignal: AbortSignal;
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
   #flushedAfterAbort = false;
+  #cancelled = false;
 
   constructor(
     options: AsyncLookaheadTransformEngineOptions<TState, TMatch>,
@@ -161,8 +155,12 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
      */
     depth: number = 0
   ) {
-    const scanSignals = [options.stopReplacingSignal, options.abandonPendingSignal]
-      .filter((s): s is AbortSignal => s !== undefined);
+    const cancelAbortController = new AbortController();
+    const abandonSignal = AbortSignal.any(
+      [options.abandonPendingSignal, cancelAbortController.signal].filter(isDefinedSignal)
+    );
+    const scanSignals = [options.stopReplacingSignal, abandonSignal]
+      .filter(isDefinedSignal);
     super(
       options.searchStrategy,
       scanSignals.length > 0 ? AbortSignal.any(scanSignals) : undefined
@@ -173,6 +171,21 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     this.#queue = new AsyncChildQueue(
       options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
     );
+    this.#cancelAbortController = cancelAbortController;
+    this.#abandonSignal = abandonSignal;
+  }
+
+  /**
+   * Abort all in-flight work and close the engine without emitting further
+   * output. Any write() suspended on backpressure is unblocked immediately.
+   * Pending replacement iterables are closed via `iter.return()`. Original
+   * match text is not emitted even when `abandonPendingSignal` is configured.
+   * After `cancel()`, `end()` resolves cleanly without hanging.
+   */
+  cancel(): void {
+    this.#cancelled = true;
+    this.#cancelAbortController.abort();
+    this.#queue.close();
   }
 
   /**
@@ -192,6 +205,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * queue is full (backpressure).
    */
   async write(chunk: string): Promise<void> {
+    if (this.#cancelled) return;
     if (this._stopReplacingSignal?.aborted) {
       if (!this.#flushedAfterAbort) {
         this.#flushedAfterAbort = true;
@@ -226,6 +240,10 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * scheduled replacement, so adapters can forward failures.
    */
   override async end(): Promise<void> {
+    if (this.#cancelled) {
+      await this.#drainDone;
+      return;
+    }
     if (!this.#flushedAfterAbort) {
       const tail = this._searchStrategy.flush(this._state);
       if (tail) {
@@ -274,7 +292,13 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       release();
       return result;
     }
-    return slotHoldingIterable(result, release);
+    return (async function* () {
+      try {
+        yield* result;
+      } finally {
+        release();
+      }
+    })();
   }
 
   async #drain(): Promise<void> {
@@ -285,16 +309,17 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   async #emitSlot(slot: SlotNode): Promise<void> {
     if (slot.kind === SLOT_KIND.text) {
-      this._sink.enqueue(slot.value);
+      if (!this.#cancelled) this._sink.enqueue(slot.value);
       return;
     }
     const result = await slot.iterable!;
-    if (this.#options.abandonPendingSignal?.aborted) {
+    if (this.#abandonSignal.aborted) {
       if (!(result instanceof Nested)) {
         const iter = result[Symbol.asyncIterator]() as AsyncIterator<string>;
+        await iter.next();
         await iter.return?.();
       }
-      if (slot.getOriginalContent !== undefined) {
+      if (slot.getOriginalContent !== undefined && !this.#cancelled) {
         this._sink.enqueue(slot.getOriginalContent());
       }
       return;
@@ -326,7 +351,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     };
 
     const child = new AsyncLookaheadTransformEngine<TState, TMatch>(
-      this.#options,
+      { ...this.#options, abandonPendingSignal: this.#abandonSignal },
       parent,
       this.#depth + 1
     );

@@ -95,6 +95,46 @@ describe("AsyncChildQueue", () => {
     expect(result.done).toBe(true);
   });
 
+  it("close() while push is suspended for capacity rejects the producer", async () => {
+    const queue = new AsyncChildQueue(1);
+    await queue.push(textNode("fills-limit"));
+
+    // This push will suspend: buffer is at capacity and no consumer is waiting
+    const blockedPush = queue.push(textNode("blocked"));
+
+    // Let the push reach the await
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Close the queue while the producer is suspended
+    queue.close();
+
+    // The blocked push must resolve (data silently dropped) rather than hang
+    await expect(blockedPush).resolves.toBeUndefined();
+  });
+
+  it("producer unblocked by a consumer is not affected by a subsequent close()", async () => {
+    const queue = new AsyncChildQueue(1);
+    await queue.push(textNode("a"));
+
+    // Will suspend on capacity
+    const secondPush = queue.push(textNode("b"));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Consumer frees capacity — producer should wake and complete normally
+    const iter = queue[Symbol.asyncIterator]();
+    await iter.next(); // consumes "a", wakes the blocked push
+
+    await secondPush; // should resolve, not reject
+
+    // Close and drain the rest
+    queue.close();
+    expect((await iter.next()).value).toMatchObject({ value: "b" });
+    expect((await iter.next()).done).toBe(true);
+  });
+
   it("supports multiple sequential push/consume cycles", async () => {
     const queue = new AsyncChildQueue(1);
     const iter = queue[Symbol.asyncIterator]();
