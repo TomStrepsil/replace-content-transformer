@@ -1,4 +1,3 @@
-export { TransformEngineBase } from "./transform-engine-base.js";
 export { SyncReplacementTransformEngine } from "./sync-transform-engine.js";
 export type { SyncReplacementTransformEngineOptions, SyncReplacementFn } from "./sync-transform-engine.js";
 export { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.js";
