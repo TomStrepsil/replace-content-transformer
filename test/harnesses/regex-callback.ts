@@ -1,27 +1,29 @@
-import { ReplaceContentTransformerCallback } from "../../src/adapters/web/benchmarking/sync-transformer-callback.ts";
+import { callbackHarnessTransformer } from "./engine-harness.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
 import { RegexCallbackSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
 
 export const RegexCallbackHarness = {
   name: "Regex Callback",
   isAsync: false,
-  isStateful: true,
   createSearchStrategy: ({
-    tokens: [startToken, endToken],
-    replacement
+    tokens: [startToken, endToken]
   }: {
     tokens: string[];
-    replacement: (match: string, context: ReplacementContext) => string;
-  }) => {
-    const needle = new RegExp(
+  }) => ({
+    // contrived, to ensure one-time construction overhead of regexes
+    needle: new RegExp(
       `${RegExp.escape(startToken)}.*?${RegExp.escape(endToken)}`,
       "gs"
-    );
-    return new RegexCallbackSearchStrategy(replacement, needle);
-  },
+    )
+  }),
   createTransformer: ({
-    strategy
+    strategy,
+    replacement
   }: {
-    strategy: RegexCallbackSearchStrategy;
-  }) => new ReplaceContentTransformerCallback(strategy)
+    strategy: { needle: RegExp };
+    replacement: (match: string, context: ReplacementContext) => string;
+  }) =>
+    callbackHarnessTransformer(
+      new RegexCallbackSearchStrategy(replacement, strategy.needle)
+    )
 };

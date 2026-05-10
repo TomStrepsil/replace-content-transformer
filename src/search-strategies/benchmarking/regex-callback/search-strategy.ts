@@ -1,8 +1,7 @@
-import type { SyncCallbackProcessor } from "../../../replacement-processors/benchmarking/types.js";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
+import type { ReplacementContext } from "../../../engines/types.ts";
 import createPartialMatchRegex from "regex-partial-match";
 
-export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {
+export class RegexCallbackSearchStrategy {
   private partialChunk: string;
   private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
@@ -29,18 +28,14 @@ export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {
     this.currentChunkBaseOffset = this.totalStreamOffset - bufferLength;
     chunk = this.partialChunk + chunk;
     this.partialChunk = "";
-    // lastIndex is the index of the first character after the last substitution.
     this.lastIndex = 0;
     this.replacementDelta = 0;
     const originalLength = chunk.length;
     chunk = chunk.replace(this.openRegex, this.replaceTag.bind(this));
-    // Regular expression for an incomplete template at the end of a string.
-    // Avoid looking at any characters that have already been substituted.
     this.partialAtEndRegex.lastIndex = this.lastIndex;
     this.lastIndex = undefined;
     const match = this.partialAtEndRegex.exec(chunk);
     if (match) {
-      // cache the end and enqueue the front
       this.partialChunk = chunk.substring(match.index);
       chunk = chunk.substring(0, match.index);
     }
@@ -55,8 +50,7 @@ export class RegexCallbackSearchStrategy implements SyncCallbackProcessor {
   private replaceTag(match: string, ...args: unknown[]): string {
     // NOTE: This benchmark strategy assumes offset is args.at(-2), i.e.
     // (match, ...captures, offset, string). This is intentionally simplified
-    // for harness brevity and does not handle named groups
-    // (match, ...captures, offset, string, namedGroups), where offset is -3.
+    // for harness brevity and does not handle named groups.
     const numericOffset = args.at(-2) as number;
     const transformedOffset = numericOffset + this.replacementDelta;
 

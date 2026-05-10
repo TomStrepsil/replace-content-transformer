@@ -1,37 +1,44 @@
-import { ReplaceContentTransformBase } from "./transform-base.js";
-import type { SyncProcessor } from "../../replacement-processors/types.js";
+import type { TransformCallback, TransformOptions } from "node:stream";
+import { TransformBase } from "./transform-base.js";
+import type { SyncTransformEngine } from "../../engines/types.js";
 
 /**
  * A synchronous Transform stream for Node.js that replaces content in streaming text.
- * 
- * This adapter integrates replacement processors with Node.js native streams,
- * providing a Transform stream that can be used with `.pipe()` or `.pipeline()`.
- * 
+ *
+ * Wraps any {@link SyncTransformEngine} (e.g. `SyncReplacementTransformEngine`)
+ * as a native `stream.Transform`. Use with `.pipe()` or `stream.pipeline()`.
+ *
  * @example
  * ```typescript
  * import { ReplaceContentTransform } from "replace-content-transformer/node";
- * import { StaticReplacementProcessor } from "replace-content-transformer";
- * 
+ * import { SyncReplacementTransformEngine } from "replace-content-transformer";
+ *
  * const transform = new ReplaceContentTransform(
- *   new StaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
+ *   new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" })
  * );
- * 
+ *
  * readableStream.pipe(transform).pipe(writableStream);
  * ```
  */
-export class ReplaceContentTransform extends ReplaceContentTransformBase {
-  protected processor: SyncProcessor;
+export class ReplaceContentTransform extends TransformBase<void> {
+  readonly #engine: SyncTransformEngine;
 
-  constructor(processor: SyncProcessor) {
-    super({
-      transform: (chunk, _, callback) => {
-        for (const output of this.processor.processChunk(chunk.toString())) {
-          this.push(output);
-        }
-        callback();
-      },
-      flush: (callback) => this.flush(callback)
-    });
-    this.processor = processor;
+  constructor(engine: SyncTransformEngine, options?: TransformOptions) {
+    super(engine, options);
+    this.#engine = engine;
+  }
+
+  override _transform(
+    chunk: Buffer,
+    _encoding: string,
+    callback: TransformCallback
+  ): void {
+    this.#engine.write(chunk.toString());
+    callback();
+  }
+
+  override _flush(callback: TransformCallback): void {
+    this.#engine.end();
+    callback();
   }
 }

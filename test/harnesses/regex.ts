@@ -1,9 +1,6 @@
-import {
-  FunctionReplacementProcessor,
-  RegexSearchStrategy
-} from "../../src/index.ts";
-import { ReplaceContentTransformer } from "../../src/adapters/web/index.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import { RegexSearchStrategy, SyncReplacementTransformEngine } from "../../src/index.ts";
+import { syncHarnessTransformer } from "./engine-harness.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const RegexHarness = {
   name: "Regex",
@@ -24,8 +21,8 @@ export const RegexHarness = {
     strategy: RegexSearchStrategy;
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    new ReplaceContentTransformer(
-      new FunctionReplacementProcessor({
+    syncHarnessTransformer(
+      new SyncReplacementTransformEngine({
         searchStrategy: strategy,
         replacement: (match, context) => replacement(match[0], context)
       })

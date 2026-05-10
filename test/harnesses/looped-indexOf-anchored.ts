@@ -1,7 +1,7 @@
-import { ReplaceContentTransformer } from "../../src/adapters/web/sync-transformer.ts";
-import { FunctionReplacementProcessor } from "../../src/index.ts";
+import { SyncReplacementTransformEngine } from "../../src/engines/sync-transform-engine.ts";
+import { syncHarnessTransformer } from "./engine-harness.ts";
 import { LoopedIndexOfAnchoredSearchStrategy } from "../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
-import type { ReplacementContext } from "../../src/replacement-processors/replacement-processor.base.ts";
+import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const LoopedIndexOfAnchoredHarness = {
   name: "Looped IndexOf Anchored",
@@ -21,8 +21,8 @@ export const LoopedIndexOfAnchoredHarness = {
     strategy: LoopedIndexOfAnchoredSearchStrategy;
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
-    new ReplaceContentTransformer(
-      new FunctionReplacementProcessor({
+    syncHarnessTransformer(
+      new SyncReplacementTransformEngine({
         searchStrategy: strategy,
         replacement
       })

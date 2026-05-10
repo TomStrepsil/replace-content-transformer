@@ -1555,4 +1555,22 @@ describe("RegexSearchStrategy", () => {
       expect(match2).toMatchObject({ streamIndices: [6, 11] });
     });
   });
+
+  describe("matchToString", () => {
+    it("returns the full matched string (match[0])", () => {
+      const strategy = new RegexSearchStrategy(/hello/);
+      const state = strategy.createState();
+      const results = [...strategy.processChunk("say hello world", state)];
+      const match = results.find((r) => r.isMatch)!;
+      expect(strategy.matchToString(match.content)).toBe("hello");
+    });
+
+    it("returns the full match, not a capture group", () => {
+      const strategy = new RegexSearchStrategy(/(\w+)@(\w+)/);
+      const state = strategy.createState();
+      const results = [...strategy.processChunk("user@example", state)];
+      const match = results.find((r) => r.isMatch)!;
+      expect(strategy.matchToString(match.content)).toBe("user@example");
+    });
+  });
 });

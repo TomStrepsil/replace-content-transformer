@@ -14,7 +14,10 @@
     "bench:algorithms": "node --import tsx algorithm/comparison.bench.ts",
     "bench:algorithms:json": "./algorithm/run.sh",
     "bench:algorithms:json:succinct": "./algorithm/run-succinct.sh",
-    "bench:algorithms:visualise": "node --import tsx algorithm/visualise-results.ts"
+    "bench:algorithms:visualise": "node --import tsx algorithm/visualise-results.ts",
+    "bench:lookahead-engine": "./lookahead-engine/run.sh",
+    "bench:lookahead-engine:timeline": "./lookahead-engine/run.sh --timeline",
+    "bench:lookahead-engine:scenario": "./lookahead-engine/run.sh --scenario"
   },
   "devDependencies": {
     "mitata": "^1.0.10",

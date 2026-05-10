@@ -1,71 +1,32 @@
-import { ReplaceContentTransformerBase } from "./transformer-base.js";
-import type { SyncProcessor } from "../../replacement-processors/types.js";
+import type { SyncTransformEngine } from "../../index.js";
+import { TransformerBase } from "./transformer-base.js";
 
 /**
- * A synchronous transformer for the WHATWG Streams API that replaces content in streaming text.
+ * A synchronous transformer for the WHATWG Streams API that replaces
+ * content in streaming text.
  *
- * @typeParam T - The output type of the transformer. Use `string` (default) for synchronous replacements,
- *                or `Promise<string>` when using FunctionReplacementProcessor with async replacement functions
- *                to enable early discovery of matches while async operations are in flight.
+ * Accepts any {@link SyncTransformEngine} — use
+ * {@link SyncReplacementTransformEngine} for string, iterable, or static
+ * replacements.
+ *
+ * For async replacement use cases, see {@link AsyncReplaceContentTransformer}.
  *
  * @example
  * ```typescript
- * // Default string output
- * const transformer = new ReplaceContentTransformer(
- *   new StaticReplacementProcessor({ searchStrategy, replacement: "NEW" })
- * );
+ * import { SyncReplacementTransformEngine } from 'replace-content-transformer';
+ * import { ReplaceContentTransformer } from 'replace-content-transformer/web';
  *
- * // Promise<string> output for early discovery
- * const transformer = new ReplaceContentTransformer<Promise<string>>(
- *   new FunctionReplacementProcessor<Promise<string>>({
- *     searchStrategy,
- *     replacement: async (match) => await fetch(`/api/${match}`)
- *   })
+ * const transformer = new ReplaceContentTransformer(
+ *   new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" })
  * );
+ * const stream = new TransformStream(transformer);
  * ```
  */
-export class ReplaceContentTransformer<
-  T extends string | Promise<string> = string
-> extends ReplaceContentTransformerBase<T> {
-  protected processor: SyncProcessor<T>;
-  #stopReplacingSignal?: AbortSignal;
-  #didFlushAfterAbort = false;
-
-  #flushAfterAbortIfNeeded(
-    controller: TransformStreamDefaultController<T | string>
-  ) {
-    if (this.#didFlushAfterAbort || !this.#stopReplacingSignal?.aborted) {
-      return;
-    }
-
-    this.#didFlushAfterAbort = true;
-    this.flush(controller);
-  }
-
-  constructor(processor: SyncProcessor<T>, stopReplacingSignal?: AbortSignal) {
-    super();
-    this.#stopReplacingSignal = stopReplacingSignal;
-    this.processor = processor;
-  }
-
-  transform(
-    chunk: string,
-    controller: TransformStreamDefaultController<T | string>
-  ) {
-    if (this.#stopReplacingSignal?.aborted) {
-      this.#flushAfterAbortIfNeeded(controller);
-      controller.enqueue(chunk);
-      return;
-    }
-
-    for (const output of this.processor.processChunk(chunk)) {
-      controller.enqueue(output);
-
-      if (this.#stopReplacingSignal?.aborted) {
-        break;
-      }
-    }
-
-    this.#flushAfterAbortIfNeeded(controller);
+export class ReplaceContentTransformer extends TransformerBase<
+  void,
+  SyncTransformEngine
+> {
+  flush(): void {
+    return this._engine.end();
   }
 }

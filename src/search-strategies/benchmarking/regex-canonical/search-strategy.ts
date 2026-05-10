@@ -1,8 +1,7 @@
-import type { Transformer } from "node:stream/web";
-import type { ReplacementContext } from "../../../replacement-processors/replacement-processor.base.js";
+import type { ReplacementContext } from "../../../engines/types.ts";
 
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
-export class RegexReplaceContentTransformer implements Transformer<string> {
+export class RegexReplaceContentTransformer {
   private partialChunk: string;
   private readonly replacement: (match: string, context: ReplacementContext) => string;
   private lastIndex: number | undefined;
@@ -27,7 +26,7 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
 
   transform(
     chunk: string,
-    controller: TransformStreamDefaultController<string>
+    controller: { enqueue(chunk: string): void }
   ) {
     const bufferLength = this.partialChunk.length;
     this.currentChunkBaseOffset = this.totalStreamOffset - bufferLength;
@@ -52,17 +51,16 @@ export class RegexReplaceContentTransformer implements Transformer<string> {
     this.totalStreamOffset += originalLength - bufferLength;
   }
 
-  flush(controller: TransformStreamDefaultController<string>) {
+  flush(controller: { enqueue(chunk: string): void }) {
     if (this.partialChunk.length > 0) {
       controller.enqueue(this.partialChunk);
     }
   }
 
-  replaceTag(match: string, ...args: unknown[]) {
+  private replaceTag(match: string, ...args: unknown[]): string {
     // NOTE: This benchmark strategy assumes offset is args.at(-2), i.e.
     // (match, ...captures, offset, string). This is intentionally simplified
-    // for harness brevity and does not handle named groups
-    // (match, ...captures, offset, string, namedGroups), where offset is -3.
+    // for harness brevity and does not handle named groups.
     const numericOffset = args.at(-2) as number;
     const transformedOffset = numericOffset + this.replacementDelta;
 

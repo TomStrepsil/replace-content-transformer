@@ -23,7 +23,7 @@ function runTransform(source) {
 describe("replacement-callback-positional-to-context codemod", () => {
   it("handles the original positional migration case with aliased names", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: (match, index, range) => `${index}:${range[0]}:${match}`",
       "});",
       "",
@@ -39,7 +39,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("uses shorthand when positional args are already matchIndex and streamIndices", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: (match, matchIndex, streamIndices) => `${matchIndex}:${streamIndices[0]}:${match}`",
       "});",
       "",
@@ -55,7 +55,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("skips when streamIndices positional arg is destructured inline", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: (match, matchIndex, [startIndex, endIndex]) => `${matchIndex}:${startIndex}:${endIndex}:${match}`",
       "});",
       "",
@@ -68,7 +68,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("migrates two-argument positional callbacks", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: (match, index) => `${index}:${match}`",
       "});",
       "",
@@ -83,7 +83,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("migrates function-expression callbacks", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: function (match, index, range) {",
       "    return `${index}:${range[0]}:${match}`;",
       "  }",
@@ -101,7 +101,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("returns null when callback already uses context-object style", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: (match, { matchIndex, streamIndices }) => `${matchIndex}:${streamIndices[0]}:${match}`",
       "});",
       "",
@@ -145,7 +145,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("does not throw or modify when replacement property is non-function", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: \"fixed value\"",
       "});",
       "",
@@ -176,7 +176,7 @@ describe("replacement-callback-positional-to-context codemod", () => {
 
   it("supports assignment pattern positional arguments", () => {
     const input = [
-      "const processor = new FunctionReplacementProcessor({",
+      "const engine = new FunctionReplacementProcessor({",
       "  replacement: (match, index = 0, range = [0, 0]) => `${index}:${range[0]}:${match}`",
       "});",
       "",

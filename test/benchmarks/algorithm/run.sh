@@ -12,7 +12,7 @@ trap cleanup EXIT
 tput civis >&2
 echo "▶️  Running algorithm comparison benchmark (this can take some time)..." >&2
 
-node --experimental-strip-types algorithm/comparison.bench.ts --json &
+node --import tsx algorithm/comparison.bench.ts --json &
 BENCH_PID=$!
 
 spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')

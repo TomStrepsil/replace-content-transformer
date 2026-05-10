@@ -1,4 +1,15 @@
 /**
+ * Inclusive/exclusive stream indices for a discovered match.
+ *
+ * - `startIndex`: index of the first matched character
+ * - `endIndex`: index immediately after the last matched character
+ */
+export type StreamIndices = [
+  startIndex: number,
+  endIndex: number
+];
+
+/**
  * Result of processing content - either a match or literal content.
  *
  * Uses boolean discrimination with typed content:
@@ -9,7 +20,7 @@
  */
 export type MatchResult<T = string> =
   | { isMatch: false; content: string }
-  | { isMatch: true; content: T; streamIndices: [startIndex: number, endIndex: number] };
+  | { isMatch: true; content: T; streamIndices: StreamIndices };
 
 /**
  * Search strategy for finding patterns in streaming content.
@@ -45,4 +56,15 @@ export interface SearchStrategy<TState, TMatch = string> {
    * @returns Remaining buffered content (empty string if nothing buffered)
    */
   flush(state: TState): string;
+
+  /**
+   * Convert a match value to the raw matched string.
+   *
+   * Used when a match must be emitted verbatim (e.g. when
+   * {@link AsyncLookaheadTransformEngineOptions.abandonPendingSignal} fires).
+   * For string-based strategies this is the identity function; for richer
+   * match types (e.g. `RegExpExecArray`) implementations should return the
+   * full matched text (`match[0]`).
+   */
+  matchToString(match: TMatch): string;
 }

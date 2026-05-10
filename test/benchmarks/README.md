@@ -109,6 +109,10 @@ Stream processing performance with the same code across different JavaScript eng
 - Transformer overhead
 - Async vs sync performance
 
+### Lookahead Engine Benchmarks
+
+Compares concurrency strategies for `AsyncLookaheadTransformEngine` against the serial `AsyncReplaceContentTransformer` baseline.  See [separate documentation](./lookahead-engine/README.md).
+
 ## Development
 
 ### Adding New Algorithm Benchmarks
@@ -122,6 +126,12 @@ Stream processing performance with the same code across different JavaScript eng
 
 1. Add scenario to `runtime/benchmark-definitions.ts`
 2. Update `runtime/benchmarks.ts` if needed
+3. Run on each runtime to verify compatibility
+
+### Adding New Lookahead Benchmarks
+
+1. Add scenario to `lookahead-engine/scenarios.ts`
+2. Update `lookahead-engine/benchmarks.ts` if needed
 3. Run on each runtime to verify compatibility
 
 ## Notes

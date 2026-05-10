@@ -3,7 +3,7 @@ export type StringBufferState = {
   streamOffset: number;
 };
 
-abstract class StringBufferStrategyBase {
+abstract class StringBufferStrategyBase<TMatch = string> {
   createState(): StringBufferState {
     return { buffer: "", streamOffset: 0 };
   }
@@ -12,6 +12,9 @@ abstract class StringBufferStrategyBase {
     state.buffer = "";
     state.streamOffset = 0;
     return flushed;
+  }
+  matchToString(match: TMatch): string {
+    return String(match);
   }
 }
 

@@ -36,11 +36,12 @@ Perfect for server-side rendering, edge composition, log processing, template en
 - 🚀 **Streaming-first** - Processes data as it arrives, yielding as early as possible
 - 🎯 **Boundary-aware** - Correctly handles tokens split across chunk boundaries
 - 🔄 **Multiple replacements** - Supports replacing multiple occurrences
+- 🔮 **Eager discovery** - Supporting lookahead replacement, with configurable concurrency
 - 🎨 **Dynamic content** - Replace with strings, functions, or iterables, sync or async
 - ⏹️ **Cancellable** - Replacement can be halted mid-chunk
 - ♻️ **Generator based** - Consuming stream has control
 - ⚡ **Minimal setup overhead** - Stateless & re-usable search strategies
-- 🔌 **Composable** - Pluggable search strategies & stream processors
+- 🔌 **Composable** - Pluggable search strategies & engines
 - 📦 **TypeScript** - Full type definitions included
 
 [^1]: a single peer dependency, enabling the regex search strategy
@@ -55,7 +56,7 @@ npm install replace-content-transformer
 
 See [Design](#-design) on composable parts to import and combine.
 
-### WHATWG Transformer
+### WHATWG Transformers
 
 Constructors are available from the `/web` import path, for both synchronous and asynchronous replacement use-cases:
 
@@ -66,15 +67,11 @@ import {
 } from "replace-content-transformer/web";
 ```
 
-The constructors expect a "stream processor" and optional `AbortSignal` as arguments:
+The constructors each accept an engine (see [Engines](#-engines)):
 
 ```ts
-const syncTransformer = new ReplaceContentTransformer(
-  processor: SyncProcessor, stopReplacingSignal?: AbortSignal
-);
-const asyncTransformer = new AsyncReplaceContentTransformer(
-  processor: AsyncProcessor, stopReplacingSignal?: AbortSignal
-);
+const syncTransformer = new ReplaceContentTransformer(engine: SyncTransformEngine);
+const asyncTransformer = new AsyncReplaceContentTransformer(engine: AsyncTransformEngine);
 ```
 
 > [!NOTE]
@@ -82,10 +79,6 @@ const asyncTransformer = new AsyncReplaceContentTransformer(
 > Some TypeScript type sources still lag this part of the spec (including current Node docs/types), so the public
 > TypeScript signatures in this project focus on matching widely-available types while keeping runtime behaviour
 > spec-aligned across runtimes. Tracking issue: https://github.com/nodejs/node/issues/62540
-
-The `SyncProcessor` and `AsyncProcessor`s available are described in [Replacement Processors](#-replacement-processors).
-
-These processors take `searchStrategy` (see [Search Strategies](#-search-strategies)) and `replacement` constructor options.
 
 The transformer acts on decoded text streams, and should be plugged into a stream pipeline appropriately. e.g.
 
@@ -102,14 +95,14 @@ const replacedStream = readableStream
 
 ```typescript
 import {
-  StaticReplacementProcessor,
+  SyncReplacementTransformEngine,
   searchStrategyFactory
 } from "replace-content-transformer";
 import { ReplaceContentTransformer } from "replace-content-transformer/web";
 
 // {{needle}} replaced by "12345"
 const transformer = new ReplaceContentTransformer(
-  new StaticReplacementProcessor({
+  new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory("{{needle}}"),
     replacement: "12345"
   })
@@ -121,7 +114,7 @@ const transformer = new ReplaceContentTransformer(
 ```typescript
 // {{anything between braces}} replaced by "54321"
 const transformer = new ReplaceContentTransformer(
-  new StaticReplacementProcessor({
+  new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: "54321"
   })
@@ -133,11 +126,11 @@ const transformer = new ReplaceContentTransformer(
 Use a function for dynamic replacement, perhaps based on the original content:
 
 ```typescript
-import { FunctionReplacementProcessor } from "replace-content-transformer";
+import { SyncReplacementTransformEngine } from "replace-content-transformer";
 
 // "{{this}} and {{that}}" becomes "this was match 0 and that was match 1"
 const transformer = new ReplaceContentTransformer(
-  new FunctionReplacementProcessor({
+  new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: (
       match: string,
@@ -152,7 +145,7 @@ Access the character indices of the match, relative to the start of the stream:
 ```typescript
 // "here's {{this}}" becomes "here's this, found from 7 to 15"
 const transformer = new ReplaceContentTransformer(
-  new FunctionReplacementProcessor({
+  new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: (
       match: string,
@@ -179,7 +172,7 @@ const transformer = new ReplaceContentTransformer(
 // `class="old-button something else"` becomes `class="new-button something else"`
 // `class="cold-button"` remains `class="cold-button"`
 const transformer = new ReplaceContentTransformer(
-  new FunctionReplacementProcessor({
+  new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(
       /class="(?<before>[^"]*?\b)old-button(?<after>\b[^"]*?)"/
     ),
@@ -199,14 +192,15 @@ const transformer = new ReplaceContentTransformer(
 Replace with asynchronous content. Ensures each async replacement completes before the next starts.
 
 ```typescript
-import { AsyncFunctionReplacementProcessor } from "replace-content-transformer";
+import { AsyncSerialReplacementTransformEngine } from "replace-content-transformer";
+import { AsyncReplaceContentTransformer } from "replace-content-transformer/web";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // `<img src="file://image.png">` becomes "<img src="data:image/png;base64,...>"
 const transformer = new AsyncReplaceContentTransformer(
-  new AsyncFunctionReplacementProcessor({
+  new AsyncSerialReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
     replacement: async (imgTag: string) =>
       `<img src="data:image/png;base64,${(
@@ -221,65 +215,16 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-Can alternatively use the non-async `FunctionReplacementProcessor` to process `Promise` responses.
-
-> [!WARNING]
-> The WHATWG Streams API allows enqueueing any JavaScript value. Downstream consumers receive `Promise` objects and must explicitly `await` them.
-> 
-> Because the replacement function runs synchronously for all matches in a chunk, all async operations (e.g. `fetch` calls) are initiated eagerly — the consumer cannot pace their creation. Back-pressure still operates between input chunks, but within a single chunk, concurrency is uncontrolled. This is the trade-off for early discovery in the input stream.
-
-```typescript
-// `<link href="https://example.com/css" rel="stylesheet" />` becomes `<style>{content of sheet}</style>`
-const transformer = new ReplaceContentTransformer<Promise<string>>(
-  new FunctionReplacementProcessor<Promise<string>>({
-    searchStrategy: searchStrategyFactory([
-      "<link",
-      'href="',
-      '.css"',
-      'rel="stylesheet"',
-      "/>"
-    ]),
-    replacement: async (match: string): Promise<string> => {
-      const {
-        groups: { url }
-      } = /href="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      return `<style>${await res.text()}</style>`;
-    }
-  })
-);
-```
-
-> [!TIP]
-> If promise-concurrency needs control, consider a replacement function that limits in-flight promises via pooling:
-
-```typescript
-const maxConcurrent = 5;
-const active = new Set<Promise<string>>();
-const replacement = async (match: string): Promise<string> => {
-  if (active.size >= maxConcurrent) {
-    await Promise.race(active);
-  }
-  const [, url] = /href="([^"]+)"/.exec(match)!;
-  const promise = fetch(url).then((response) => {
-    active.delete(promise);
-    return response.text();
-  });
-  active.add(promise);
-  return `<style>${await promise}</style>`;
-};
-```
+> [!TIP] For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`AsyncLookaheadTransformEngine`](#-pipelined-async-replacement-with-asynclookaheadtransformengine) (see below).
 
 #### Iterable Replacement
 
 Interpolate a sequence into the stream:
 
 ```typescript
-import { IterableFunctionReplacementProcessor } from "replace-content-transformer";
-
 // "1 2 3 4 5" becomes "1 2 3.1 3.2 3.3 4 5"
 const transformer = new ReplaceContentTransformer(
-  new IterableFunctionReplacementProcessor({
+  new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory("3 "),
     replacement: () => [...Array(3)].map((_, i) => `3.${i + 1} `)
   })
@@ -296,11 +241,11 @@ You can return either form:
 - a `Promise<AsyncIterable<string>>` (for example an `async` function returning a stream)
 
 ```typescript
-import { AsyncIterableFunctionReplacementProcessor } from "replace-content-transformer";
+import { AsyncSerialReplacementTransformEngine } from "replace-content-transformer";
 
 // `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
 const transformer = new AsyncReplaceContentTransformer(
-  new AsyncIterableFunctionReplacementProcessor({
+  new AsyncSerialReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     replacement: async (match: string) => {
       const {
@@ -314,7 +259,7 @@ const transformer = new AsyncReplaceContentTransformer(
 
 // direct async iterable form
 const transformerWithGenerator = new AsyncReplaceContentTransformer(
-  new AsyncIterableFunctionReplacementProcessor({
+  new AsyncSerialReplacementTransformEngine({
     searchStrategy: searchStrategyFactory("{{needle}}"),
     replacement: async function* () {
       yield "first chunk";
@@ -323,6 +268,35 @@ const transformerWithGenerator = new AsyncReplaceContentTransformer(
   })
 );
 ```
+
+#### Pipelined Async Replacement with `AsyncLookaheadTransformEngine`
+
+For I/O-bound replacements (fragment fetches, KV lookups, etc.) the `AsyncSerialReplacementTransformEngine` above processes matches **serially** — the next match isn't even looked for until the current replacement has fully streamed to the output. That means later matches wait idle while earlier replacements are still in flight, even if they could be running concurrently.
+
+`AsyncLookaheadTransformEngine` scans ahead and **initiates** later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
+
+```typescript
+import { AsyncReplaceContentTransformer } from "replace-content-transformer/web";
+import {
+  AsyncLookaheadTransformEngine,
+  SemaphoreStrategy,
+  searchStrategyFactory
+} from "replace-content-transformer";
+
+const transformer = new AsyncReplaceContentTransformer(
+  new AsyncLookaheadTransformEngine({
+    searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
+    concurrencyStrategy: new SemaphoreStrategy(8),
+    replacement: async (match) => {
+      const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
+      const res = await fetch(url);
+      return res.body!.pipeThrough(new TextDecoderStream());
+    }
+  })
+);
+```
+
+See the [full documentation](./src/engines/async-lookahead-transform-engine/README.md) for usage examples, concurrency strategies, backpressure/`highWaterMark`, cancellation, and recursive composition.
 
 #### Manage Recursion
 
@@ -333,7 +307,7 @@ const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformerFactory(currentDepth: number) {
   return new AsyncReplaceContentTransformer(
-    new AsyncIterableFunctionReplacementProcessor({
+    new AsyncSerialReplacementTransformEngine({
       searchStrategy,
       replacement: async (match: string) => {
         const {
@@ -355,16 +329,16 @@ const transformer = transformerFactory(0);
 ```
 
 > [!NOTE]
-> When using `matchIndex` / `streamIndices` from context, these will be specific to each replacement processor instance, thus may not be the holistic "indexes into the stream".
+> When using `matchIndex` / `streamIndices` from context, these will be specific to each engine instance, thus may not be the holistic "indexes into the stream".
 
 #### Limit replacements
 
-To abort replacement after a certain number of replacements (or, for any other reason), provide an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal):
+To abort replacement after a certain number of replacements (or, for any other reason), provide an [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) via the engine's `stopReplacingSignal` option:
 
 ```ts
 const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
-  new AsyncIterableFunctionReplacementProcessor({
+  new AsyncSerialReplacementTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match, { matchIndex }) => {
       const {
@@ -377,9 +351,9 @@ const transformer = new AsyncReplaceContentTransformer(
       if (matchIndex === 1) {
         abortController.abort(); // after two replacements, stop replacing
       }
-    }
-  }),
-  abortController.signal
+    },
+    stopReplacingSignal: abortController.signal
+  })
 );
 ```
 
@@ -390,7 +364,7 @@ For `fetch` uses cases, with cancellation external to the replacement function, 
 ```ts
 const abortController = new AbortController();
 const transformer = new AsyncReplaceContentTransformer(
-  new AsyncIterableFunctionReplacementProcessor({
+  new AsyncSerialReplacementTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match) => {
       const {
@@ -403,16 +377,16 @@ const transformer = new AsyncReplaceContentTransformer(
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          // needs to be an async iterable to satisfy the AsyncIterableFunctionReplacementProcessor. (Awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
+          // needs to be an async iterable to satisfy AsyncSerialReplacementTransformEngine. (Awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
           return (async function* () {
             yield "<!-- cancelled -->";
           })();
         }
         throw error;
       }
-    }
-  }),
-  abortController.signal
+    },
+    stopReplacingSignal: abortController.signal
+  })
 );
 someEventBus.once("someEvent", () => abortController.abort());
 ```
@@ -421,12 +395,38 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 
 ### Node Transform
 
-Use the Node adapters (`ReplaceContentTransform` / `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
+Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
+
+`AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
+
+```typescript
+import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
+import {
+  AsyncLookaheadTransformEngine,
+  SemaphoreStrategy,
+  searchStrategyFactory
+} from "replace-content-transformer";
+
+const transform = new AsyncReplaceContentTransform(
+  new AsyncLookaheadTransformEngine({
+    searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
+    concurrencyStrategy: new SemaphoreStrategy(8),
+    replacement: async (match) => {
+      const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
+      const res = await fetch(url);
+      return res.body!.pipeThrough(new TextDecoderStream());
+    }
+  })
+);
+
+readable.pipe(transform).pipe(writable);
+```
 
 ```typescript
 // streaming esi middleware for express.js, using native NodeJs stream.Transform
 import { responseHandler } from "express-intercept";
 import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
+import { AsyncSerialReplacementTransformEngine, searchStrategyFactory } from "replace-content-transformer";
 import type { Readable } from "node:stream";
 import { get } from "node:https";
 
@@ -434,7 +434,7 @@ const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformFactory(currentDepth: number) {
   return new AsyncReplaceContentTransform(
-    new AsyncIterableFunctionReplacementProcessor({
+    new AsyncSerialReplacementTransformEngine({
       searchStrategy,
       replacement: async (match: string) => {
         const {
@@ -465,7 +465,7 @@ The library uses a composable architecture that finds and replaces patterns acro
 It has separated concerns:
 
 1. **[Search Strategies](#-search-strategies)** - Define _what_ to match (e.g., literal strings, arrays of strings as anchors, regular expressions)
-2. **[Replacement Processors](#-replacement-processors)** - Enact strategies using replacement logic and yield output via generators
+2. **[Engines](#-engines)** - Orchestrate search and replacement, yielding output via generators
 
 ### 🔍 Search Strategies
 
@@ -486,14 +486,14 @@ interface SearchStrategy<TState, TMatch = string> {
 }
 ```
 
-The `TState` type is specific to the strategy, managed by the consuming processor / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
+The `TState` type is specific to the strategy, managed by the consuming engine / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
 
 The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
 
-The `flush` is called by the processor to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
+The `flush` is called by the engine to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
 
 > [!NOTE]
-> The `streamIndices` property contains absolute character offsets into the stream passed to the replacement processor as `[startIndex, endIndex]`, thus not chunk-relative.
+> The `streamIndices` property contains absolute character offsets into the stream passed to the engine as `[startIndex, endIndex]`, thus not chunk-relative.
 
 Each strategy contains the pattern-matching logic for a specific use case:
 
@@ -532,9 +532,34 @@ import { RegexSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
 ```
 
-### 🦾 Replacement Processors
+### 🦾 Engines
 
-Processors accept chunks from the `Transformer` (web) / `stream.Transform` (node), and orchestrate replacement, using a search strategy.
+Engines process chunks from the `Transformer` (web) / `stream.Transform` (node), orchestrating replacement using a search strategy. They implement one of two interfaces:
+
+```typescript
+interface SyncTransformEngine {
+  start(sink: EngineSink): void;
+  write(chunk: string): void;
+  end(): void;
+}
+
+interface AsyncTransformEngine {
+  start(sink: EngineSink): void;
+  write(chunk: string): Promise<void>;
+  end(): void | Promise<void>;
+  cancel?(): void;
+}
+```
+
+There are three concrete engines:
+
+- **`SyncReplacementTransformEngine`** — synchronous replacement. `replacement` can be a plain `string` for static replacement, or a function returning `string | Iterable<string>` for functional and iterable use-cases
+
+- **`AsyncSerialReplacementTransformEngine`** — asynchronous serial replacement. Each match is fully consumed before the engine scans for the next. `replacement` returns `string | AsyncIterable<string> | Promise<string | AsyncIterable<string>>`
+
+- **`AsyncLookaheadTransformEngine`** — concurrent pipelined replacement. Scans ahead and initiates replacement work for later matches while earlier ones are still in flight, preserving in-order output. Uses a pluggable `ConcurrencyStrategy` and supports recursive re-scanning via the `nested()` sentinel. See the [full documentation](./src/engines/async-lookahead-transform-engine/README.md)
+
+The sync/async distinction determines which adapter accepts the engine (`ReplaceContentTransformer` / `AsyncReplaceContentTransformer`).
 
 ```typescript
 // sync or async, dependent on asynchronicity of the replacement needed
@@ -550,31 +575,11 @@ Processors accept chunks from the `Transformer` (web) / `stream.Transform` (node
     }
   }
 }
-// common to all processors
+// common to all engines
 flush(): string {
   return this.searchStrategy.flush(this.searchState);
 }
 ```
-
-**Why so many options?**
-
-There are 5 stream processors to select from, rather than the system figuring out the optimum based on supplied options. See [Replacement Processors](./src/replacement-processors/README.md) for detailed usage guidance.
-
-- **`StaticReplacementProcessor`** - Yields static strings
-- **`FunctionReplacementProcessor`** - Yields function results, passing match as first parameter and context object `{ matchIndex, streamIndices }` as second parameter
-- **`IterableFunctionReplacementProcessor`** - Allows a function to return an iterable, flattened with [`yield*`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/yield*)
-- **`AsyncFunctionReplacementProcessor`** - Allows an async function, as an async generators with [`for await`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of)
-- **`AsyncIterableFunctionReplacementProcessor`** - Flattens async iterable replacements, either via a `Promise` or functions that return an `AsyncIterable<string>` directly
-
-There is no reliable way in javascript to detect the output type of a function without calling it, and trying to adapt just-in-time based on the first replacement made would be complex. The type of function can be thought to have a ["colour"](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/#what-color-is-your-function) that requires up-front selection.
-
-Rather than a one-size-fits-all / common-denominator supporting asynchronicity (whether needed or not) or adapting to varying function output, the design accepts that a slight (but potentially significant) performance overhead exists with asynchronicity (in Node, at least) [^3]
-
-Forcing all consumers to act asynchronously, or creating arbitrary iterator adapters above a simple static replacement, was deemed more unwieldy than the choice to be made.
-
-The project aimed for a lightweight code footprint, so providing many options (with unused variation tree-shaken out) is a means to optimise.
-
-[^3]: N.B. A similar performance overhead exists by virtue of the generator pattern used, but this is accepted for the just-in-time nature flexibility afforded.
 
 **Why generators?**
 
@@ -620,14 +625,14 @@ npm run build
 ### Unit Tests
 
 - **Search Strategies** - Pattern matching algorithms for single tokens, anchor sequences, and regular expressions
-- **Replacement Processors** - Static, function-based, iterable, and async replacement logic
+- **Engines** - Sync, async serial, and lookahead replacement logic
 - **Adapters** - WHATWG Transformer and Node.js stream.Transform implementations
 - **Factory Functions** - Strategy factory and helper utilities
 
 ### Integration Tests
 
-- **Cross-component** - Processors combined with search strategies
-- **Streaming scenarios** - Transformers with processors in stream pipelines
+- **Cross-component** - Engines combined with search strategies
+- **Streaming scenarios** - Transformers with engines in stream pipelines
 - **Promise handling** - Async replacement functions and promise-based workflows
 - **Abort signals** - Cancellation and signal propagation
 
@@ -651,7 +656,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 
 - **Node.js** 22.0.0+
 - **Bun** 1.0+
-- **Deno** 1.17+
+- **Deno** 1.38+
 - **Browsers:**
   - Chrome 52+
   - Firefox 65+

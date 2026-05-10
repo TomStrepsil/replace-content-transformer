@@ -1,4 +1,13 @@
 import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
+import type { IterableSlotNode } from "../src/engines/async-lookahead-transform-engine/slot-tree/types.ts";
+import type { Nested } from "../src/engines/async-lookahead-transform-engine/nested.ts";
+import type {
+  AsyncTransformEngine,
+  EngineSink,
+  SyncTransformEngine
+} from "../src/engines/types.ts";
+import { SLOT_KIND } from "../src/engines/async-lookahead-transform-engine/slot-tree/constants.ts";
+import { Writable } from "node:stream";
 import { vi, type Mocked } from "vitest";
 
 type TestHttpHandler = (request: Request) => Response | Promise<Response>;
@@ -129,6 +138,43 @@ async function streamToString(stream: ReadableStream<string>): Promise<string> {
   return output;
 }
 
+/**
+ * Create an {@link IterableSlotNode} skeleton suitable for handing to a
+ * `ConcurrencyStrategy.acquire()` call. The `iterable` field is left as
+ * a never-resolving placeholder — strategy unit tests don't drive it.
+ */
+function createIterableSlotNode(
+  siblingIndex: number,
+  parent: IterableSlotNode | null
+): IterableSlotNode {
+  return {
+    kind: SLOT_KIND.iterable,
+    siblingIndex,
+    depth: parent !== null ? parent.depth + 1 : 0,
+    parent,
+    iterable: new Promise<AsyncIterable<string> | Nested>(() => {})
+  };
+}
+
+/** 
+ * Build an `AsyncIterable<string>` that yields the given chunks in order. 
+ * 
+ * (Awaiting AsyncIterator.from(chunks) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
+ */
+function asyncIterable(...chunks: string[]): AsyncIterable<string> {
+  return { [Symbol.asyncIterator]: async function* () { yield* chunks; } };
+}
+
+/** Thin wrapper over {@link Promise.withResolvers} for test expressiveness. */
+function deferred<T>(): PromiseWithResolvers<T> {
+  return Promise.withResolvers<T>();
+}
+
+/** Flush `times` rounds of microtasks — lets scheduled dispatches settle. */
+async function settleMicrotasks(times = 2): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
 function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMatch>[]): Mocked<SearchStrategy<object, TMatch>> {
   return {
     createState: vi.fn().mockReturnValue({}),
@@ -137,7 +183,8 @@ function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMat
         yield result;
       }
     }),
-    flush: vi.fn().mockReturnValue("")
+    flush: vi.fn().mockReturnValue(""),
+    matchToString: vi.fn().mockImplementation((match: TMatch) => String(match))
   };
 }
 
@@ -154,41 +201,62 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
   };
 }
 
-function mockSyncProcessorFactory<T extends string | Promise<string> = string>(...output: (T | (() => T))[]) {
+function collectEngineSink(): {
+  sink: EngineSink;
+  chunks: string[];
+  errors: unknown[];
+} {
+  const chunks: string[] = [];
+  const errors: unknown[] = [];
   return {
-    processChunk: vi.fn().mockImplementation(function* () {
-      for (const chunk of output) {
-        if (typeof chunk === "function") {
-          yield chunk();
-          continue;
-        }
-        yield chunk;
-      }
-    }),
-    flush: vi.fn().mockReturnValue("")
+    sink: {
+      enqueue: (chunk) => chunks.push(chunk),
+      error: (err) => errors.push(err)
+    },
+    chunks,
+    errors
   };
 }
 
-function mockAsyncProcessorFactory(...output: (string | (() => string))[]) {
+function collectWritable(): { writable: Writable; outputs: string[] } {
+  const outputs: string[] = [];
+  const writable = new Writable({
+    write(chunk, _encoding, callback) {
+      outputs.push(chunk.toString());
+      callback();
+    }
+  });
+  return { writable, outputs };
+}
+
+function mockSyncEngine() {
   return {
-    processChunk: vi.fn().mockImplementation(async function* () {
-      for (const chunk of output) {
-        if (typeof chunk === "function") {
-          yield chunk();
-          continue;
-        }
-        yield chunk;
-      }
-    }),
-    flush: vi.fn().mockReturnValue("")
-  };
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => void>(),
+    end: vi.fn<() => void>()
+  } satisfies SyncTransformEngine;
+}
+
+function mockAsyncEngine() {
+  return {
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => Promise<void>>().mockResolvedValue(undefined),
+    end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    cancel: vi.fn<() => void>()
+  } satisfies AsyncTransformEngine & { cancel: () => void };
 }
 
 export {
-  mockAsyncProcessorFactory,
+  collectEngineSink,
+  collectWritable,
+  asyncIterable,
+  createIterableSlotNode,
+  deferred,
+  mockAsyncEngine,
   mockSearchStrategyFactory,
-  mockSyncProcessorFactory,
+  mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
+  settleMicrotasks,
   startTestHttpServer,
   streamToString
 };
