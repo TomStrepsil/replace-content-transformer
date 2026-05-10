@@ -32,14 +32,18 @@ export class RegexReplaceContentTransformer {
     this.currentChunkBaseOffset = this.totalStreamOffset - bufferLength;
     chunk = this.partialChunk + chunk;
     this.partialChunk = "";
+    // lastIndex is the index of the first character after the last substitution.
     this.lastIndex = 0;
     this.replacementDelta = 0;
     const originalLength = chunk.length;
     chunk = chunk.replace(this.openRegex, this.replaceTag.bind(this));
+    // Regular expression for an incomplete template at the end of a string.
+    // Avoid looking at any characters that have already been substituted.
     this.partialAtEndRegex.lastIndex = this.lastIndex;
     this.lastIndex = undefined;
     const match = this.partialAtEndRegex.exec(chunk);
     if (match) {
+      // cache the end and enqueue the front
       this.partialChunk = chunk.substring(match.index);
       chunk = chunk.substring(0, match.index);
     }
