@@ -1,27 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
-import { Writable } from "node:stream";
+import { collectWritable, mockAsyncEngine } from "../../../test/utilities.js";
 import type { AsyncTransformEngine, EngineSink } from "../../engines/types.js";
-
-function collectWritable(): { writable: Writable; outputs: string[] } {
-  const outputs: string[] = [];
-  const writable = new Writable({
-    write(chunk, _encoding, callback) {
-      outputs.push(chunk.toString());
-      callback();
-    }
-  });
-  return { writable, outputs };
-}
-
-function mockAsyncEngine() {
-  return {
-    start: vi.fn<(sink: EngineSink) => void>(),
-    write: vi.fn<(chunk: string) => Promise<void>>().mockResolvedValue(undefined),
-    end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    cancel: vi.fn<() => void>()
-  };
-}
 
 describe("AsyncReplaceContentTransform (Node async adapter)", () => {
   it("calls engine.start with a sink that pushes to the stream", () => {

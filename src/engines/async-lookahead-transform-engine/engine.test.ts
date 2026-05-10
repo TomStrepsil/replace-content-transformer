@@ -7,27 +7,11 @@ import { nested } from "./nested.ts";
 import type { EngineSink } from "../types.ts";
 import {
   asyncIterable,
+  collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
   settleMicrotasks
 } from "../../../test/utilities.ts";
-
-function collectingSink(): {
-  sink: EngineSink;
-  chunks: string[];
-  errors: unknown[];
-} {
-  const chunks: string[] = [];
-  const errors: unknown[] = [];
-  return {
-    sink: {
-      enqueue: (chunk) => chunks.push(chunk),
-      error: (err) => errors.push(err)
-    },
-    chunks,
-    errors
-  };
-}
 
 async function runEngine(
   engine: AsyncLookaheadTransformEngine<object, string>,
@@ -46,7 +30,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: false, content: "hello " },
         { isMatch: false, content: "world" }
       );
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("unused"),
@@ -62,7 +46,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         content: "head "
       });
       strategy.flush.mockReturnValue("tail");
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable(""),
@@ -78,7 +62,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         isMatch: false,
         content: "only"
       });
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable(""),
@@ -96,7 +80,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [4, 5] },
         { isMatch: false, content: " post" }
       );
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("A1", "A2"),
@@ -116,7 +100,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gateB = deferred<AsyncIterable<string>>();
       let callCount = 0;
 
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () =>
@@ -145,7 +129,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const started: number[] = [];
       let callCount = 0;
 
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
@@ -170,7 +154,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       const replacement = vi.fn(async () => asyncIterable(""));
 
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
@@ -194,7 +178,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "A", streamIndices: [0, 1] },
         { isMatch: true, content: "B", streamIndices: [1, 2] }
       );
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("x"),
@@ -217,7 +201,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gates = [0, 1, 2].map(() => deferred<AsyncIterable<string>>());
       let callCount = 0;
 
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gates[callCount++].promise,
@@ -250,7 +234,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         content: "M",
         streamIndices: [0, 1]
       });
-      const { sink, errors } = collectingSink();
+      const { sink, errors } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
@@ -274,7 +258,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const fn = vi.fn(async () => asyncIterable("R"));
       const ac = new AbortController();
       ac.abort();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: fn,
@@ -291,7 +275,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
       const ac = new AbortController();
       ac.abort();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
@@ -310,7 +294,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       strategy.flush.mockReturnValue("BUF");
       const ac = new AbortController();
       ac.abort();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
@@ -338,7 +322,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
       const fn = vi.fn(async () => asyncIterable("R"));
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: fn,
@@ -363,7 +347,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockReturnValue("raw-M")
       };
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
@@ -383,7 +367,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       const ac = new AbortController();
       const gate = deferred<AsyncIterable<string>>();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gate.promise,
@@ -404,7 +388,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const ac = new AbortController();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => (async function* () {
@@ -436,7 +420,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       };
       const ac = new AbortController();
       const gate = deferred<void>();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => {
@@ -466,7 +450,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
@@ -483,7 +467,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       strategy.matchToString.mockReturnValue("raw-M");
       const ac = new AbortController();
       const gate = deferred<AsyncIterable<string>>();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gate.promise,
@@ -507,7 +491,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const fn = vi.fn(async () => asyncIterable("R"));
       const ac = new AbortController();
       ac.abort();
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: fn,
@@ -547,7 +531,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
 
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -592,7 +576,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         }
       });
 
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: spy,
@@ -630,7 +614,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         }
       });
 
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(2),
@@ -665,7 +649,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         }
       });
 
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(2),
@@ -691,7 +675,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         };
       });
 
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(2),
@@ -719,7 +703,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
 
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -749,7 +733,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
     it("passes depth 0 for top-level matches", async () => {
       const depths: number[] = [];
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: matchAllStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -764,7 +748,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
     it("passes depth 1 for matches inside a nested() replacement", async () => {
       const depths: number[] = [];
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: matchAllStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -780,7 +764,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
     it("increments depth by 1 per nesting level", async () => {
       const depths: number[] = [];
-      const { sink } = collectingSink();
+      const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: matchAllStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(4),

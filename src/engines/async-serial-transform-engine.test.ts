@@ -1,21 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
-import type { EngineSink } from "./types.ts";
-
-function collectingSink(): { sink: EngineSink; chunks: string[] } {
-  const chunks: string[] = [];
-  return {
-    sink: { enqueue: (c) => chunks.push(c), error: vi.fn() },
-    chunks
-  };
-}
+import {
+  collectEngineSink,
+  mockSearchStrategyFactory
+} from "../../test/utilities.ts";
 
 async function runEngine<TState>(
   engine: AsyncSerialReplacementTransformEngine<TState>,
   inputs: string[]
 ): Promise<string[]> {
-  const { sink, chunks } = collectingSink();
+  const { sink, chunks } = collectEngineSink();
   engine.start(sink);
   for (const input of inputs) await engine.write(input);
   engine.end();
@@ -245,7 +239,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         replacement: async () => "R",
         stopReplacingSignal: ac.signal
       });
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       await engine.write("X");
       await engine.write("Y");
@@ -269,7 +263,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         searchStrategy: strategy,
         replacement: fn
       });
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       engine.cancel();
       await engine.write("M");

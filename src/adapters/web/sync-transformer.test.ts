@@ -1,15 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { ReplaceContentTransformer } from "./sync-transformer.js";
-import { mockTransformStreamDefaultControllerFactory } from "../../../test/utilities.js";
+import {
+  mockSyncEngine,
+  mockTransformStreamDefaultControllerFactory
+} from "../../../test/utilities.js";
 import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
-
-function mockSyncEngine() {
-  return {
-    start: vi.fn<(sink: EngineSink) => void>(),
-    write: vi.fn<(chunk: string) => void>(),
-    end: vi.fn<() => void>()
-  };
-}
 
 describe("ReplaceContentTransformer (sync adapter)", () => {
   it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {

@@ -1,16 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { AsyncReplaceContentTransformer } from "./async-transformer.js";
-import { mockTransformStreamDefaultControllerFactory } from "../../../test/utilities.js";
-import type { AsyncTransformEngine, EngineSink } from "../../engines/types.js";
-
-function mockAsyncEngine() {
-  return {
-    start: vi.fn<(sink: EngineSink) => void>(),
-    write: vi.fn<(chunk: string) => Promise<void>>().mockResolvedValue(undefined),
-    end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    cancel: vi.fn<() => void>()
-  };
-}
+import {
+  mockAsyncEngine,
+  mockTransformStreamDefaultControllerFactory
+} from "../../../test/utilities.js";
+import type { AsyncTransformEngine } from "../../engines/types.js";
 
 describe("AsyncReplaceContentTransformer (async adapter)", () => {
   it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {

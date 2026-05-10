@@ -1,26 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ReplaceContentTransform } from "./sync-transform.js";
-import { Writable } from "node:stream";
+import { collectWritable, mockSyncEngine } from "../../../test/utilities.js";
 import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
-
-function collectWritable(): { writable: Writable; outputs: string[] } {
-  const outputs: string[] = [];
-  const writable = new Writable({
-    write(chunk, _encoding, callback) {
-      outputs.push(chunk.toString());
-      callback();
-    }
-  });
-  return { writable, outputs };
-}
-
-function mockSyncEngine() {
-  return {
-    start: vi.fn<(sink: EngineSink) => void>(),
-    write: vi.fn<(chunk: string) => void>(),
-    end: vi.fn<() => void>()
-  };
-}
 
 describe("ReplaceContentTransform (Node sync adapter)", () => {
   it("calls engine.start with a sink that pushes to the stream", () => {

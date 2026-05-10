@@ -1,21 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
-import { mockSearchStrategyFactory } from "../../test/utilities.ts";
-import type { EngineSink } from "./types.ts";
-
-function collectingSink(): { sink: EngineSink; chunks: string[] } {
-  const chunks: string[] = [];
-  return {
-    sink: { enqueue: (c) => chunks.push(c), error: vi.fn() },
-    chunks
-  };
-}
+import {
+  collectEngineSink,
+  mockSearchStrategyFactory
+} from "../../test/utilities.ts";
 
 function runEngine<TState>(
   engine: SyncReplacementTransformEngine<TState>,
   inputs: string[]
 ): string[] {
-  const { sink, chunks } = collectingSink();
+  const { sink, chunks } = collectEngineSink();
   engine.start(sink);
   for (const input of inputs) engine.write(input);
   engine.end();
@@ -136,7 +130,7 @@ describe("SyncTransformEngine", () => {
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "NEW" });
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       engine.write("text OL");
       engine.write("D end");
@@ -233,7 +227,7 @@ describe("SyncTransformEngine", () => {
         replacement: "R",
         stopReplacingSignal: ac.signal
       });
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       engine.write("X");
       engine.write("Y");
@@ -263,7 +257,7 @@ describe("SyncTransformEngine", () => {
         replacement: fn,
         stopReplacingSignal: ac.signal
       });
-      const { sink, chunks } = collectingSink();
+      const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       engine.write("AB");
       engine.end();

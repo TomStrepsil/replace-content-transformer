@@ -1,7 +1,13 @@
 import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
 import type { IterableSlotNode } from "../src/engines/async-lookahead-transform-engine/slot-tree/types.ts";
 import type { Nested } from "../src/engines/async-lookahead-transform-engine/nested.ts";
+import type {
+  AsyncTransformEngine,
+  EngineSink,
+  SyncTransformEngine
+} from "../src/engines/types.ts";
 import { SLOT_KIND } from "../src/engines/async-lookahead-transform-engine/slot-tree/constants.ts";
+import { Writable } from "node:stream";
 import { vi, type Mocked } from "vitest";
 
 type TestHttpHandler = (request: Request) => Response | Promise<Response>;
@@ -195,11 +201,60 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
   };
 }
 
+function collectEngineSink(): {
+  sink: EngineSink;
+  chunks: string[];
+  errors: unknown[];
+} {
+  const chunks: string[] = [];
+  const errors: unknown[] = [];
+  return {
+    sink: {
+      enqueue: (chunk) => chunks.push(chunk),
+      error: (err) => errors.push(err)
+    },
+    chunks,
+    errors
+  };
+}
+
+function collectWritable(): { writable: Writable; outputs: string[] } {
+  const outputs: string[] = [];
+  const writable = new Writable({
+    write(chunk, _encoding, callback) {
+      outputs.push(chunk.toString());
+      callback();
+    }
+  });
+  return { writable, outputs };
+}
+
+function mockSyncEngine() {
+  return {
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => void>(),
+    end: vi.fn<() => void>()
+  } satisfies SyncTransformEngine;
+}
+
+function mockAsyncEngine() {
+  return {
+    start: vi.fn<(sink: EngineSink) => void>(),
+    write: vi.fn<(chunk: string) => Promise<void>>().mockResolvedValue(undefined),
+    end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    cancel: vi.fn<() => void>()
+  } satisfies AsyncTransformEngine & { cancel: () => void };
+}
+
 export {
+  collectEngineSink,
+  collectWritable,
   asyncIterable,
   createIterableSlotNode,
   deferred,
+  mockAsyncEngine,
   mockSearchStrategyFactory,
+  mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   settleMicrotasks,
   startTestHttpServer,
