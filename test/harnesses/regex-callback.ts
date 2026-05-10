@@ -10,6 +10,7 @@ export const RegexCallbackHarness = {
   }: {
     tokens: string[];
   }) => ({
+    // contrived, to ensure one-time construction overhead of regexes
     needle: new RegExp(
       `${RegExp.escape(startToken)}.*?${RegExp.escape(endToken)}`,
       "gs"
