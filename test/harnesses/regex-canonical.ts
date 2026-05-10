@@ -6,11 +6,8 @@ import { RegexReplaceContentTransformer } from "../../src/search-strategies/benc
 export const RegexCanonicalHarness = {
   name: "Regex Canonical",
   isAsync: false,
-  createSearchStrategy: ({
-    tokens
-  }: {
-    tokens: string[];
-  }) => ({
+  createSearchStrategy: ({ tokens }: { tokens: string[] }) => ({
+    // contrived, to ensure one-time construction overhead of regexes
     openRegex: new RegExp(
       `${RegExp.escape(tokens[0])}.*?${RegExp.escape(tokens[1])}`,
       "gs"
