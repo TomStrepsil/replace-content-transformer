@@ -89,7 +89,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "prepublishOnly": "npm run build",
+    "prepack": "npm run build",
     "build": "node build.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

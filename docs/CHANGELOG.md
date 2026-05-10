@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Switched internal imports to explicit `.js` specifiers for better ESM/type export compatibility
 - Updated `vitest` to [version 4.1.5](https://github.com/vitest-dev/vitest/releases/tag/v4.1.5)
 - Removed [`msw`](https://github.com/mswjs/msw/) dependency
+- Moved `prepublishOnly` script to `prepack`, since canonically that's the place to build
 
 ### Added
 
