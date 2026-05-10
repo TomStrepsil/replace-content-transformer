@@ -118,13 +118,12 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 When aborted, the **scanner** stops calling `replacement()`. Matches discovered after the signal fires are emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring); any partial match the search strategy had buffered is flushed first so output stays in order. Replacements that were already scheduled before the signal fired run to completion unaffected.
 
 ```typescript
-const ac = new AbortController();
-
+const abortController = new AbortController();
 const engine = new AsyncLookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
-  stopReplacingSignal: ac.signal
+  stopReplacingSignal: abortController.signal
 });
 ```
 
@@ -137,13 +136,12 @@ When aborted, **both the scanner and the drain loop** switch mode:
 - **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
 
 ```typescript
-const ac = new AbortController();
-
+const abortController = new AbortController();
 const engine = new AsyncLookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
-  abandonPendingSignal: ac.signal
+  abandonPendingSignal: abortController.signal
 });
 ```
 
@@ -159,33 +157,33 @@ const engine = new AsyncLookaheadTransformEngine({
 The two signals can be on separate controllers when you want staged shutdown — stop scanning first, then decide later whether to also abandon the queue:
 
 ```typescript
-const stopAC = new AbortController();
-const abandonAC = new AbortController();
+const stopAbortController = new AbortController();
+const abandonAbortController = new AbortController();
 
 const engine = new AsyncLookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
-  stopReplacingSignal: stopAC.signal,
-  abandonPendingSignal: abandonAC.signal
+  stopReplacingSignal: stopAbortController.signal,
+  abandonPendingSignal: abandonAbortController.signal
 });
 
 // Later: stop scheduling new replacements, let queue drain normally.
-stopAC.abort();
+stopAbortController.abort();
 
 // Even later, if needed: also clear the remaining queue.
-abandonAC.abort();
+abandonAbortController.abort();
 ```
 
 Or pass the same controller to both when a single abort should do everything:
 
 ```typescript
-const ac = new AbortController();
+const abortController = new AbortController();
 const engine = new AsyncLookaheadTransformEngine({
   ...
-  stopReplacingSignal: ac.signal,
-  abandonPendingSignal: ac.signal
+  stopReplacingSignal: abortController.signal,
+  abandonPendingSignal: abortController.signal
 });
 
-// Later: ac.abort() stops both scanning and draining simultaneously.
+// Later: abortController.abort() stops both scanning and draining simultaneously.
 ```
