@@ -56,7 +56,7 @@ describe("AsyncReplaceContentTransformer + AsyncSerialReplacementTransformEngine
     await expect(outputPromise).resolves.toBe("{{a}} next");
   });
 
-  it("supports streaming AsyncIterable<string> replacement via HTTP fetch", async () => {
+  it("should support streaming ReadableStream into the output", async () => {
     const httpServer = await startTestHttpServer({
       "/fragment": () => new Response("<h1>some fragment</h1>"),
       "/parent": (request) => {
@@ -66,7 +66,7 @@ describe("AsyncReplaceContentTransformer + AsyncSerialReplacementTransformEngine
     });
 
     try {
-      const fetchAndDecode = async (url: string): Promise<AsyncIterable<string>> => {
+      const fetchAndDecode = async (url: string) => {
         const res = await fetch(url);
         return res.body!.pipeThrough(new TextDecoderStream());
       };
@@ -74,7 +74,7 @@ describe("AsyncReplaceContentTransformer + AsyncSerialReplacementTransformEngine
       const parentResponse = await fetchAndDecode(`${httpServer.baseUrl}/parent`);
 
       const result = await streamToString(
-        (parentResponse as ReadableStream<string>).pipeThrough(
+        parentResponse.pipeThrough(
           new TransformStream(
             new AsyncReplaceContentTransformer(
               new AsyncSerialReplacementTransformEngine({
@@ -120,7 +120,7 @@ describe("AsyncReplaceContentTransformer + AsyncSerialReplacementTransformEngine
     });
 
     try {
-      const fetchAndDecode = async (url: string, signal: AbortSignal): Promise<AsyncIterable<string>> => {
+      const fetchAndDecode = async (url: string, signal: AbortSignal) => {
         const res = await fetch(url, { signal });
         return res.body!.pipeThrough(new TextDecoderStream());
       };
