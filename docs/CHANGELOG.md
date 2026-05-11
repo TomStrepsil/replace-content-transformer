@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A `"codemods"` workspace, plus a `jscodeshift` codemod and an npm script in the workspace to migrate replacement callbacks from positional arguments to `(match, context)` form
+- A `"codemods"` workspace, plus a `jscodeshift` codemod, `npx jscodeshift` instructions (plus in-repo scripts, for completeness), to migrate replacement callbacks from positional arguments to `(match, context)` form, plus one for processor-to-engine refactor
 - `bench:compare-runtimes` package script, enacting the `runtime/compare.ts` script previously undocumented
 - Updated benchmark search strategies to include proper stream indices, to support parity of functionality
 - Explicit CJS build step / exports, and add [`@arethetypeswrong`](https://github.com/arethetypeswrong/arethetypeswrong.github.io) validation
@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PriorityQueueStrategy` — heap-backed, slot-tree-aware, pairs with a `NodeComparator` to order queued work across nesting levels
 - Two built-in comparators for `PriorityQueueStrategy`: `streamOrder` (earlier-in-output-stream first, via LCA) and `breadthFirst` (shallower first, siblingIndex tie-break)
 - Supporting types for custom `ConcurrencyStrategy` implementations: `SlotTreeNode`, `IterableSlotNode`, `TextSlotNode`, `SlotNode`, `NodeComparator`
+- Pre-release workflow
 
 ### Removed
 

@@ -2,6 +2,15 @@ name: Create Draft Release
 
 on:
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Publish as pre-release (beta)'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run — compute version and preview changes without pushing'
+        type: boolean
+        default: false
 
 jobs:
   release:
@@ -43,57 +52,55 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Determine version bump from merged PRs
+      - name: Determine version and update package.json
         id: version
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Get the latest tag, default to v0.0.0 if no tags exist
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # Always scan from the last stable tag so that every PR since the previous
+          # stable release is counted, regardless of how many betas have been cut.
+          # Beta tags (v1.1.0-beta.*) are excluded from this search so they never
+          # become the baseline for a future release.
+          LAST_STABLE_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -vE '\-(beta|alpha|rc)\.' | sort -V | tail -1)
 
-          if [ -z "$LATEST_TAG" ]; then
-            echo "No tags found, starting from version 0.0.0"
-            LATEST_TAG="v0.0.0"
-            # Get all commits in the repository
+          if [ -z "$LAST_STABLE_TAG" ]; then
+            echo "No stable tags found, starting from v0.0.0"
+            LAST_STABLE_TAG="v0.0.0"
             COMMITS=$(git log --oneline)
           else
-            echo "Latest tag: $LATEST_TAG"
-            # Get all commits since the last tag
-            COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline)
+            echo "Last stable tag: $LAST_STABLE_TAG"
+            COMMITS=$(git log ${LAST_STABLE_TAG}..HEAD --oneline)
           fi
 
-          # Check if there are any commits to process
           if [ -z "$COMMITS" ]; then
-            echo "❌ Error: No commits found since $LATEST_TAG"
+            echo "❌ Error: No commits found since $LAST_STABLE_TAG"
             echo "No changes have been made since the last release."
             exit 1
           fi
 
           # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
-          MAX_BUMP=0  # Must be explicitly set by PR checkbox
+          MAX_BUMP=0
 
-          # Parse each commit to find semver selections
           while IFS= read -r line; do
             if [ -z "$line" ]; then
               continue
             fi
-            
+
             COMMIT_HASH=$(echo "$line" | awk '{print $1}')
             COMMIT_MESSAGE=${line#* }
-            
+
             # Extract PR number from squash merge format: "Title (#123)"
             PR_NUMBER=$(echo "$COMMIT_MESSAGE" | grep -oE '\(#[0-9]+\)$' | grep -oE '[0-9]+')
-            
+
             if [ -z "$PR_NUMBER" ]; then
               echo "❌ Error: No PR number found in commit $COMMIT_HASH"
               echo "Commit message: $COMMIT_MESSAGE"
               echo "All commits must be from merged PRs with format 'Title (#123)'"
               exit 1
             fi
-            
+
             echo "Checking PR #$PR_NUMBER for commit $COMMIT_HASH"
-            
-            # Fetch PR body using GitHub CLI
+
             GH_OUTPUT=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>&1)
             GH_EXIT_CODE=$?
             if [ $GH_EXIT_CODE -ne 0 ] || [ -z "$GH_OUTPUT" ]; then
@@ -102,22 +109,17 @@ jobs:
               echo "$GH_OUTPUT"
               exit 1
             fi
-            
-            # Check for semver selections in PR body (look for checked boxes)
+
             PR_BODY="$GH_OUTPUT"
             if echo "$PR_BODY" | grep -q "\[[xX]\] \*\*MAJOR\*\*"; then
               echo "Found MAJOR bump in PR #$PR_NUMBER"
               MAX_BUMP=3
             elif echo "$PR_BODY" | grep -q "\[[xX]\] \*\*MINOR\*\*"; then
               echo "Found MINOR bump in PR #$PR_NUMBER"
-              if [ $MAX_BUMP -lt 2 ]; then
-                MAX_BUMP=2
-              fi
+              if [ $MAX_BUMP -lt 2 ]; then MAX_BUMP=2; fi
             elif echo "$PR_BODY" | grep -q "\[[xX]\] \*\*PATCH\*\*"; then
               echo "Found PATCH bump in PR #$PR_NUMBER"
-              if [ $MAX_BUMP -lt 1 ]; then
-                MAX_BUMP=1
-              fi
+              if [ $MAX_BUMP -lt 1 ]; then MAX_BUMP=1; fi
             else
               echo "❌ Error: No version bump checkbox selected in PR #$PR_NUMBER"
               echo "Please select MAJOR, MINOR, or PATCH in the PR description"
@@ -125,46 +127,37 @@ jobs:
             fi
           done <<< "$COMMITS"
 
-          # Determine bump type
           case $MAX_BUMP in
-            3)
-              BUMP_TYPE="major"
-              ;;
-            2)
-              BUMP_TYPE="minor"
-              ;;
-            1)
-              BUMP_TYPE="patch"
-              ;;
+            3) BUMP_TYPE="major" ;;
+            2) BUMP_TYPE="minor" ;;
+            1) BUMP_TYPE="patch" ;;
           esac
 
           echo "Bump type: $BUMP_TYPE"
 
-          # Export for later steps
+          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            npm version "pre${BUMP_TYPE}" --preid=beta --no-git-tag-version
+            # Increment past any already-published betas for this target version
+            while git tag -l "v$(node -p "require('./package.json').version")" | grep -q .; do
+              npm version prerelease --preid=beta --no-git-tag-version
+            done
+          else
+            npm version "$BUMP_TYPE" --no-git-tag-version
+          fi
+
+          version=$(node -p "require('./package.json').version")
+          echo "New version: $version"
+          echo "version=$version" >> $GITHUB_OUTPUT
           echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
 
-      - name: Update version in package.json
-        id: npm_version
-        run: |
-          # Use npm version to automatically bump the version
-          npm version ${{ steps.version.outputs.bump_type }} --no-git-tag-version
-
-          # Read the new version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "New version: $NEW_VERSION"
-
-          # Export for later steps
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
       - name: Update CHANGELOG.md
+        if: ${{ !inputs.prerelease }}
         run: |
-          VERSION="${{ steps.npm_version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
 
-          # Create a temporary file
           TEMP_FILE=$(mktemp)
 
-          # Read the changelog and update it
           awk -v version="$VERSION" -v date="$DATE" '
           BEGIN { found_unreleased = 0; seen_content = 0 }
 
@@ -189,40 +182,69 @@ jobs:
           { print }
           ' docs/CHANGELOG.md > "$TEMP_FILE"
 
-          # Replace the original file
           mv "$TEMP_FILE" docs/CHANGELOG.md
 
           echo "✓ CHANGELOG.md updated: Added version $VERSION section"
 
-      - name: Commit changelog and version bump
+      - name: Commit, tag, and push (stable)
+        if: ${{ !inputs.prerelease && !inputs.dry_run }}
         run: |
           git add docs/CHANGELOG.md package.json package-lock.json
-          git commit -m "Release version ${{ steps.npm_version.outputs.version }}"
+          git commit -m "Release version ${{ steps.version.outputs.version }}"
           git push origin main
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Release version ${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
 
-      - name: Create and push tag
+      - name: Commit, tag, and push (pre-release)
+        if: ${{ inputs.prerelease && !inputs.dry_run }}
         run: |
-          # Create the tag pointing to the commit with updated files
-          git tag -a "v${{ steps.npm_version.outputs.version }}" -m "Release version ${{ steps.npm_version.outputs.version }}"
-          git push origin "v${{ steps.npm_version.outputs.version }}"
+          # Create an ephemeral local branch so the version bump commit has a clean
+          # parent chain. Only the tag is pushed to the remote — the branch is never
+          # pushed, keeping main's package.json at the last stable version.
+          # The tagged commit remains reachable (and publishable) via the tag alone.
+          git checkout -b "release/v${{ steps.version.outputs.version }}"
+          git add package.json package-lock.json
+          git commit -m "Release version ${{ steps.version.outputs.version }}"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Release version ${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "=== DRY RUN — no changes were pushed ==="
+          echo "Would release: v${{ steps.version.outputs.version }}"
+          echo "Bump type:     ${{ steps.version.outputs.bump_type }}"
+          echo "Pre-release:   ${{ inputs.prerelease }}"
+          if [[ "${{ inputs.prerelease }}" != "true" ]]; then
+            echo ""
+            echo "CHANGELOG.md diff:"
+            git diff docs/CHANGELOG.md
+          fi
 
       - name: Create Draft GitHub Release
+        if: ${{ !inputs.dry_run }}
         uses: actions/github-script@v8
         with:
           script: |
-            const tagName = 'v${{ steps.npm_version.outputs.version }}';
+            const tagName = 'v${{ steps.version.outputs.version }}';
+            const isPrerelease = ${{ inputs.prerelease }};
 
-            // Create a draft release with auto-generated notes for manual curation
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tagName,
               name: `Release ${tagName}`,
-              body: `Release version ${{ steps.npm_version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)\n\nSee [CHANGELOG.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/docs/CHANGELOG.md) for details.`,
+              body: `Release version ${{ steps.version.outputs.version }} (${{ steps.version.outputs.bump_type }} bump)\n\nSee [CHANGELOG.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/docs/CHANGELOG.md) for details.`,
               draft: true,
-              prerelease: false,
+              prerelease: isPrerelease,
               generate_release_notes: true
             });
 
-            console.log(`Draft release created: ${release.data.html_url}`);
-            console.log('Please review and publish the release manually from the GitHub UI.');
+            console.log(`Draft ${isPrerelease ? 'pre-release' : 'release'} created: ${release.data.html_url}`);
+            if (isPrerelease) {
+              console.log('Version bump committed to an ephemeral branch (not merged to main).');
+              console.log('CHANGELOG.md was not modified — [Unreleased] section remains open.');
+              console.log('When ready to ship stable, run this workflow again without the pre-release flag.');
+            } else {
+              console.log('Please review and publish the release manually from the GitHub UI.');
+            }

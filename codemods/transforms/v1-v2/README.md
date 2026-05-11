@@ -23,14 +23,26 @@ replacement: (match, { matchIndex, streamIndices }) => `${streamIndices[0]}-${st
 Dry run:
 
 ```bash
-npm run codemod:replacement-callback-context -- --dry --print src
+npx jscodeshift \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
+  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
+  --dry --print ./src
 ```
 
 Apply changes:
 
 ```bash
-npm run codemod:replacement-callback-context -- src
+npx jscodeshift \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
+  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
+  ./src
 ```
+
+> **Windows / non-bash users:** process substitution (`<(...)`) is not supported outside bash/zsh. Download the transform first, then run:
+> ```
+> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
+> npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+> ```
 
 ### Notes
 
@@ -83,13 +95,13 @@ When the engine is constructed inline in the adapter call, `stopReplacingSignal`
 
 ```ts
 // Before
-const t = new ReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new FunctionReplacementProcessor({ searchStrategy, replacement }),
   abortController.signal
 );
 
 // After
-const t = new ReplaceContentTransformer(
+const transformer = new ReplaceContentTransformer(
   new SyncReplacementTransformEngine({ searchStrategy, replacement, stopReplacingSignal: abortController.signal })
 );
 ```
@@ -97,14 +109,26 @@ const t = new ReplaceContentTransformer(
 Dry run:
 
 ```bash
-npm run codemod:processor-to-engine -- --dry --print src
+npx jscodeshift \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/processor-to-engine.js) \
+  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
+  --dry --print ./src
 ```
 
 Apply changes:
 
 ```bash
-npm run codemod:processor-to-engine -- src
+npx jscodeshift \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/processor-to-engine.js) \
+  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
+  ./src
 ```
+
+> **Windows / non-bash users:** process substitution (`<(...)`) is not supported outside bash/zsh. Download the transform first, then run:
+> ```
+> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/processor-to-engine.js
+> npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+> ```
 
 ### Notes
 
