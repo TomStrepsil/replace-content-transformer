@@ -20,29 +20,33 @@ replacement: (match, { matchIndex }) => `#${matchIndex}: ${match}`
 replacement: (match, { matchIndex, streamIndices }) => `${streamIndices[0]}-${streamIndices[1]}`
 ```
 
-Dry run:
+**Unix/macOS**
 
 ```bash
-npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
-  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
-  --dry --print ./src
+curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
+
+# Dry run
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
+
+# Apply
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+
+rm rct-codemod.js
 ```
 
-Apply changes:
+**Windows (PowerShell)**
 
-```bash
-npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
-  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
-  ./src
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js" -OutFile rct-codemod.js
+
+# Dry run
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
+
+# Apply
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+
+del rct-codemod.js
 ```
-
-> **Windows / non-bash users:** process substitution (`<(...)`) is not supported outside bash/zsh. Download the transform first, then run:
-> ```
-> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
-> npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
-> ```
 
 ### Notes
 
@@ -106,29 +110,33 @@ const transformer = new ReplaceContentTransformer(
 );
 ```
 
-Dry run:
+**Unix/macOS**
 
 ```bash
-npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js) \
-  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
-  --dry --print ./src
+curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js
+
+# Dry run
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
+
+# Apply
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+
+rm rct-codemod.js
 ```
 
-Apply changes:
+**Windows (PowerShell)**
 
-```bash
-npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js) \
-  --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
-  ./src
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js" -OutFile rct-codemod.js
+
+# Dry run
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
+
+# Apply
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+
+del rct-codemod.js
 ```
-
-> **Windows / non-bash users:** process substitution (`<(...)`) is not supported outside bash/zsh. Download the transform first, then run:
-> ```
-> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js
-> npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
-> ```
 
 ### Notes
 
