@@ -24,7 +24,7 @@ Dry run:
 
 ```bash
 npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
   --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
   --dry --print ./src
 ```
@@ -33,14 +33,14 @@ Apply changes:
 
 ```bash
 npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js) \
   --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
   ./src
 ```
 
 > **Windows / non-bash users:** process substitution (`<(...)`) is not supported outside bash/zsh. Download the transform first, then run:
 > ```
-> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
+> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
 > npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 > ```
 
@@ -110,7 +110,7 @@ Dry run:
 
 ```bash
 npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/processor-to-engine.js) \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js) \
   --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
   --dry --print ./src
 ```
@@ -119,14 +119,14 @@ Apply changes:
 
 ```bash
 npx jscodeshift \
-  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/processor-to-engine.js) \
+  -t <(curl -fsSL https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js) \
   --parser=tsx --extensions=js,jsx,ts,tsx,mjs \
   ./src
 ```
 
 > **Windows / non-bash users:** process substitution (`<(...)`) is not supported outside bash/zsh. Download the transform first, then run:
 > ```
-> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/main/codemods/transforms/v1-v2/processor-to-engine.js
+> curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js
 > npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 > ```
 
