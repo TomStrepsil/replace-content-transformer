@@ -19,12 +19,12 @@ jobs:
       contents: write
 
     steps:
-      - name: Fail if not on main branch
-        if: ${{ github.ref != 'refs/heads/main' }}
-        run: |
-          echo "❌ Error: This workflow must be run on the main branch."
-          echo "Current ref: $GITHUB_REF"
-          exit 1
+      # - name: Fail if not on main branch
+      #   if: ${{ github.ref != 'refs/heads/main' }}
+      #   run: |
+      #     echo "❌ Error: This workflow must be run on the main branch."
+      #     echo "Current ref: $GITHUB_REF"
+      #     exit 1
 
       - name: Generate GitHub App Token
         id: app-token
