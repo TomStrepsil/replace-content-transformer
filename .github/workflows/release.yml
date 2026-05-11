@@ -61,7 +61,7 @@ jobs:
           # stable release is counted, regardless of how many betas have been cut.
           # Beta tags (v1.1.0-beta.*) are excluded from this search so they never
           # become the baseline for a future release.
-          LAST_STABLE_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -vE '\-(beta|alpha|rc)\.' | sort -V | tail -1)
+          LAST_STABLE_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -vE '\-(beta|alpha|rc)\.' | sort -V | tail -1 || true)
 
           if [ -z "$LAST_STABLE_TAG" ]; then
             echo "No stable tags found, starting from v0.0.0"
@@ -90,7 +90,7 @@ jobs:
             COMMIT_MESSAGE=${line#* }
 
             # Extract PR number from squash merge format: "Title (#123)"
-            PR_NUMBER=$(echo "$COMMIT_MESSAGE" | grep -oE '\(#[0-9]+\)$' | grep -oE '[0-9]+')
+            PR_NUMBER=$(echo "$COMMIT_MESSAGE" | grep -oE '\(#[0-9]+\)$' | grep -oE '[0-9]+' || true)
 
             if [ -z "$PR_NUMBER" ]; then
               echo "❌ Error: No PR number found in commit $COMMIT_HASH"
