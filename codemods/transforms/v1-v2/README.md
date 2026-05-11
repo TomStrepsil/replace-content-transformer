@@ -21,7 +21,11 @@ replacement: (match, { matchIndex, streamIndices }) => `${streamIndices[0]}-${st
 ```
 
 ```bash
+# Download (Unix/macOS)
 curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
+
+# Download (Windows — PowerShell)
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js" -OutFile rct-codemod.js
 
 # Dry run
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
@@ -29,8 +33,11 @@ npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --
 # Apply
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 
-# Cleanup
-rm rct-codemod.js # Or platform-compatible equivalent...
+# Cleanup (Unix/macOS)
+rm rct-codemod.js
+
+# Cleanup (Windows)
+del rct-codemod.js
 ```
 
 ### Notes
@@ -96,7 +103,11 @@ const transformer = new ReplaceContentTransformer(
 ```
 
 ```bash
+# Download (Unix/macOS)
 curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js
+
+# Download (Windows — PowerShell)
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js" -OutFile rct-codemod.js
 
 # Dry run
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
@@ -104,8 +115,11 @@ npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --
 # Apply
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 
-# Cleanup
-rm rct-codemod.js # Or platform-compatible equivalent...
+# Cleanup (Unix/macOS)
+rm rct-codemod.js
+
+# Cleanup (Windows)
+del rct-codemod.js
 ```
 
 ### Notes
