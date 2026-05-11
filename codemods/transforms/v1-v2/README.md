@@ -20,11 +20,23 @@ replacement: (match, { matchIndex }) => `#${matchIndex}: ${match}`
 replacement: (match, { matchIndex, streamIndices }) => `${streamIndices[0]}-${streamIndices[1]}`
 ```
 
+**Unix/macOS**
+
 ```bash
-# Download (Unix/macOS)
 curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js
 
-# Download (Windows — PowerShell)
+# Dry run
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
+
+# Apply
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+
+rm rct-codemod.js
+```
+
+**Windows (PowerShell)**
+
+```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/replacement-callback-positional-to-context.js" -OutFile rct-codemod.js
 
 # Dry run
@@ -33,10 +45,6 @@ npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --
 # Apply
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 
-# Cleanup (Unix/macOS)
-rm rct-codemod.js
-
-# Cleanup (Windows)
 del rct-codemod.js
 ```
 
@@ -102,11 +110,23 @@ const transformer = new ReplaceContentTransformer(
 );
 ```
 
+**Unix/macOS**
+
 ```bash
-# Download (Unix/macOS)
 curl -fsSL -o rct-codemod.js https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js
 
-# Download (Windows — PowerShell)
+# Dry run
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --dry --print ./src
+
+# Apply
+npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
+
+rm rct-codemod.js
+```
+
+**Windows (PowerShell)**
+
+```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TomStrepsil/replace-content-transformer/v2.0.0/codemods/transforms/v1-v2/processor-to-engine.js" -OutFile rct-codemod.js
 
 # Dry run
@@ -115,10 +135,6 @@ npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --
 # Apply
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 
-# Cleanup (Unix/macOS)
-rm rct-codemod.js
-
-# Cleanup (Windows)
 del rct-codemod.js
 ```
 
