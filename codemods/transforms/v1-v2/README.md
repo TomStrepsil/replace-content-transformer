@@ -29,7 +29,8 @@ npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --
 # Apply
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 
-rm rct-codemod.js
+# Cleanup
+rm rct-codemod.js # Or platform-compatible equivalent...
 ```
 
 ### Notes
@@ -103,7 +104,8 @@ npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs --
 # Apply
 npx jscodeshift -t rct-codemod.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs ./src
 
-rm rct-codemod.js
+# Cleanup
+rm rct-codemod.js # Or platform-compatible equivalent...
 ```
 
 ### Notes
