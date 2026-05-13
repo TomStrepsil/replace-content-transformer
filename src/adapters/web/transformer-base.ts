@@ -1,5 +1,4 @@
 import type { TransformEngine } from "../../engines/types.js";
-import type { Transformer } from "node:stream/web";
 
 /**
  * Base class for the WHATWG Streams `Transformer` adapters in this package.

@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Removed note regarding lack of `cancel?` in the `TransformStream/transformer` type after resolution of https://github.com/nodejs/node/issues/62540
-  - Explicitly extend `Transformer` from `node:stream/web` in `TransformerBase`, now that it's fully compatible
 - Ensured utf-8 note referenced in public Node adapter jsdocs
 - Ensured `TextDecoderStream` recommendation in jsdoc notes for web adapters
 - Node examples in [main `README.md`](../README.md) consolidated to single example, and added belt & braces integration test using `nested`
