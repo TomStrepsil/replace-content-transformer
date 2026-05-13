@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Explicitly extend `Transformer` from `node:stream/web` in `TransformerBase`, now that it's fully compatible
 - Ensured utf-8 note referenced in public Node adapter jsdocs
 - Ensured `TextDecoderStream` recommendation in jsdoc notes for web adapters
+- Node examples in [main `README.md`](../README.md) consolidated to single example
 
 ### Fixed
 
