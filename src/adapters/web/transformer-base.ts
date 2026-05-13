@@ -9,7 +9,7 @@ import type { TransformEngine } from "../../engines/types.js";
  * pipe it through {@link TextDecoderStream} before wrapping with
  * {@link TransformStream}:
  * ```typescript
- * response.body
+ * response.body!
  *   .pipeThrough(new TextDecoderStream())
  *   .pipeThrough(new TransformStream(transformer));
  * ```

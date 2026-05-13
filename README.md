@@ -338,7 +338,7 @@ const transformer = new AsyncReplaceContentTransformer(
       } = /src="(?<url>[^"]+)"/.exec(match)!;
       const response = await fetch(url);
       if (response.ok) {
-        return response.body.pipeThrough(new TextDecoderStream());
+        return response.body!.pipeThrough(new TextDecoderStream());
       }
       if (matchIndex === 1) {
         abortController.abort(); // after two replacements, stop replacing
@@ -394,7 +394,7 @@ Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`
 `AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
 
 ```typescript
-// streaming esi middleware for express.js, using native NodeJs stream.Transform
+// streaming esi middleware for express.js, using native Node.js stream.Transform
 import { responseHandler } from "express-intercept";
 import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
 import {
