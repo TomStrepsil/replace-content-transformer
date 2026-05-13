@@ -74,12 +74,6 @@ const syncTransformer = new ReplaceContentTransformer(engine: SyncTransformEngin
 const asyncTransformer = new AsyncReplaceContentTransformer(engine: AsyncTransformEngine);
 ```
 
-> [!NOTE]
-> The WHATWG spec includes `Transformer.cancel` with an optional `reason` parameter for async transformers.
-> Some TypeScript type sources still lag this part of the spec (including current Node docs/types), so the public
-> TypeScript signatures in this project focus on matching widely-available types while keeping runtime behaviour
-> spec-aligned across runtimes. Tracking issue: https://github.com/nodejs/node/issues/62540
-
 The transformer acts on decoded text streams, and should be plugged into a stream pipeline appropriately. e.g.
 
 ```typescript
@@ -215,7 +209,8 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-> [!TIP] For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`AsyncLookaheadTransformEngine`](#-pipelined-async-replacement-with-asynclookaheadtransformengine) (see below).
+> [!TIP] 
+> For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`AsyncLookaheadTransformEngine`](#-pipelined-async-replacement-with-asynclookaheadtransformengine) (see below).
 
 #### Iterable Replacement
 
@@ -241,8 +236,6 @@ You can return either form:
 - a `Promise<AsyncIterable<string>>` (for example an `async` function returning a stream)
 
 ```typescript
-import { AsyncSerialReplacementTransformEngine } from "replace-content-transformer";
-
 // `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
 const transformer = new AsyncReplaceContentTransformer(
   new AsyncSerialReplacementTransformEngine({
@@ -276,7 +269,6 @@ For I/O-bound replacements (fragment fetches, KV lookups, etc.) the `AsyncSerial
 `AsyncLookaheadTransformEngine` scans ahead and **initiates** later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
 
 ```typescript
-import { AsyncReplaceContentTransformer } from "replace-content-transformer/web";
 import {
   AsyncLookaheadTransformEngine,
   SemaphoreStrategy,
@@ -397,55 +389,41 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 
 Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
 
+> **Encoding**: these adapters assume UTF-8 input. Node's default `decodeStrings: true` behaviour re-encodes any string written to the writable side as a UTF-8 `Buffer`; non-UTF-8 byte streams will be mis-decoded silently.
+
 `AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
-
-```typescript
-import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
-import {
-  AsyncLookaheadTransformEngine,
-  SemaphoreStrategy,
-  searchStrategyFactory
-} from "replace-content-transformer";
-
-const transform = new AsyncReplaceContentTransform(
-  new AsyncLookaheadTransformEngine({
-    searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
-    concurrencyStrategy: new SemaphoreStrategy(8),
-    replacement: async (match) => {
-      const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      return res.body!.pipeThrough(new TextDecoderStream());
-    }
-  })
-);
-
-readable.pipe(transform).pipe(writable);
-```
 
 ```typescript
 // streaming esi middleware for express.js, using native NodeJs stream.Transform
 import { responseHandler } from "express-intercept";
 import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
-import { AsyncSerialReplacementTransformEngine, searchStrategyFactory } from "replace-content-transformer";
+import {
+  AsyncLookaheadTransformEngine,
+  SemaphoreStrategy,
+  searchStrategyFactory,
+  nested
+} from "replace-content-transformer";
 import type { Readable } from "node:stream";
 import { get } from "node:https";
 
 const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
-function transformFactory(currentDepth: number) {
+function transformFactory() {
   return new AsyncReplaceContentTransform(
-    new AsyncSerialReplacementTransformEngine({
+    new AsyncLookaheadTransformEngine({
       searchStrategy,
-      replacement: async (match: string) => {
+      concurrencyStrategy: new SemaphoreStrategy(8),
+      replacement: async (match, { depth }) => {
         const {
           groups: { url }
         } = /src="(?<url>[^"]+)"/.exec(match)!;
         const nodeStream = await new Promise<Readable>((resolve, reject) => {
-          get(url, (res) => resolve(res)).on("error", reject);
+          get(url, (res) => {
+            res.setEncoding("utf8");
+            resolve(res);
+          }).on("error", reject);
         });
-        return currentDepth < maxDepth
-          ? nodeStream.pipe(transformFactory(currentDepth + 1))
-          : nodeStream;
+        return depth < maxDepth ? nested(nodeStream) : nodeStream;
       }
     })
   );
@@ -454,7 +432,7 @@ const expressMiddleware = responseHandler()
   .if((res) => /html/i.test(res.getHeader("content-type")))
   .interceptStream((upstream: Readable, _, res) => {
     res.removeHeader("content-length");
-    return upstream.pipe(transformFactory(0));
+    return upstream.pipe(transformFactory());
   });
 ```
 

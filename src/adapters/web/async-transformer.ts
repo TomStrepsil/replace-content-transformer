@@ -10,6 +10,8 @@ import { TransformerBase } from "./transformer-base.js";
  * or {@link AsyncLookaheadTransformEngine} for concurrent pipelined replacements
  * with pluggable concurrency control.
  *
+ * @remarks **Encoding**: see {@link TransformerBase}.
+ *
  * @example Serial async replacement
  * ```typescript
  * const transformer = new AsyncReplaceContentTransformer(

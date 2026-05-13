@@ -24,6 +24,9 @@ import type { AsyncTransformEngine } from "../../engines/types.js";
  * readableStream.pipe(transform).pipe(writableStream);
  * ```
  *
+ * @remarks **Encoding**: all text is processed as UTF-8. See {@link TransformBase}
+ * for details.
+ *
  * @example Lookahead replacement
  * ```typescript
  * const transform = new AsyncReplaceContentTransform(

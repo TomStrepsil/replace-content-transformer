@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Removed note regarding lack of `cancel?` in the `TransformStream/transformer` type after resolution of https://github.com/nodejs/node/issues/62540
+  - Explicitly extend `Transformer` from `node:stream/web` in `TransformerBase`, now that it's fully compatible
+- Ensured utf-8 note referenced in public Node adapter jsdocs
+- Ensured `TextDecoderStream` recommendation in jsdoc notes for web adapters
+
+### Fixed
+
+- Path in lookahead transformer [`README.md`](../src/engines/async-lookahead-transform-engine/README.md) back to [main `README.md`](../README.md)
+
 ## [2.0.0] - 2026-05-11
 
 ### Changed

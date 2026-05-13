@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
-import { AsyncLookaheadTransformEngine, SemaphoreStrategy } from "../../engines/index.js";
+import { AsyncLookaheadTransformEngine, SemaphoreStrategy, nested } from "../../engines/index.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
 
 // Engine behaviour (scan/schedule/drain, nested re-scanning, backpressure,
@@ -73,5 +73,29 @@ describe("AsyncReplaceContentTransform + AsyncLookaheadTransformEngine (Node ada
     );
     expect(transform.writableHighWaterMark).toBe(7);
     expect(transform.readableHighWaterMark).toBe(7);
+  });
+
+  it("recursively re-scans nested() content fed through a Node Readable", async () => {
+    const fragments: Record<string, string> = {
+      outer: "<o>{{inner}}</o>",
+      inner: "<i>{{leaf}}</i>",
+      leaf: "leaf!"
+    };
+
+    const transform = new AsyncReplaceContentTransform(
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match, { depth }) => {
+          const key = match.slice(2, -2);
+          const content = fragments[key] ?? "";
+          const source = Readable.from([content]);
+          return depth < 2 ? nested(source) : source;
+        }
+      })
+    );
+
+    const out = await text(sourceOf("{{outer}}").pipe(transform));
+    expect(out).toBe("<o><i>leaf!</i></o>");
   });
 });
