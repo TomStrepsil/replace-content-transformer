@@ -21,6 +21,8 @@ import { TransformerBase } from "./transformer-base.js";
  * );
  * const stream = new TransformStream(transformer);
  * ```
+ *
+ * @remarks **Encoding**: see {@link TransformerBase}.
  */
 export class ReplaceContentTransformer extends TransformerBase<
   void,

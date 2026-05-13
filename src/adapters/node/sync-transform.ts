@@ -19,6 +19,9 @@ import type { SyncTransformEngine } from "../../engines/types.js";
  *
  * readableStream.pipe(transform).pipe(writableStream);
  * ```
+ *
+ * @remarks **Encoding**: all text is processed as UTF-8. See {@link TransformBase}
+ * for details.
  */
 export class ReplaceContentTransform extends TransformBase<void> {
   readonly #engine: SyncTransformEngine;
