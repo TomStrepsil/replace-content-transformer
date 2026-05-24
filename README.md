@@ -509,6 +509,9 @@ const searchStrategy =
   searchStrategyFactory(input: string | string[] | RegExp);
 ```
 
+> [!IMPORTANT]
+> The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described below.
+
 However, if choice of string vs regular expression requirement is known at design time, a smaller bundle will be afforded by importing a strategy directly:
 
 ```ts
@@ -525,12 +528,17 @@ const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anch
 ...or:
 
 ```ts
+const searchStrategy = new BalancedPairSearchStrategy("{{", "}}"); // delimiter pair, nesting aware
+```
+
+...or:
+
+```ts
 import { RegexSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
 ```
 
-> [!IMPORTANT]
-> The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described above.
+
 
 ### 🦾 Engines
 
