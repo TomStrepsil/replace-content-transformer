@@ -48,7 +48,7 @@ Pattern matching using **regular expressions**, with partial match detection for
 Composable strategy for sequential pattern matching across multiple sub-strategies.
 
 - **[anchor-sequence](./anchor-sequence/README.md)** - Composes multiple "cancellable" strategies for sequential matching.
-- **[balanced-pair-regex-count](./balanced-pair-regex-count/README.md)** - Like the publicly exported [`balanced-pair`](../balanced-pair/README.md) strategy, this composes the [`looped-indexOf-anchored`](../looped-indexOf-anchored/README.md) with a short-circuit preventing complete match if opening tags are found within a match, adjusting a nesting level. This benchmarking strategy uses [`String.prototype.match()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match#regexp) to count these opening tags, as a comparison to a manual looped-`indexOf`.
+ - **[balanced-pair-regex-count](./balanced-pair-regex-count/README.md)** - Like the publicly exported [`balanced-pair`](../balanced-pair/README.md) strategy, this composes the [`looped-indexof-anchored`](../looped-indexOf-anchored/README.md) and delays completion by tracking nesting level: decrementing on closing delimiters and incrementing by counting opening delimiters found within a match. This benchmarking strategy uses [`String.prototype.match()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match#regexp) to count thes
 
 ## 📊 Algorithm Comparison
 
