@@ -538,8 +538,6 @@ import { RegexSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
 ```
 
-
-
 ### 🦾 Engines
 
 Engines process chunks from the `Transformer` (web) / `stream.Transform` (node), orchestrating replacement using a search strategy. They implement one of two interfaces:
