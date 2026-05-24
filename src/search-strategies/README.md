@@ -2,7 +2,7 @@
 
 This directory contains search strategies for finding and matching patterns in streaming content. Each strategy handles patterns that may span chunk boundaries.
 
-These strategies have been chosen from an array of alternatives based on performance (see [benchmarking](#benchmark-strategies)). The "string anchor" should be preferred, since slightly more performant, unless more complex matching is required.
+These strategies have been chosen from an array of alternatives based on performance (see [benchmarking](#benchmark-strategies)). The "string anchor" is most performant (marginally), so should be preferred unless more complex matching is required.
 
 ## 🪝 String Anchor (N-Token Sequential Matching)
 
@@ -19,7 +19,7 @@ Single or Multiple-token sequential matching using smart buffering (only when th
 
 **[balanced-pair](./balanced-pair/README.md)** - Nesting-aware delimiter matching strategy implementation
 
-Matches opening/closing delimiter pairs where nesting is meaningful: the match only completes once every inner opening has a corresponding closing. Built on top of `StringAnchorSearchStrategy`, adding a nesting-level counter that keeps the match open until the outermost pair is balanced.
+Matches opening/closing delimiters where nesting is meaningful: the match only completes once every inner opening has a corresponding closing. Built on top of `StringAnchorSearchStrategy`, adding a nesting-level counter that keeps the match open until the outermost pair is balanced.
 
 - **Algorithm**: Nesting-level tracking over sequential anchor matching
 - **Performance**: O(n+m) for scanning + O(k) per match increment to count inner openings (k = length of new match content)

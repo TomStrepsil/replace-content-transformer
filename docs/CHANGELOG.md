@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `BalancedPairSearchStrategy` for matching two string anchors, but respecting nesting levels so only matching where "balanced"
+- `BalancedPairSearchStrategy` search strategy for matching two string anchors, but respecting nesting levels so only matching where "balanced"
+- `BalancedPairRegexCountSearchStrategy` benchmarking-only search strategy, as above but counting opening delimiter occurrences on each newly appended match segment via `newContent.match(openingRegex)` for nesting-level adjustment, for comparison to looped `indexOf`
 
 ### Changed
 

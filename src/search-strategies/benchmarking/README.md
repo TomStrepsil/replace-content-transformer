@@ -43,11 +43,12 @@ Pattern matching using **regular expressions**, with partial match detection for
 - **[regex-callback](./regex-callback/README.md)** - Callback-based variant.
 - **[regex-canonical](./regex-canonical/README.md)** - Direct `Transformer` implementation based on WHATWG Streams specification example.
 
-### Meta-Strategy
+### Meta-Strategies
 
 Composable strategy for sequential pattern matching across multiple sub-strategies.
 
 - **[anchor-sequence](./anchor-sequence/README.md)** - Composes multiple "cancellable" strategies for sequential matching.
+ - **[balanced-pair-regex-count](./balanced-pair-regex-count/README.md)** - Like the publicly exported [`balanced-pair`](../balanced-pair/README.md) strategy, this composes the [`looped-indexof-anchored`](../looped-indexOf-anchored/README.md) and delays completion by tracking nesting level: decrementing on closing delimiters and incrementing by counting opening delimiters found within a match. This benchmarking strategy uses [`String.prototype.match()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match#regexp) to count thes
 
 ## 📊 Algorithm Comparison
 
