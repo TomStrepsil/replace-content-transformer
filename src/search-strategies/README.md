@@ -2,7 +2,7 @@
 
 This directory contains search strategies for finding and matching patterns in streaming content. Each strategy handles patterns that may span chunk boundaries.
 
-These strategies have been chosen from an array of alternatives based on performance (see [benchmarking](#benchmark-strategies)). The "string anchor" should be preferred, since most performant (slightly), unless more complex matching is required.
+These strategies have been chosen from an array of alternatives based on performance (see [benchmarking](#benchmark-strategies)). The "string anchor" is most performant (marginally), so should be preferred unless more complex matching is required.
 
 ## 🪝 String Anchor (N-Token Sequential Matching)
 
