@@ -181,7 +181,7 @@ const transformer = new ReplaceContentTransformer(
 > [!CAUTION]
 > The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations).
 
-#### Replacing Balanced Pairs (with Nesting Support)
+#### Replacing Balanced Pairs (respecting nesting)
 
 Match and replace delimiter pairs that may be nested, using `BalancedPairSearchStrategy`. The match only completes when the outermost pair is fully balanced:
 
