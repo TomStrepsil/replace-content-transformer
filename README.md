@@ -528,6 +528,7 @@ const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anch
 ...or:
 
 ```ts
+import { BalancedPairSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new BalancedPairSearchStrategy("{{", "}}"); // delimiter pair, nesting aware
 ```
 
