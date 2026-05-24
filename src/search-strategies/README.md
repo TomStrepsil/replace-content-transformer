@@ -17,7 +17,7 @@ Single or Multiple-token sequential matching using smart buffering (only when th
 
 ## ⚖️ Balanced Pair (Nesting-Aware Matching)
 
-**[balanced-pair](./balanced-pair/README.md)** - Exported as `BalancedPairSearchStrategy`
+**[balanced-pair](./balanced-pair/README.md)** - Nesting-aware delimiter matching strategy implementation
 
 Matches opening/closing delimiter pairs where nesting is meaningful: the match only completes once every inner opening has a corresponding closing. Built on top of `StringAnchorSearchStrategy`, adding a nesting-level counter that keeps the match open until the outermost pair is balanced.
 

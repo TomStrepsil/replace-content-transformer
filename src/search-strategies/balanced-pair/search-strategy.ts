@@ -1,8 +1,8 @@
 import {
   LoopedIndexOfAnchoredSearchState,
   LoopedIndexOfAnchoredSearchStrategy
-} from "../looped-indexOf-anchored/search-strategy";
-import type { MatchResult, SearchStrategy } from "../types";
+} from "../looped-indexOf-anchored/search-strategy.js";
+import type { MatchResult, SearchStrategy } from "../types.js";
 
 export interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
   nestingLevel: number;

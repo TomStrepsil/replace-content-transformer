@@ -529,8 +529,8 @@ import { RegexSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
 ```
 
->[!IMPORTANT]
->The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described above 
+> [!IMPORTANT]
+> The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described above.
 
 ### 🦾 Engines
 

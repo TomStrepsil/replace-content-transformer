@@ -1,8 +1,8 @@
 import {
   LoopedIndexOfAnchoredSearchStrategy
-} from "../../looped-indexOf-anchored/search-strategy";
-import type { BalancedPairSearchState } from "../../balanced-pair/search-strategy";
-import type { MatchResult, SearchStrategy } from "../../types";
+} from "../../looped-indexOf-anchored/search-strategy.ts";
+import type { BalancedPairSearchState } from "../../balanced-pair/search-strategy.ts";
+import type { MatchResult, SearchStrategy } from "../../types.ts";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -18,11 +18,9 @@ export class BalancedPairRegexCountSearchStrategy implements SearchStrategy<
   string
 > {
   private anchorStringSearchStrategy: LoopedIndexOfAnchoredSearchStrategy;
-  private readonly opening: string;
   private readonly openingRegex: RegExp;
 
   constructor(opening: string, closing: string) {
-    this.opening = opening;
     this.openingRegex = new RegExp(escapeRegExp(opening), "g");
     this.anchorStringSearchStrategy = new LoopedIndexOfAnchoredSearchStrategy([
       opening,

@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Path in lookahead transformer [`README.md`](../src/engines/async-lookahead-transform-engine/README.md) back to [main `README.md`](../README.md)
-- Added `[!CAUTION]` to `README.md` re: `utf8`
+- Added `[!CAUTION]` to `README.md` re: `UTF-8`
 
 ## [2.0.0] - 2026-05-11
 
