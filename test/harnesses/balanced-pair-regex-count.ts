@@ -27,5 +27,5 @@ export const BalancedPairRegexCountHarness = {
         replacement
       })
     ),
-  supportsScenario: ({ balanced }: { balanced?: boolean }) => balanced !== false
+  skipScenario: ({ balanced }: { balanced?: boolean }) => balanced === false
 };

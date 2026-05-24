@@ -137,7 +137,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         replacement: () => "y"
       }
     ].forEach(({ chunks, tokens, replacement, expected, balanced }) => {
-      test.skipIf(harness.supportsScenario?.({ balanced }) === false)(`replaces content ("${chunks.join(
+      test.skipIf(harness.skipScenario?.({ balanced }))(`replaces content ("${chunks.join(
         '", "'
       )}") -> ("${expected}")`, async () => {
         const outputs: string[] = [];
@@ -463,7 +463,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         expect(matchCount).toBe(2);
       });
 
-      it.skipIf(harness.supportsScenario?.({ balanced: false }) === false)("False starts across chunk boundaries", async () => {
+      it.skipIf(harness.skipScenario?.({ balanced: false }))("False starts across chunk boundaries", async () => {
         const chunks = [
           "prefix { { { { {",
           "{ { { {{valid}}",
@@ -491,7 +491,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         expect(matchCount).toBe(2);
       });
 
-      it.skipIf(harness.supportsScenario?.({ balanced: false }) === false)("Alternating single and double braces across chunks", async () => {
+      it.skipIf(harness.skipScenario?.({ balanced: false }))("Alternating single and double braces across chunks", async () => {
         const chunks = ["{ x: {", "{ z: {{val}", "} }"];
         const expected = "{ x: 42 }";
 

@@ -19,6 +19,6 @@ export type BaseHarness = {
     transform: (chunk: string, controller: unknown) => void | Promise<void>;
     flush: (controller: unknown) => void;
   };
-  /** When defined, a test scenario is skipped if this returns false. */
-  supportsScenario?: (meta: { balanced?: boolean }) => boolean;
+  /** When defined, a test scenario is skipped if this returns true. */
+  skipScenario?: (meta: { balanced?: boolean }) => boolean;
 };
