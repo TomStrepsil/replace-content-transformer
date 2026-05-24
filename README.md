@@ -181,6 +181,23 @@ const transformer = new ReplaceContentTransformer(
 > [!CAUTION]
 > The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations).
 
+#### Replacing Balanced Pairs (with Nesting Support)
+
+Match and replace delimiter pairs that may be nested, using `BalancedPairSearchStrategy`. The match only completes when the outermost pair is fully balanced:
+
+```typescript
+import { BalancedPairSearchStrategy } from "replace-content-transformer";
+
+// "(a (b) c)" becomes "[a (b) c]"
+// "(d)" becomes "[d]"
+const transformer = new ReplaceContentTransformer(
+  new SyncReplacementTransformEngine({
+    searchStrategy: new BalancedPairSearchStrategy("(", ")"),
+    replacement: (match: string) => `[${match.slice(1, -1)}]`
+  })
+);
+```
+
 #### Async Replacement
 
 Replace with asynchronous content. Ensures each async replacement completes before the next starts.
@@ -389,6 +406,7 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 
 Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
 
+> [!CAUTION]
 > **Encoding**: these adapters assume UTF-8 input. Node's default `decodeStrings: true` behaviour re-encodes any string written to the writable side as a UTF-8 `Buffer`; non-UTF-8 byte streams will be mis-decoded silently.
 
 `AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
@@ -476,6 +494,7 @@ The `flush` is called by the engine to extract anything buffered from the search
 Each strategy contains the pattern-matching logic for a specific use case:
 
 - **[`StringAnchorSearchStrategy`](./src/search-strategies/looped-indexOf-anchored/README.md)** - finds either single tokens, or "anchor" tokens delimiting start/end (or in sequence in-between) of a match
+- **[`BalancedPairSearchStrategy`](./src/search-strategies/balanced-pair/README.md)** - Matches balanced delimiter pairs, correctly handling arbitrary nesting depth (e.g. `(outer (inner) rest)`)
 - **[`RegexSearchStrategy`](./src/search-strategies/regex/README.md)** - Matches against regular expressions (with some caveats)
 
 See [search strategies](./src/search-strategies/README.md) for detail of functionality, and development of the strategies.
@@ -509,6 +528,9 @@ const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anch
 import { RegexSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
 ```
+
+>[!IMPORTANT]
+>The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described above 
 
 ### 🦾 Engines
 
@@ -673,3 +695,4 @@ Please feel free to raise an [Issue](https://github.com/TomStrepsil/replace-cont
 - [stream-replace-string](https://github.com/ChocolateLoverRaj/stream-replace-string) - A Node stream transform (abandoned)
 - [replacestream](https://github.com/eugeneware/replacestream) - a Node stream transform, supporting regex matching (last update 2016)
 - [string-searching](https://github.com/string-searching) - various string searching algorithms in javascript
+- [balanced-match](https://github.com/juliangruber/balanced-match/) - balanced string matching

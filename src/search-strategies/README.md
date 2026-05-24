@@ -15,6 +15,17 @@ Single or Multiple-token sequential matching using smart buffering (only when th
 - **Use Case**: Single or Sequential multi-delimiter patterns in streaming content
 - **Exported As**: `StringAnchorSearchStrategy`
 
+## ⚖️ Balanced Pair (Nesting-Aware Matching)
+
+**[balanced-pair](./balanced-pair/README.md)** - Exported as `BalancedPairSearchStrategy`
+
+Matches opening/closing delimiter pairs where nesting is meaningful: the match only completes once every inner opening has a corresponding closing. Built on top of `StringAnchorSearchStrategy`, adding a nesting-level counter that keeps the match open until the outermost pair is balanced.
+
+- **Algorithm**: Nesting-level tracking over sequential anchor matching
+- **Performance**: O(n+m) for scanning + O(k) per match increment to count inner openings (k = length of new match content)
+- **Use Case**: Balanced/nested structures — parentheses, braces, custom multi-character delimiters
+- **Exported As**: `BalancedPairSearchStrategy`
+
 ## 🧠 Regex
 
 **[regex](./regex/README.md)** - Pattern matching using regular expressions
