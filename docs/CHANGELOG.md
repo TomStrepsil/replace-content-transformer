@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `BalancedPairSearchStrategy` for matching two string anchors, but respecting nesting levels so only matching where "balanced"
+
 ### Changed
 
 - Removed note regarding lack of `cancel?` in the `TransformStream/transformer` type after resolution of https://github.com/nodejs/node/issues/62540
@@ -17,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Path in lookahead transformer [`README.md`](../src/engines/async-lookahead-transform-engine/README.md) back to [main `README.md`](../README.md)
+- Added `[!CAUTION]` to `README.md` re: `UTF-8`
 
 ## [2.0.0] - 2026-05-11
 
