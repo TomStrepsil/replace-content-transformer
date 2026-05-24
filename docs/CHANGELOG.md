@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `BalancedPairSearchStrategy` search strategy for matching two string anchors, but respecting nesting levels so only matching where "balanced"
-- `BalancedPairRegexCountSearchStrategy` benchmarking search strategy, as above but with `string.match(/regex/)` to find orphan opening tags, for comparison to looped `indexOf`
+- `BalancedPairRegexCountSearchStrategy` benchmarking search strategy, as above but using `str.match(openingRegex)` on the matched substring to count opening delimiter occurrences for nesting-level adjustment, for comparison to looped `indexOf`
 
 ### Changed
 
