@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { IndexOfKnuthMorrisPrattSearchStrategy } from "./search-strategy.js";
 import type { MatchResult } from "../../types.js";
+import { collectSearchStrategyResults } from "../../../../test/utilities.js";
 
 describe("IndexOfKnuthMorrisPratt", () => {
   describe("complete matches in single chunk", () => {
@@ -84,16 +85,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = new IndexOfKnuthMorrisPrattSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult[] = [];
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
-
-        const flush = strategy.flush(state);
+        const { results, flush } = collectSearchStrategyResults(
+          new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
+          chunks
+        );
         if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toEqual(expected);
@@ -131,17 +126,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = new IndexOfKnuthMorrisPrattSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult[] = [];
-
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
-
-        const flush = strategy.flush(state);
+        const { results, flush } = collectSearchStrategyResults(
+          new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
+          chunks
+        );
         if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toEqual(expected);
@@ -243,17 +231,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = new IndexOfKnuthMorrisPrattSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult[] = [];
-
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
-
-        const flush = strategy.flush(state);
+        const { results, flush } = collectSearchStrategyResults(
+          new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
+          chunks
+        );
         if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toEqual(expected);
@@ -303,18 +284,12 @@ describe("IndexOfKnuthMorrisPratt", () => {
     testCases.forEach(
       ({ name, pattern, chunks, expectedYields, expectedFlush }) => {
         test(name, () => {
-          const strategy = new IndexOfKnuthMorrisPrattSearchStrategy(pattern);
-          const state = strategy.createState();
-          const results: MatchResult[] = [];
-
-          for (const chunk of chunks) {
-            for (const result of strategy.processChunk(chunk, state)) {
-              results.push(result);
-            }
-          }
-
+          const { results, flush } = collectSearchStrategyResults(
+            new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
+            chunks
+          );
           expect(results).toEqual(expectedYields);
-          expect(strategy.flush(state)).toBe(expectedFlush);
+          expect(flush).toBe(expectedFlush);
         });
       }
     );
@@ -359,15 +334,10 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = new IndexOfKnuthMorrisPrattSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult[] = [];
-
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
+        const { results } = collectSearchStrategyResults(
+          new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
+          chunks
+        );
 
         expect(results).toEqual(expected);
       });

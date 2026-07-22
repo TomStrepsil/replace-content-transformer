@@ -12,7 +12,7 @@ This library uses a sibling package ([`regex-partial-match`](https://github.com/
 
 This has been chosen for simplicity and performance, with libraries such as [`incr-regex-package`](https://www.npmjs.com/package/incr-regex-package), [`dfa`](https://github.com/foliojs/dfa), [`refa`](https://github.com/RunDevelopment/refa), which might provide partial-match capability (and perhaps resolve some of the lookaround [limitations](#limitations)), not evaluated [^1].
 
-To enable optimistic/early yielding, certain regular expression features are unsupported. e.g. [lookbehinds](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion), negative [lookaheads](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion) and [backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference). See [Limitations](#limitations) for full explanation.
+To enable optimistic/early yielding, certain regular expression features are unsupported, e.g. [lookbehinds](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion) and negative [lookaheads](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion). [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) are supported, but carry streaming-specific caveats. See [Limitations](#limitations) for full explanation.
 
 > [!WARNING]
 > The strategy yields an object containing `{ content: RegExpExecArray }` for matches (rather than `{ content: string }`), where the `RegExpExecArray` is the result of calling `RegExp.prototype.exec`. This provides access to capture groups via `match.content[1]`, `match.content[2]`, etc., and named groups via `match.content.groups`. The array also includes [`index`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#index) and [`input`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#input) properties, which make little sense in a streaming scenario and should be disregarded.
@@ -27,15 +27,15 @@ To enable optimistic/early yielding, certain regular expression features are uns
 The strategy maintains two regex patterns:
 
 ```typescript
-import createPartialMatchRegex from "regex-partial-match";
+import PartialMatchRegExp from "regex-partial-match";
 
 class RegexSearchStrategy {
   private readonly completeMatchRegex: RegExp; // Original pattern
-  private readonly partialMatchRegex: RegExp; // Transformed for partial detection
+  private readonly partialMatchRegex: RegExp; // Updated for partial detection
 
   constructor(needle: RegExp) {
     this.completeMatchRegex = needle;
-    this.partialMatchRegex = createPartialMatchRegex(needle); // Transform!
+    this.partialMatchRegex = new PartialMatchRegExp(needle);
   }
 }
 ```
@@ -171,17 +171,6 @@ type RegexSearchState = {
 
 Due to the streaming nature of the algorithm, or due to the implementation of [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match), certain regex features are problematic:
 
-### ❌ Backreferences
-
-```js
-/(.+?) \1/;
-```
-
-Problem: Input of "foo foo", split across chunks, will not match. The partial-match algorithm does not support matching against capture groups.
-
-> [!WARNING]
-> The input validation will reject expressions that contain the [named backreference](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_backreference) signifier `\k`, despite this also being [a deprecated syntax](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Deprecated_and_obsolete_features#regexp:~:text=The%20sequence%20%5Ck%20within%20a%20regex%20that%20doesn%27t%20have%20any%20named%20capturing%20groups%20is%20treated%20as%20an%20identity%20escape.) for an [identity escape](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape), in non-unicode-aware regular expressions. This simplifies the validation. Update `\k` in unicode-unaware expressions to use `k` instead, to avoid such patterns being rejected.
-
 ### ❌ Lookbehinds
 
 ```js
@@ -202,6 +191,24 @@ Knowing to store "foo" in a buffer to negate the match would require a non-nativ
 Problem: A chunk ending "foo" would naively match.
 
 Knowing when to buffer requires understanding if the part of the regular expression next to match is a lookahead. To implement would require a non-native regular expression state machine, or otherwise.
+
+### ⚠️ Backreferences
+
+```js
+/(.+?) \1/;
+```
+
+Backreferences are supported, including across chunk boundaries: [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) resolves captures at match time and re-expands each backreference into per-atom partial form on every `exec()` call (see [its documentation](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/backreferences.md) for the full algorithm). For example, `/(.+?) \1/` correctly matches `"foo foo"` split as `"foo f"` + `"oo bar"`.
+
+That comes with real caveats for streaming use:
+
+- **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Partial Match Detection](#partial-match-detection) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom.
+- **Prefix-ambiguous top-level alternation can silently drop a match.** When a top-level `|` has branches sharing a prefix (e.g. `/^(ab)\1|^(abc)\2/`, where the first branch's `"ab"` is a strict prefix of the second branch's `"abc"`), the internal capture scan can resolve the *shorter* branch before enough input has arrived, causing the partial-match `exec()` to return `null` for content that is in fact a valid partial match. Since [`processChunk`](./search-strategy.ts) treats a `null` partial-match result as "definitely not a match" — flushing what's buffered as ordinary non-match content, rather than continuing to buffer it — this isn't just a slower path, it's a **lost match**: `/^(ab)\1|^(abc)\2/` fed `"ab"`, then `"ca"`, then `"bc"` yields two non-matches (`"abca"`, `"bc"`) instead of the single match `"abcabc"` a non-chunked `exec()` on the concatenated string would find.
+
+  > [!TIP]
+  > List the longer/more specific branch *first* in the alternation (`/^(abc)\1|^(ab)\2/` rather than `/^(ab)\1|^(abc)\2/`) when branches share a prefix. This has been verified to avoid the dropped-match case above — the capture scan then resolves the longer branch first, so the ambiguous prefix stays buffered instead of being flushed as a non-match, and the same three chunks (`"ab"`, `"ca"`, `"bc"`) go on to produce the correct `"abcabc"` match. This depends on scan-resolution order rather than being a documented guarantee, so treat it as a mitigation to test against your own pattern, not a fix.
+
+- **`\k<name>` with no named capturing groups in the pattern** is treated by `regex-partial-match` as an atomic (all-or-nothing) backreference, rather than the [identity escape](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape) [Annex B](https://tc39.es/ecma262/#sec-regular-expressions-patterns) would otherwise permit — so `"k"` or `"k<"` alone won't register as a valid partial match if this is the pattern's only reference to `\k`. This is a narrow edge case; if the deprecated Annex B identity-escape meaning is actually intended, use `k` instead of `\k`.
 
 ### ⚠️ Surrogate pairs separated by chunks
 
@@ -264,6 +271,7 @@ Quantifier will be satisfied eagerly, thus multiple matches will occur. e.g. chu
 - 🔀 [Disjunctions](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Disjunction): `/cat|dog/`
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
+- 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
 - 三 [Multiline](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/multiline): `/^.+?$/ms`
 - 🚧 Boundary assertions (⚓ [input](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Input_boundary_assertion), 🆒 [word](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Word_boundary_assertion)): `/\b.+?\b/`, `/^t/m`
 - 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices)[^2]: `/foo/d`

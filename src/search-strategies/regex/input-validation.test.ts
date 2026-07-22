@@ -19,12 +19,4 @@ describe("input validation", () => {
     );
   });
 
-  it("should not allow backreferences to be used", () => {
-    expect(() => inputValidation(/(.)\1/)).toThrow(
-      "backreferences are not supported"
-    );
-    expect(() => inputValidation(/(?<foo>.)\k<foo>/)).toThrow(
-      "backreferences are not supported"
-    );
-  });
 });

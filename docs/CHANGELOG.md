@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Regex search strategy now supports backreferences (`\1`, `\k<name>`) — the input validation that previously rejected them has been removed. See [regex search strategy README limitations](../src/search-strategies/regex/README.md#limitations) for streaming-specific caveats (performance, and a known prefix-ambiguous top-level alternation limitation that can drop a match spanning chunks)
+
+### Changed
+
+- Updated to `regex-partial-match` v1.0.0 to support backreferences
+  - N.B. This introduces a ~2.6x construction cost for the regex search strategy, due to the new "parts" array constructed to support an `exec()` override, and the call super double (at least) `RegExp` construction.  This happens even if backreferences are not part of the pattern.  Considered an acceptable trade-off for the added flexibility, and should be amortised by re-use of the strategy once constructed in the common use-case.
+
+### Fixed
+
+- Updated [main `README.md`](../README.md) to list the proper number of comparison search strategies
+- Fixed typo in [balanced-pair `README.md`](../src/search-strategies/balanced-pair/README.md)
+- Fix npm version in `packageManager` to be valid
+- Replaced the inline `CorrectedRegExpIndicesArray` workaround in the regex search strategy with a local [`@typescript/lib-es2022`](../types/README.md) `libReplacement` lib override, fixing `RegExpIndicesArray` for `undefined` named-group indices upstream via [microsoft/TypeScript#63281](https://github.com/microsoft/TypeScript/issues/63281)
+
 ## [2.1.0] - 2026-05-24
 
 ### Added

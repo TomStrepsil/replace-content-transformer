@@ -1,5 +1,5 @@
 import type { ReplacementContext } from "../../../engines/types.ts";
-import createPartialMatchRegex from "regex-partial-match";
+import PartialMatchRegExp from "regex-partial-match";
 
 export class RegexCallbackSearchStrategy {
   private partialChunk: string;
@@ -18,7 +18,7 @@ export class RegexCallbackSearchStrategy {
   ) {
     this.replacement = replacement;
     this.openRegex = needle;
-    this.partialAtEndRegex = createPartialMatchRegex(needle);
+    this.partialAtEndRegex = new PartialMatchRegExp(needle);
     this.partialChunk = "";
     this.lastIndex = undefined;
   }

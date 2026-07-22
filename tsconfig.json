@@ -11,6 +11,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ESNext", "WebWorker"],
+    "libReplacement": true,
     "types": ["@types/node", "vitest/globals", "bun", "deno"],
   },
   "include": ["src/**/*", "test/**/*", "test/benchmarks/**/*"],

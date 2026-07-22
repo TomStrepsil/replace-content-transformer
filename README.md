@@ -178,8 +178,26 @@ const transformer = new ReplaceContentTransformer(
 );
 ```
 
+A backreference lets a pattern tie a later part of the match back to something it already captured — e.g. a quote-agnostic string literal, where whatever character opened the string (`'`, `"`, or `` ` ``) is also whatever has to close it, rather than a fixed character baked into the pattern:
+
+```typescript
+// `name = 'Alice'` becomes `name = 'REDACTED'`
+// `greeting = "hi there"` becomes `greeting = "REDACTED"`
+// `code = `raw`` becomes `code = `REDACTED``
+// `text = "it's fine"` becomes 'text = "REDACTED"` — the apostrophe inside is just content; the backreference, not a fixed quote character, is what decides where the string actually ends
+const transformer = new ReplaceContentTransformer(
+  new SyncReplacementTransformEngine({
+    searchStrategy: searchStrategyFactory(/(['"`])(?:\\.|[^\\])*?\1/),
+    replacement: (match: RegExpExecArray) => {
+      const quote = match[1];
+      return `${quote}REDACTED${quote}`;
+    }
+  })
+);
+```
+
 > [!CAUTION]
-> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations).
+> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations) — backreferences in particular carry their own streaming-specific caveats, documented in that same section.
 
 #### Replacing Balanced Pairs (respecting nesting)
 
@@ -645,7 +663,7 @@ npm run build
 
 ### Functional Validation Tests
 
-- **Algorithm comparison** - 14 different search strategy implementations validated against identical test scenarios:
+- **Algorithm comparison** - 17 different search strategy implementations validated against identical test scenarios:
   - Single and multi-chunk replacements
   - Tokens split across chunk boundaries at various positions
   - Consecutive and nested patterns

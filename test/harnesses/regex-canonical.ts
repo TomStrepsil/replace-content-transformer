@@ -1,5 +1,5 @@
 import { legacyHarnessTransformer } from "./engine-harness.ts";
-import createPartialMatchRegex from "regex-partial-match";
+import PartialMatchRegExp from "regex-partial-match";
 import type { ReplacementContext } from "../../src/engines/types.ts";
 import { RegexReplaceContentTransformer } from "../../src/search-strategies/benchmarking/index.ts";
 
@@ -12,7 +12,7 @@ export const RegexCanonicalHarness = {
       `${RegExp.escape(tokens[0])}.*?${RegExp.escape(tokens[1])}`,
       "gs"
     ),
-    partialAtEndRegex: createPartialMatchRegex(
+    partialAtEndRegex: new PartialMatchRegExp(
       new RegExp(`${RegExp.escape(tokens[0])}.*?${RegExp.escape(tokens[1])}`)
     )
   }),
