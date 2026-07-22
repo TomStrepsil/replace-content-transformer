@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added support for backreferences (`\1`, `\k<name>`) when using the regex search strategy. See [limitations](../src/search-strategies/regex/README.md#limitations) for streaming-specific caveats (performance, and a known prefix-ambiguous top-level alternation limitation that can drop a match spanning chunks)
+
+### Changed
+
+- Updated to `regex-partial-match` v1.0.0 to support backreferences
+  - N.B. This introduces a ~2.6x construction cost for the regex search strategy, due to the new "parts" array constructed to support an `exec()` override and `super()` performing (at least) two `RegExp` constructions. This happens even if backreferences are not part of the pattern. Considered an acceptable trade-off for the added flexibility, and should be amortised by re-use of the strategy once constructed in the common use-case.
+
+### Fixed
+
+- Updated [main `README.md`](../README.md) to list the proper number of comparison search strategies
+- Fixed npm version in `packageManager` to be valid
+- Replaced the inline `CorrectedRegExpIndicesArray` workaround in the regex search strategy with a local [`@typescript/lib-es2022`](../types/README.md) `libReplacement` lib override, fixing `RegExpIndicesArray` typing for `undefined` named-group indices in this repo’s TypeScript build (see [microsoft/TypeScript#63281](https://github.com/microsoft/TypeScript/issues/63281))
+- Added a [`setup-node`](../.github/actions/setup-node/action.yml) action to the CI/publish/release pipelines, running `corepack enable`/`corepack install` after `actions/setup-node` (mitigating [actions/setup-node#1553](https://github.com/actions/setup-node/issues/1553)) so the pinned, hash-verified npm version in `packageManager` is actually the one that runs `npm ci`, `npm run lint`, `npm test`, `npm publish`, and `npm version`
+
+### Removed
+
+- Removed input validation that previously rejected backreferences
+- Explicitly removed support for sticky/global regexes in the regex search strategy, now rejected by input validation
+  - Despite being a breaking change, this never really worked before, so considering a "patch"
+
 ## [2.1.0] - 2026-05-24
 
 ### Added

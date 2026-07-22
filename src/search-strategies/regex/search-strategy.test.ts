@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { RegexSearchStrategy } from "./search-strategy.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
+import { collectSearchStrategyResults } from "../../../test/utilities.js";
 
 vi.mock("./input-validation.js");
 
@@ -482,16 +483,10 @@ describe("RegexSearchStrategy", () => {
         typeof Bun !== "undefined" &&
           name.includes("complement unicodeSet character classes")
       )(name, () => {
-        const strategy = new RegexSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult<RegExpExecArray>[] = [];
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
-
-        const flush = strategy.flush(state);
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          chunks
+        );
         if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toMatchObject(expected);
@@ -529,16 +524,10 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = new RegexSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult<RegExpExecArray>[] = [];
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
-
-        const flush = strategy.flush(state);
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          chunks
+        );
         if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toMatchObject(expected);
@@ -1043,16 +1032,10 @@ describe("RegexSearchStrategy", () => {
         typeof Bun !== "undefined" &&
           name.includes("complement unicodeSet character classes")
       )(name, () => {
-        const strategy = new RegexSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult<RegExpExecArray>[] = [];
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
-
-        const flush = strategy.flush(state);
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          chunks
+        );
         if (flush) results.push({ isMatch: false, content: flush });
 
         expect(results).toMatchObject(expected);
@@ -1102,16 +1085,10 @@ describe("RegexSearchStrategy", () => {
     testCases.forEach(
       ({ name, pattern, chunks, expectedYields, expectedFlush }) => {
         test(name, () => {
-          const strategy = new RegexSearchStrategy(pattern);
-          const state = strategy.createState();
-          const results: MatchResult<RegExpExecArray>[] = [];
-          for (const chunk of chunks) {
-            for (const result of strategy.processChunk(chunk, state)) {
-              results.push(result);
-            }
-          }
-
-          const flush = strategy.flush(state);
+          const { results, flush } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            chunks
+          );
           expect(results).toEqual(expectedYields);
           expect(flush).toBe(expectedFlush);
         });
@@ -1158,14 +1135,10 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const strategy = new RegexSearchStrategy(pattern);
-        const state = strategy.createState();
-        const results: MatchResult<RegExpExecArray>[] = [];
-        for (const chunk of chunks) {
-          for (const result of strategy.processChunk(chunk, state)) {
-            results.push(result);
-          }
-        }
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          chunks
+        );
 
         expect(results).toMatchObject(expected);
       });
@@ -1571,6 +1544,118 @@ describe("RegexSearchStrategy", () => {
       const results = [...strategy.processChunk("user@example", state)];
       const match = results.find((r) => r.isMatch)!;
       expect(strategy.matchToString(match.content)).toBe("user@example");
+    });
+  });
+
+  describe("backreference streaming scenarios", () => {
+    describe("numbered backreference matching a repeated token", () => {
+      const pattern = /(.+?) \1/;
+
+      it("matches when the repeated word is split across chunks", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["foo f", "oo bar"]
+        );
+        expect(results).toMatchObject([
+          { isMatch: true, content: expect.arrayContaining(["foo foo"]) }
+        ]);
+        expect(flush).toBe(" bar");
+      });
+
+      it("matches when the chunk boundary falls between the delimiter and the second occurrence", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["foo ", "foo bar"]
+        );
+        expect(results).toMatchObject([
+          { isMatch: true, content: expect.arrayContaining(["foo foo"]) }
+        ]);
+        expect(flush).toBe(" bar");
+      });
+    });
+
+    describe("named backreference", () => {
+      const pattern = /(?<word>\w+) \k<word>/;
+
+      it("matches when the repeated word is split across chunks", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["hello hel", "lo world"]
+        );
+        expect(results).toMatchObject([
+          {
+            isMatch: true,
+            content: expect.objectContaining({
+              [0]: "hello hello",
+              groups: { word: "hello" }
+            })
+          },
+          { isMatch: false, content: " " }
+        ]);
+
+        expect(flush).toBe("world");
+      });
+    });
+
+    describe("matched tags recipe (HTML/XML-style)", () => {
+      const pattern = /<([a-zA-Z][\w:-]*)>[^<]*?<\/\1>/;
+
+      it("matches a tag pair whose name, content, and close are each split across chunks", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["<esi:", "include>bo", "dy</esi:in", "clude>tail"]
+        );
+        expect(results).toMatchObject([
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["<esi:include>body</esi:include>"])
+          },
+          { isMatch: false, content: "tail" }
+        ]);
+        expect(flush).toBe("");
+      });
+
+      it("captures the tag name via the backreference group", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["<div>", "hello", "</div>", " world"]
+        );
+        const match = results.find((r) => r.isMatch);
+        expect(match).toMatchObject({
+          content: expect.objectContaining({ 0: "<div>hello</div>", 1: "div" })
+        });
+
+        expect(results).toContainEqual({ isMatch: false, content: " world" });
+        expect(flush).toBe("");
+      });
+
+      it("rejects a mismatched closing tag without buffering indefinitely", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["<div>hello</wr", "ong>"]
+        );
+        expect(results).toMatchObject([
+          { isMatch: false, content: "<div>hello</wr" },
+          { isMatch: false, content: "ong>" }
+        ]);
+        expect(flush).toBe("");
+      });
+
+      it("does not confuse the tag name between two consecutive matches", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          ["<a>1</a> and <b", ">2</b> done"]
+        );
+        const matches = results.filter((r) => r.isMatch);
+        expect(matches).toHaveLength(2);
+        expect(matches[0]).toMatchObject({
+          content: expect.objectContaining({ 0: "<a>1</a>", 1: "a" })
+        });
+        expect(matches[1]).toMatchObject({
+          content: expect.objectContaining({ 0: "<b>2</b>", 1: "b" })
+        });
+        expect(flush).toBe("");
+      });
     });
   });
 });

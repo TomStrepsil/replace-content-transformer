@@ -201,6 +201,21 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
   };
 }
 
+function collectSearchStrategyResults<TState, TMatch = string>(
+  strategy: SearchStrategy<TState, TMatch>,
+  chunks: string[]
+): { results: MatchResult<TMatch>[]; flush: string } {
+  const state = strategy.createState();
+  const results: MatchResult<TMatch>[] = [];
+  for (const chunk of chunks) {
+    for (const result of strategy.processChunk(chunk, state)) {
+      results.push(result);
+    }
+  }
+  const flush = strategy.flush(state);
+  return { results, flush };
+}
+
 function collectEngineSink(): {
   sink: EngineSink;
   chunks: string[];
@@ -248,6 +263,7 @@ function mockAsyncEngine() {
 
 export {
   collectEngineSink,
+  collectSearchStrategyResults,
   collectWritable,
   asyncIterable,
   createIterableSlotNode,

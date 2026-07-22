@@ -15,7 +15,7 @@
     "npm:jscodeshift@^17.3.0": "17.3.0",
     "npm:lint-staged@^16.4.0": "16.4.0",
     "npm:mitata@^1.0.10": "1.0.34",
-    "npm:regex-partial-match@0.3": "0.3.0",
+    "npm:regex-partial-match@1": "1.0.0",
     "npm:rimraf@^6.1.3": "6.1.3",
     "npm:simple-git-hooks@^2.13.1": "2.13.1",
     "npm:tsx@^4.21.0": "4.21.0",
@@ -2026,8 +2026,8 @@
         "tslib"
       ]
     },
-    "regex-partial-match@0.3.0": {
-      "integrity": "sha512-MOvrJdPrwMaPBj1lwUWQo5cFp0LUa58JGWzGDYGXz9Yn5A+GKIE1iunTd7Eo3tr8IxqaWYpZ3iQybURngrhNTw=="
+    "regex-partial-match@1.0.0": {
+      "integrity": "sha512-+FXapbkY4imF7v8SX/NKBJhpGCiBnd2VQeOt3n+icb86stMr4ELwTgE9aIct46Sc+6ym+saPqgLjCB/VzugegQ=="
     },
     "require-directory@2.1.1": {
       "integrity": "sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q=="
@@ -2496,7 +2496,7 @@
         "npm:eslint@^10.1.0",
         "npm:globals@^17.4.0",
         "npm:lint-staged@^16.4.0",
-        "npm:regex-partial-match@0.3",
+        "npm:regex-partial-match@1",
         "npm:rimraf@^6.1.3",
         "npm:simple-git-hooks@^2.13.1",
         "npm:typescript@^6.0.2",

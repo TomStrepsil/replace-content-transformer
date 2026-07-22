@@ -19,16 +19,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Run linter
-        run: npm run lint
+        run: corepack npm run lint
 
   test:
     name: Test (${{ matrix.runtime }})
@@ -42,11 +37,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
+      - name: Setup Node
         if: matrix.runtime == 'node'
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
+        uses: ./.github/actions/setup-node
 
       - name: Setup Bun
         if: matrix.runtime == 'bun'
@@ -60,10 +53,6 @@ jobs:
         with:
           deno-version: ^2
 
-      - name: Install dependencies (Node)
-        if: matrix.runtime == 'node'
-        run: npm ci
-
       - name: Install dependencies (Bun)
         if: matrix.runtime == 'bun'
         run: bun ci
@@ -74,7 +63,7 @@ jobs:
 
       - name: Run tests (Node)
         if: matrix.runtime == 'node'
-        run: npm run test:ci
+        run: corepack npm run test:ci
 
       - name: Run tests (Bun)
         if: matrix.runtime == 'bun'

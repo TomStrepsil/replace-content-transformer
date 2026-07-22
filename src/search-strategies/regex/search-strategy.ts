@@ -1,34 +1,12 @@
 import type { MatchResult, SearchStrategy } from "../types.js";
-import createPartialMatchRegex from "regex-partial-match";
+import PartialMatchRegExp from "regex-partial-match";
 import validateInput from "./input-validation.js";
 import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.js";
 
-/**
- * Corrected version of {@link RegExpIndicesArray} that models `undefined`
- * entries for unmatched optional/alternation capture groups.
- *
- * TypeScript's built-in type incorrectly declares `Array<[number, number]>`,
- * but the ES2022 spec (and all engines) place `undefined` at positions
- * corresponding to non-participating capture groups.
- *
- * Fixed upstream but not yet released:
- * @see {@link https://github.com/microsoft/TypeScript/issues/61078}
- * @see {@link https://github.com/microsoft/TypeScript/pull/61079}
- * 
- * However, this still incorrectly types groups as `Record<string, [number, number]>` without `undefined` values
- * @see {@link https://github.com/microsoft/TypeScript/issues/63281}
- */
-interface CorrectedRegExpIndicesArray
-  extends Array<[number, number] | undefined> {
-  groups?: {
-    [key: string]: [number, number] | undefined;
-  };
-}
-
 function updateIndices(
-  indices: CorrectedRegExpIndicesArray,
+  indices: RegExpIndicesArray,
   offset: number
 ) {
   for (const entry of indices) {
@@ -72,7 +50,7 @@ export class RegexSearchStrategy
     super();
     validateInput(needle);
     this.completeMatchRegex = needle;
-    this.partialMatchRegex = createPartialMatchRegex(needle);
+    this.partialMatchRegex = new PartialMatchRegExp(needle);
   }
 
   *processChunk(
@@ -90,7 +68,7 @@ export class RegexSearchStrategy
         const completeMatch = this.completeMatchRegex.exec(remainingHaystack);
         if (!completeMatch) {
           position = length;
-          const partialMatch = this.partialMatchRegex.exec(remainingHaystack)!;
+          const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
           if (partialMatch?.[0]) {
             state.buffer = remainingHaystack.slice(partialMatch.index);
             if (partialMatch.index > 0) {
@@ -120,15 +98,11 @@ export class RegexSearchStrategy
         position += matchLength;
 
         if (completeMatch.indices) {
-          const indices =
-            completeMatch.indices as CorrectedRegExpIndicesArray;
+          const indices = completeMatch.indices;
           const offset = startIndex - completeMatch.index;
           updateIndices(indices, offset);
           if (indices.groups) {
-            updateIndices(
-              Object.values(indices.groups) as CorrectedRegExpIndicesArray,
-              offset
-            );
+            updateIndices(Object.values(indices.groups), offset);
           }
         }
 

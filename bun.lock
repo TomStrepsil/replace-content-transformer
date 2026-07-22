@@ -4,7 +4,7 @@
     "": {
       "name": "replace-content-transformer",
       "dependencies": {
-        "regex-partial-match": "^0.3.0",
+        "regex-partial-match": "^1.0.0",
       },
       "devDependencies": {
         "@arethetypeswrong/cli": "^0.18.2",
@@ -14,6 +14,7 @@
         "@types/node": "^25.7.0",
         "@typescript-eslint/eslint-plugin": "^8.58.0",
         "@typescript-eslint/parser": "^8.58.0",
+        "@typescript/lib-es2022": "file:types/lib-es2022",
         "@vitest/coverage-v8": "^4.1.2",
         "eslint": "^10.1.0",
         "eslint-plugin-vitest-globals": "^1.6.1",
@@ -320,6 +321,8 @@
     "@typescript-eslint/utils": ["@typescript-eslint/utils@8.58.0", "", { "dependencies": { "@eslint-community/eslint-utils": "^4.9.1", "@typescript-eslint/scope-manager": "8.58.0", "@typescript-eslint/types": "8.58.0", "@typescript-eslint/typescript-estree": "8.58.0" }, "peerDependencies": { "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0", "typescript": ">=4.8.4 <6.1.0" } }, "sha512-RfeSqcFeHMHlAWzt4TBjWOAtoW9lnsAGiP3GbaX9uVgTYYrMbVnGONEfUCiSss+xMHFl+eHZiipmA8WkQ7FuNA=="],
 
     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.58.0", "", { "dependencies": { "@typescript-eslint/types": "8.58.0", "eslint-visitor-keys": "^5.0.0" } }, "sha512-XJ9UD9+bbDo4a4epraTwG3TsNPeiB9aShrUneAVXy8q4LuwowN+qu89/6ByLMINqvIMeI9H9hOHQtg/ijrYXzQ=="],
+
+    "@typescript/lib-es2022": ["@typescript/lib-es2022@file:types/lib-es2022", {}],
 
     "@vitest/coverage-v8": ["@vitest/coverage-v8@4.1.5", "", { "dependencies": { "@bcoe/v8-coverage": "^1.0.2", "@vitest/utils": "4.1.5", "ast-v8-to-istanbul": "^1.0.0", "istanbul-lib-coverage": "^3.2.2", "istanbul-lib-report": "^3.0.1", "istanbul-reports": "^3.2.0", "magicast": "^0.5.2", "obug": "^2.1.1", "std-env": "^4.0.0-rc.1", "tinyrainbow": "^3.1.0" }, "peerDependencies": { "@vitest/browser": "4.1.5", "vitest": "4.1.5" }, "optionalPeers": ["@vitest/browser"] }, "sha512-38C0/Ddb7HcRG0Z4/DUem8x57d2p9jYgp18mkaYswEOQBGsI1CG4f/hjm0ZCeaJfWhSZ4k7jgs29V1Zom7Ki9A=="],
 
@@ -681,7 +684,7 @@
 
     "recast": ["recast@0.23.11", "", { "dependencies": { "ast-types": "^0.16.1", "esprima": "~4.0.0", "source-map": "~0.6.1", "tiny-invariant": "^1.3.3", "tslib": "^2.0.1" } }, "sha512-YTUo+Flmw4ZXiWfQKGcwwc11KnoRAYgzAE2E7mXKCjSviTKShtxBsN6YUUBB2gtaBzKzeKunxhUwNHQuRryhWA=="],
 
-    "regex-partial-match": ["regex-partial-match@0.3.0", "", {}, "sha512-MOvrJdPrwMaPBj1lwUWQo5cFp0LUa58JGWzGDYGXz9Yn5A+GKIE1iunTd7Eo3tr8IxqaWYpZ3iQybURngrhNTw=="],
+    "regex-partial-match": ["regex-partial-match@1.0.0", "", {}, "sha512-+FXapbkY4imF7v8SX/NKBJhpGCiBnd2VQeOt3n+icb86stMr4ELwTgE9aIct46Sc+6ym+saPqgLjCB/VzugegQ=="],
 
     "require-directory": ["require-directory@2.1.1", "", {}, "sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q=="],
 
