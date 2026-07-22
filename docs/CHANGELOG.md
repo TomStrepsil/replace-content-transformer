@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Regex search strategy now supports backreferences (`\1`, `\k<name>`) — the input validation that previously rejected them has been removed. See [regex search strategy README limitations](../src/search-strategies/regex/README.md#limitations) for streaming-specific caveats (performance, and a known prefix-ambiguous top-level alternation limitation that can drop a match spanning chunks)
+- Added support for backreferences (`\1`, `\k<name>`) when using the regex search strategy. See [limitations](../src/search-strategies/regex/README.md#limitations) for streaming-specific caveats (performance, and a known prefix-ambiguous top-level alternation limitation that can drop a match spanning chunks)
 
 ### Changed
 
@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix npm version in `packageManager` to be valid
 - Replaced the inline `CorrectedRegExpIndicesArray` workaround in the regex search strategy with a local [`@typescript/lib-es2022`](../types/README.md) `libReplacement` lib override, fixing `RegExpIndicesArray` for `undefined` named-group indices upstream via [microsoft/TypeScript#63281](https://github.com/microsoft/TypeScript/issues/63281)
 - Added a [`setup-node`](../.github/actions/setup-node/action.yml) action to the CI/publish/release pipelines, running `corepack enable`/`corepack install` after `actions/setup-node` (mitigating [actions/setup-node#1553](https://github.com/actions/setup-node/issues/1553)) so the pinned, hash-verified npm version in `packageManager` is actually the one that runs `npm ci`, `npm run lint`, `npm test`, `npm publish`, and `npm version`
+
+### Removed
+
+- Removed input validation that previously rejected backreferences
 
 ## [2.1.0] - 2026-05-24
 
