@@ -1562,7 +1562,7 @@ describe("RegexSearchStrategy", () => {
         expect(flush).toBe(" bar");
       });
 
-      it("matches when the chunk boundary falls exactly between the two occurrences", () => {
+      it("matches when the chunk boundary falls between the delimiter and the second occurrence", () => {
         const { results, flush } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["foo ", "foo bar"]
