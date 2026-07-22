@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated [main `README.md`](../README.md) to list the proper number of comparison search strategies
 - Fixed npm version in `packageManager` to be valid
-- Replaced the inline `CorrectedRegExpIndicesArray` workaround in the regex search strategy with a local [`@typescript/lib-es2022`](../types/README.md) `libReplacement` lib override, fixing `RegExpIndicesArray` for `undefined` named-group indices upstream via [microsoft/TypeScript#63281](https://github.com/microsoft/TypeScript/issues/63281)
+- Replaced the inline `CorrectedRegExpIndicesArray` workaround in the regex search strategy with a local [`@typescript/lib-es2022`](../types/README.md) `libReplacement` lib override, fixing `RegExpIndicesArray` typing for `undefined` named-group indices in this repo’s TypeScript build (see [microsoft/TypeScript#63281](https://github.com/microsoft/TypeScript/issues/63281))
 - Added a [`setup-node`](../.github/actions/setup-node/action.yml) action to the CI/publish/release pipelines, running `corepack enable`/`corepack install` after `actions/setup-node` (mitigating [actions/setup-node#1553](https://github.com/actions/setup-node/issues/1553)) so the pinned, hash-verified npm version in `packageManager` is actually the one that runs `npm ci`, `npm run lint`, `npm test`, `npm publish`, and `npm version`
 
 ### Removed
