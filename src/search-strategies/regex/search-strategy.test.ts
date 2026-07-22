@@ -1625,9 +1625,6 @@ describe("RegexSearchStrategy", () => {
           content: expect.objectContaining({ 0: "<div>hello</div>", 1: "div" })
         });
 
-        // " world" contains no "<", so nothing after the match could still
-        // begin a new tag — it's yielded outright as non-match content
-        // rather than buffered, leaving nothing for flush() to return.
         expect(results).toContainEqual({ isMatch: false, content: " world" });
         expect(flush).toBe("");
       });
