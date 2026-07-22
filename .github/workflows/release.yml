@@ -32,13 +32,8 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: ".nvmrc"
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Configure Git
         run: |
@@ -129,13 +124,13 @@ jobs:
           echo "Bump type: $BUMP_TYPE"
 
           if [[ "${{ inputs.prerelease }}" == "true" ]]; then
-            npm version "pre${BUMP_TYPE}" --preid=beta --no-git-tag-version
+            corepack npm version "pre${BUMP_TYPE}" --preid=beta --no-git-tag-version
             # Increment past any already-published betas for this target version
             while git tag -l "v$(node -p "require('./package.json').version")" | grep -q .; do
-              npm version prerelease --preid=beta --no-git-tag-version
+              corepack npm version prerelease --preid=beta --no-git-tag-version
             done
           else
-            npm version "$BUMP_TYPE" --no-git-tag-version
+            corepack npm version "$BUMP_TYPE" --no-git-tag-version
           fi
 
           version=$(node -p "require('./package.json').version")

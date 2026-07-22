@@ -1,0 +1,23 @@
+name: Setup Node
+
+description: Setup Node & Install Dependencies
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+        package-manager-cache: false
+        registry-url: "https://registry.npmjs.org"
+
+    - name: Corepack
+      run: |
+        corepack enable npm
+        corepack install
+      shell: bash
+
+    - name: Install dependencies
+      run: corepack npm ci
+      shell: bash

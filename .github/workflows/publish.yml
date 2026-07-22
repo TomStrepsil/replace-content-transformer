@@ -17,19 +17,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
 
       - name: Publish to NPM
         run: |
           if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
-            npm publish --tag next
+            corepack npm publish --tag next
           else
-            npm publish
+            corepack npm publish
           fi
