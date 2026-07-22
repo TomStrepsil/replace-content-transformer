@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated to `regex-partial-match` v1.0.0 to support backreferences
-  - N.B. This introduces a ~2.6x construction cost for the regex search strategy, due to the new "parts" array constructed to support an `exec()` override, and the call super double (at least) `RegExp` construction.  This happens even if backreferences are not part of the pattern.  Considered an acceptable trade-off for the added flexibility, and should be amortised by re-use of the strategy once constructed in the common use-case.
+  - N.B. This introduces a ~2.6x construction cost for the regex search strategy, due to the new "parts" array constructed to support an `exec()` override and `super()` performing (at least) two `RegExp` constructions. This happens even if backreferences are not part of the pattern. Considered an acceptable trade-off for the added flexibility, and should be amortised by re-use of the strategy once constructed in the common use-case.
 
 ### Fixed
 

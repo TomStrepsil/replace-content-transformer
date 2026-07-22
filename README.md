@@ -184,7 +184,7 @@ A backreference lets a pattern tie a later part of the match back to something i
 // `name = 'Alice'` becomes `name = 'REDACTED'`
 // `greeting = "hi there"` becomes `greeting = "REDACTED"`
 // `code = `raw`` becomes `code = `REDACTED``
-// `text = "it's fine"` becomes 'text = "REDACTED"` — the apostrophe inside is just content; the backreference, not a fixed quote character, is what decides where the string actually ends
+// `text = "it's fine"` becomes `text = "REDACTED"` — the apostrophe inside is just content; the backreference, not a fixed quote character, is what decides where the string actually ends
 const transformer = new ReplaceContentTransformer(
   new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(/(['"`])(?:\\.|[^\\])*?\1/),
