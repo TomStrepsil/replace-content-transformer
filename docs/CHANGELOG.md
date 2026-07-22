@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Removed input validation that previously rejected backreferences
+- Explicitly removed support for sticky/global regexes in the regex search strategy, now rejected by input validation
+  - Despite being a breaking change, this never really worked before, so considering a "patch"
 
 ## [2.1.0] - 2026-05-24
 
