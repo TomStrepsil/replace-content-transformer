@@ -134,6 +134,23 @@ Step 2: partialMatchRegex.exec() → no match for "PLACEHOLDER"
 └──────────────────────────────────────────────┘
 ```
 
+### Addendum: Boundary Assertion Verification
+
+`^` (without `m`), `\b`, `\B`, and `^` under `/m` are zero-width assertions that depend on whatever precedes the current position — [lookbehind](#-lookbehinds) in microcosm, but bounded to exactly one character rather than an arbitrary run, which is what makes it solvable here. Every `.substring()` call in the walkthrough above (see [Complete Match Detection](#complete-match-detection)) hands `exec()` a **new string object** with no memory of what came before it, so native regex treats that string's own index 0 as the true start even when it isn't — regardless of whether the slice happens to start at a chunk boundary or simply right after the previous match, in a single, entirely un-chunked call[^5]:
+
+```
+Pattern: /\bOLD/
+completeMatchRegex.exec("OLDOLD".slice(3))  →  wrongly matches "OLD" at index 0
+  (real preceding char is 'D', a word char - no real \b there)
+```
+
+The fix: retain **one real character of trailing context** (the last character actually emitted across a chunk boundary, or the real character already in the haystack for a mid-buffer position), and re-verify any candidate starting at index 0 against it using a sticky-anchored clone of the pattern, forced to start exactly past that character[^6]. A rejected candidate resumes the search one code point later rather than abandoning it entirely[^7].
+
+Patterns without `^`, `\b`, or `\B` at all skip this path entirely (checked once, at construction).
+
+> [!NOTE]
+> This resolves the illusion at the *start* of a match only. The same illusion at the *end* of a match (`$`, `\b`/`\B` at the tail) remains unresolved — see [Limitations](#limitations).
+
 ## Partial Match Transformation
 
 See documentation of `regex-partial-match` for explanation of [how it works](https://github.com/TomStrepsil/regex-partial-match/tree/main?tab=readme-ov-file#how-it-works).
@@ -143,7 +160,7 @@ See documentation of `regex-partial-match` for explanation of [how it works](htt
 ```
 Original pattern:    /PLACEHOLDER/
 Complete regex:      /PLACEHOLDER/
-Partial regex:       /(?:P(?:L(?:A(?:C(?:E(?:H(?:O(?:L(?:D(?:E(?:R|$)|$)|$)|$)|$)|$)|$)|$)|$)|$)|$)/
+Partial regex:       /(?:P|$(?![\s\S]))(?:L|$(?![\s\S]))(?:A|$(?![\s\S]))(?:C|$(?![\s\S]))(?:E|$(?![\s\S]))(?:H|$(?![\s\S]))(?:O|$(?![\s\S]))(?:L|$(?![\s\S]))(?:D|$(?![\s\S]))(?:E|$(?![\s\S]))(?:R|$(?![\s\S]))/
 
 The partial regex matches progressively:
   "P" or "PL" or "PLA" or "PLAC" ... or "PLACEHOLDER"
@@ -156,16 +173,18 @@ This allows detection of incomplete patterns at chunk boundaries.
 ```typescript
 type RegexSearchState = {
   buffer: string; // Buffered content for a partial match
+  precedingChar: string | undefined; // Last real character emitted, for boundary assertion verification (see above)
 };
 ```
 
 **State transitions:**
 
-- **Initial:** `buffer = ""`
+- **Initial:** `buffer = ""`, `precedingChar = undefined` (true start of stream)
 - **Complete match found:** Clear buffer, emit match
 - **Partial match detected:** Buffer matched portion
 - **No match (complete or partial):** Emit content as non-match
-- **Flush:** Return buffered content
+- **Content emitted (match or non-match):** `precedingChar` updated to the last character actually emitted; left unchanged if nothing was emitted this call (e.g. everything buffered as a pending partial match)
+- **Flush:** Return buffered content, reset `precedingChar` to `undefined` (a reused state starts a fresh stream)
 
 ## Limitations
 
@@ -182,6 +201,9 @@ Problem: A chunk beginning with "bar" would naively match.
 
 Knowing to store "foo" in a buffer to negate the match would require a non-native regular expression state machine, or otherwise.
 
+> [!NOTE]
+> `^`, `\b`, and `\B` pose the same fundamental problem — needing to know what precedes the current position — but only ever need to look back exactly *one* character, never an arbitrary run like `foo` above. That fixed width is what makes them solvable without a state machine; see [Boundary Assertion Verification](#addendum-boundary-assertion-verification).
+
 ### ❌ Negative lookaheads
 
 ```js
@@ -191,6 +213,14 @@ Knowing to store "foo" in a buffer to negate the match would require a non-nativ
 Problem: A chunk ending "foo" would naively match.
 
 Knowing when to buffer requires understanding if the part of the regular expression next to match is a lookahead. To implement would require a non-native regular expression state machine, or otherwise.
+
+> [!NOTE]
+> This restriction is specifically about **predictive** negative lookaheads: ones whose truth depends on content that hasn't arrived yet. `(?!bar)` needs to see, and rule out, up to three more characters before it can be trusted — that's exactly the case this strategy can't support without a full state machine.
+>
+> It does *not* apply to [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/)'s own internal use of `(?![\s\S])`, visible in the generated partial regex — e.g. `(?:P|$(?![\s\S]))(?:L|$(?![\s\S]))...` for `/PLACEHOLDER/` (see [Partial Match Transformation](#partial-match-transformation)). That marker only ever asserts absence of *already-received* content, never a claim about anything still to arrive[^4].
+>
+> - `(?!bar)` (user pattern): depends on 3 characters not yet received → must know to buffer to find out, despite complete expression matching → **unsupported**.
+> - `(?![\s\S])` (internal marker): depends on zero unseen characters, it's an assertion of *absence* → always decidable immediately → **safe**.
 
 ### ❌ Global / sticky flags
 
@@ -214,8 +244,8 @@ That comes with real caveats for streaming use:
 - **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Partial Match Detection](#partial-match-detection) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom.
 - **Prefix-ambiguous top-level alternation can silently drop a match.** When a top-level `|` has branches sharing a prefix (e.g. `/^(ab)\1|^(abc)\2/`, where the first branch's `"ab"` is a strict prefix of the second branch's `"abc"`), the internal capture scan can resolve the *shorter* branch before enough input has arrived, causing the partial-match `exec()` to return `null` for content that is in fact a valid partial match. Since [`processChunk`](./search-strategy.ts) treats a `null` partial-match result as "definitely not a match" — flushing what's buffered as ordinary non-match content, rather than continuing to buffer it — this isn't just a slower path, it's a **lost match**: `/^(ab)\1|^(abc)\2/` fed `"ab"`, then `"ca"`, then `"bc"` yields two non-matches (`"abca"`, `"bc"`) instead of the single match `"abcabc"` a non-chunked `exec()` on the concatenated string would find.
 
-  > [!TIP]
-  > List the longer/more specific branch *first* in the alternation (`/^(abc)\1|^(ab)\2/` rather than `/^(ab)\1|^(abc)\2/`) when branches share a prefix. This has been verified to avoid the dropped-match case above — the capture scan then resolves the longer branch first, so the ambiguous prefix stays buffered instead of being flushed as a non-match, and the same three chunks (`"ab"`, `"ca"`, `"bc"`) go on to produce the correct `"abcabc"` match. This depends on scan-resolution order rather than being a documented guarantee, so treat it as a mitigation to test against your own pattern, not a fix.
+> [!TIP]
+> List the longer/more specific branch *first* in the alternation (`/^(abc)\1|^(ab)\2/` rather than `/^(ab)\1|^(abc)\2/`) when branches share a prefix. This has been verified to avoid the dropped-match case above — the capture scan then resolves the longer branch first, so the ambiguous prefix stays buffered instead of being flushed as a non-match, and the same three chunks (`"ab"`, `"ca"`, `"bc"`) go on to produce the correct `"abcabc"` match. This depends on scan-resolution order rather than being a documented guarantee, so treat it as a mitigation to test against your own pattern, not a fix.
 
 - **`\k<name>` with no named capturing groups in the pattern** is treated by `regex-partial-match` as an atomic (all-or-nothing) backreference, rather than the [identity escape](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape) [Annex B](https://tc39.es/ecma262/#sec-regular-expressions-patterns) would otherwise permit — so `"k"` or `"k<"` alone won't register as a valid partial match if this is the pattern's only reference to `\k`. This is a narrow edge case; if the deprecated Annex B identity-escape meaning is actually intended, use `k` instead of `\k`.
 
@@ -231,6 +261,15 @@ In this example. the named group "foo" will be returned with these individual by
 
 > [!TIP]
 > It's intended that the transform is used on [well-formed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/isWellFormed) strings, hence a [`TextDecoderStream`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoderStream) should be used to ensure multi-byte characters do not span chunks.
+
+### ⚠️ End-of-match boundary assertions near a chunk's trailing edge
+
+```js
+/foo$/;
+/foo\b/;
+```
+
+[Boundary Assertion Verification](#addendum-boundary-assertion-verification) resolves `^` (no `m`), `\b`, and `\B` at the *start* of a match — the missing context there is always something already received, just discarded once flushed from the buffer. `$`, and `\b`/`\B` at the *end* of a match are structurally different: the missing context is whatever comes *next*, which — right when the illusion could occur — genuinely hasn't arrived yet. This can't be resolved the same way and remains an open, tracked issue: [#49](https://github.com/TomStrepsil/replace-content-transformer/issues/49).
 
 ### ⚠️ Unbounded Quantifiers
 
@@ -282,7 +321,7 @@ Quantifier will be satisfied eagerly, thus multiple matches will occur. e.g. chu
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
 - 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
 - 三 [Multiline](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/multiline): `/^.+?$/ms`
-- 🚧 Boundary assertions (⚓ [input](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Input_boundary_assertion), 🆒 [word](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Word_boundary_assertion)): `/\b.+?\b/`, `/^t/m`
+- ⚓ Boundary assertions (⚓ [input](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Input_boundary_assertion), 🆒 [word](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Word_boundary_assertion)): `/\b.+?\b/`, `/^t/m` — correct at the start of a match, including across chunk boundaries (see [caveats](#limitations) for the end-of-match case)
 - 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices)[^2]: `/foo/d`
 
 ## Credits
@@ -294,3 +333,11 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 [^2]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
 
 [^3]: Each internal `exec()` call runs against a fresh substring starting where the last match ended, but `lastIndex` (set by the previous `g`/`y` call) is left pointing at an offset within the *previous, longer* substring. Reused verbatim as an offset into the new, shorter one, it can point past a real match — which then gets flushed as ordinary non-match content instead of surfacing as a match. `y` compounds this: it also refuses to scan forward from `lastIndex` at all, so a match anywhere but exactly there is missed even on the first call.
+
+[^4]: `(?![\s\S])` asserts "no character exists at the current position" — a claim about content already in hand, decidable immediately from the buffer as it stands, never contingent on anything still to arrive. It isn't looking *ahead* into unseen content at all; it's a boundary check on the known buffer, spelled as a negative lookahead only because that's the native way to express "and nothing follows." It's also confined to the *partial*-match regex, never the original/complete-match regex — its only job is answering "could this still become a match with more input," a permissive buffering decision, not a definitive pass/fail on the match itself. Where it applies, a false positive there just means "keep buffering a little longer," not an incorrectly emitted match. The same reasoning is why `(?=...)` (positive lookahead) is fully supported (see [Supported Features](#-supported-features)) but `(?!...)` isn't: a positive lookahead's own atoms get the same "or buffer more" treatment as the rest of the pattern, so there's no predictive claim being smuggled in.
+
+[^5]: Why not just remember a cheaper classification (e.g. "was the preceding character a word character") instead of re-running a whole regex? Because `RegExpExecArray` never reveals which alternation branch actually matched. For `/^foo|bar/` matching `"bar"` mid-stream, the match has nothing to do with `^` at all — a classification check that reflexively verifies `^` whenever the pattern merely *contains* it would wrongly reject a match that was never gated by it. Re-running the whole pattern via a sticky clone asks "does the *pattern* still match here," not "does *this one assertion* hold," so it never needs to know which branch is responsible.
+
+[^6]: Sticky (`y`), not a plain search: prepending the context character and searching normally would let the pattern match starting *at* that character (consuming it as content) rather than only using it as a lookback. Sticky forces the match to start exactly one position later, so the context character can only ever be inspected, never consumed.
+
+[^7]: Necessary for patterns like `/\bfoo/` matching a haystack containing `"foo"` twice, where only the first occurrence is illusory — abandoning the search after one rejection would silently lose the second, genuinely valid, occurrence. It also means a rejected candidate doesn't necessarily disappear immediately: [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) has no awareness of this verification and treats `\b` as an always-passable, non-consuming token, so a rejected `\b`-anchored candidate may still be buffered as a live partial-match candidate rather than emitted right away — harmless, since it only costs a little extra buffering and the content still surfaces correctly either way.

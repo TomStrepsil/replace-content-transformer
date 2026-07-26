@@ -1658,4 +1658,196 @@ describe("RegexSearchStrategy", () => {
       });
     });
   });
+
+  describe("start-boundary chunk illusion (issue #48)", () => {
+    describe("false positives eliminated", () => {
+      const testCases = [
+        {
+          name: "^ (no m flag) never matches once earlier content has been flushed",
+          pattern: /^foo/,
+          chunks: ["xbar", "foo"]
+        },
+        {
+          name: "^ (no m flag) never matches, even with content immediately preceding on the same logical boundary",
+          pattern: /^foo/,
+          chunks: ["bar", "foo"]
+        },
+        {
+          name: "\\b at position 0 does not match when the preceding character is a word character",
+          pattern: /\bfoo/,
+          chunks: ["bar", "foo"]
+        },
+        {
+          name: "^ under /m does not match when the preceding character is not a line terminator",
+          pattern: /^foo/m,
+          chunks: ["bar", "foo"]
+        },
+        {
+          name: "^ under /m does not match across a chain of non-matching chunks not ending in a newline",
+          pattern: /^foo/m,
+          chunks: ["aaa", "bbb", "ccc"]
+        },
+        {
+          name: "^ under /m does not match when a chain of non-matching chunks flushes right up to it, none ending in a newline",
+          pattern: /^foo/m,
+          chunks: ["aaa", "bbb", "ccc", "foo"]
+        },
+        {
+          name: "\\b at position 0 does not match when the preceding character was emitted before an intervening chunk that buffers entirely (nothing emitted that call)",
+          pattern: /\bfoo/,
+          chunks: ["bar", "f", "oo"]
+        },
+        {
+          name: "^ under /m rejects a match starting with an astral (surrogate-pair) character without resuming mid-surrogate on retry",
+          pattern: /^👋/m,
+          chunks: ["bar", "👋baz"]
+        }
+      ];
+
+      testCases.forEach(({ name, pattern, chunks }) => {
+        test(name, () => {
+          const { results, flush } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            chunks
+          );
+
+          expect(results.every((result) => !result.isMatch)).toBe(true);
+
+          const reconstructed = results
+            .map((result) => (result.isMatch ? "" : result.content))
+            .join("") + flush;
+          expect(reconstructed).toBe(chunks.join(""));
+        });
+      });
+    });
+
+    describe("legitimate matches still recognized (regression guard)", () => {
+      it("^ (no m flag) still matches at the true start of the stream", () => {
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/^foo/),
+          ["foo bar"]
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: true, content: expect.arrayContaining(["foo"]) },
+          { isMatch: false, content: " bar" }
+        ]);
+      });
+
+      it("flush() resets precedingChar so a reused state doesn't leak stale boundary context into the next stream", () => {
+        const strategy = new RegexSearchStrategy(/^foo/);
+        const state = strategy.createState();
+
+        // First "stream": establish a non-undefined precedingChar ('r').
+        const results1 = [...strategy.processChunk("bar", state)];
+        expect(results1).toMatchObject([{ isMatch: false, content: "bar" }]);
+        strategy.flush(state);
+
+        // Second "stream" reusing the same state object: without resetting
+        // precedingChar on flush, this would wrongly treat 'r' as real
+        // context and reject `^foo`, even though this is a fresh stream's
+        // true start (streamOffset/buffer are reset by flush() too).
+        const results2 = [...strategy.processChunk("foo", state)];
+        expect(results2).toMatchObject([
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+      });
+
+      it("\\b at position 0 matches across a chunk boundary when the preceding character is not a word character", () => {
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/\bfoo/),
+          ["x ", "foo"]
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: false, content: "x " },
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+      });
+
+      it("^ under /m matches across a chunk boundary right after a newline that ends the preceding chunk", () => {
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/^foo/m),
+          ["bar\n", "foo"]
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: false, content: "bar\n" },
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+      });
+
+      it("^ under /m matches after a chain of non-matching chunks, the last of which ends in a newline", () => {
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/^foo/m),
+          ["aaa", "bbb", "ccc\n", "foo"]
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: false, content: "aaa" },
+          { isMatch: false, content: "bbb" },
+          { isMatch: false, content: "ccc\n" },
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+      });
+
+      it("\\b at position 0 matches across a chunk boundary when the preceding character is an astral (surrogate-pair) character", () => {
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/\bfoo/u),
+          ["😄", "foo"] // "😄" + "foo"
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: false, content: "😄" },
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+      });
+
+      it("\\b at position 0 still matches when the preceding character was emitted before an intervening chunk that buffers entirely (nothing emitted that call)", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/\bfoo/),
+          ["x ", "f", "oo"]
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: false, content: "x " },
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+        expect(flush).toBe("");
+      });
+
+      it("finds a later, genuinely-boundaried occurrence in the same haystack after rejecting an earlier illusory one", () => {
+        // The first "foo" sits right at the chunk boundary and is illusory
+        // (preceding char 'r' is a word character, so there's no real \b
+        // there). The second "foo", later in the *same* haystack, is
+        // genuinely preceded by a space - a real boundary. Rejecting the
+        // first occurrence must not stop the search from finding the
+        // second, real one.
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/\bfoo/),
+          ["bar", "foo baz foo"]
+        );
+
+        expect(results).toMatchObject([
+          { isMatch: false, content: "bar" },
+          { isMatch: false, content: "foo baz " },
+          { isMatch: true, content: expect.arrayContaining(["foo"]) }
+        ]);
+        expect(flush).toBe("");
+      });
+
+      it("produces correct streamIndices for a match resolved via cross-chunk boundary context", () => {
+        const strategy = new RegexSearchStrategy(/^foo/dm);
+        const state = strategy.createState();
+
+        const results1 = [...strategy.processChunk("bar\n", state)];
+        const results2 = [...strategy.processChunk("foo", state)];
+        const results = [...results1, ...results2];
+
+        const match = results.find((result) => result.isMatch);
+        expect(match).toMatchObject({ streamIndices: [4, 7] });
+        expect(match!.content.indices![0]).toEqual([4, 7]);
+      });
+    });
+  });
 });
