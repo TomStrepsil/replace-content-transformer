@@ -1,6 +1,6 @@
 {
   "name": "replace-content-transformer",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "description": "A low-dependency WHATWG Transformer / Node Transform that rewrites whilst streaming, respecting chunk boundaries",
   "devEngines": {
     "runtime": {

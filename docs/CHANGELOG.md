@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-28
+
 ### Changed
 
 - Updated to `regex-partial-match` v1.1.0, switching the regex search strategy's input validation from a source-string heuristic (`.source.includes(...)`) to the new `features` export, populated from `regex-partial-match`'s own parse of the pattern's syntax. This also fixes false-positive validation errors for patterns where lookahead/lookbehind/boundary-like character sequences appear literally rather than as the construct itself (e.g. a character class like `[(?!]`, or an escaped `\^foo\$`)
