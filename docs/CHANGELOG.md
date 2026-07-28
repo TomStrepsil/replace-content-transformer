@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** Removed support for `^`/`$` anchors, `\b`/`\B` word boundaries, and the `m` (multiline) flag in the regex search strategy. These previously appeared in the README as "✅ Supported" but could silently produce false-positive matches — e.g. a boundary landing at a chunk edge, or immediately after an earlier match within the same chunk — since native `^`/`$`/`\b`/`\B` evaluate against whatever substring `exec()` happens to be called with, not the true start/end of the stream. Now rejected by [input validation](../src/search-strategies/regex/input-validation.ts) at construction time instead of returning incorrect results; see [limitations](../src/search-strategies/regex/README.md#limitations)
 
+### Fixed
+
+- Fixed regex strategy README to show the actual end-of-input disjunction now employed by `regex-partial-match@1.x`
+  - clarify note about negative lookaheads being unsupported does not prevent this from working
+
 ## [2.2.0] - 2026-07-22
 
 ### Added
