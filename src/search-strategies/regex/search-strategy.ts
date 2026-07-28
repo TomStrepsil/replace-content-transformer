@@ -48,9 +48,10 @@ export class RegexSearchStrategy
 
   constructor(needle: RegExp) {
     super();
-    validateInput(needle);
+    const partialMatchRegex = new PartialMatchRegExp(needle);
+    validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
-    this.partialMatchRegex = new PartialMatchRegExp(needle);
+    this.partialMatchRegex = partialMatchRegex;
   }
 
   *processChunk(

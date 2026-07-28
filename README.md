@@ -168,7 +168,7 @@ const transformer = new ReplaceContentTransformer(
 const transformer = new ReplaceContentTransformer(
   new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(
-      /class="(?<before>[^"]*?\b)old-button(?<after>\b[^"]*?)"/
+      /class="(?<before>(?:[^"]*? )?)old-button(?<after>(?: [^"]*?)?)"/
     ),
     replacement: (match: RegExpExecArray) => {
       const { before, after } = match.groups;
