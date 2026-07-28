@@ -4,7 +4,7 @@
     "": {
       "name": "replace-content-transformer",
       "dependencies": {
-        "regex-partial-match": "^1.0.0",
+        "regex-partial-match": "^1.1.0",
       },
       "devDependencies": {
         "@arethetypeswrong/cli": "^0.18.2",
@@ -684,7 +684,7 @@
 
     "recast": ["recast@0.23.11", "", { "dependencies": { "ast-types": "^0.16.1", "esprima": "~4.0.0", "source-map": "~0.6.1", "tiny-invariant": "^1.3.3", "tslib": "^2.0.1" } }, "sha512-YTUo+Flmw4ZXiWfQKGcwwc11KnoRAYgzAE2E7mXKCjSviTKShtxBsN6YUUBB2gtaBzKzeKunxhUwNHQuRryhWA=="],
 
-    "regex-partial-match": ["regex-partial-match@1.0.0", "", {}, "sha512-+FXapbkY4imF7v8SX/NKBJhpGCiBnd2VQeOt3n+icb86stMr4ELwTgE9aIct46Sc+6ym+saPqgLjCB/VzugegQ=="],
+    "regex-partial-match": ["regex-partial-match@1.1.0", "", {}, "sha512-Yjs74OPRTQCJ/iAzLnEXXmggctLeMAQ5O3cWZ2PZkDZbV4u8hErf/zgLtv+Jk9f0rfB+UhA2icNh+9gsPmSgOw=="],
 
     "require-directory": ["require-directory@2.1.1", "", {}, "sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q=="],
 
