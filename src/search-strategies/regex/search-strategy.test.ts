@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { RegexSearchStrategy } from "./search-strategy.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
+import PartialMatchRegExp from "regex-partial-match";
 import { collectSearchStrategyResults } from "../../../test/utilities.js";
 
 vi.mock("./input-validation.js");
 
-// Helper to extract string value from MatchResult
 function getValue(result: MatchResult<RegExpExecArray>): string {
   return result.isMatch ? result.content[0] : result.content;
 }
@@ -15,7 +15,10 @@ describe("RegexSearchStrategy", () => {
   it("should validate input regex", () => {
     const someRegex = /test-regex/;
     new RegexSearchStrategy(someRegex);
-    expect(validateInput).toHaveBeenCalledWith(someRegex);
+    expect(validateInput).toHaveBeenCalledWith(expect.any(PartialMatchRegExp));
+    expect(validateInput).toHaveBeenCalledWith(
+      expect.objectContaining({ source: someRegex.source })
+    );
   });
 
   describe("complete matches in single chunk", () => {

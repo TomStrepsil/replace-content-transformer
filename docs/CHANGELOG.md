@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated to `regex-partial-match` v1.1.0, switching the regex search strategy's input validation from a source-string heuristic (`.source.includes(...)`) to the new `features` export, populated from `regex-partial-match`'s own parse of the pattern's syntax. This also fixes false-positive validation errors for patterns where lookahead/lookbehind/boundary-like character sequences appear literally rather than as the construct itself (e.g. a character class like `[(?!]`, or an escaped `\^foo\$`)
+
+### Removed
+
+- **BREAKING:** Removed support for `^`/`$` anchors, `\b`/`\B` word boundaries, and the `m` (multiline) flag in the regex search strategy. These previously appeared in the README as "✅ Supported" but could silently produce false-positive matches — e.g. a boundary landing at a chunk edge, or immediately after an earlier match within the same chunk — since native `^`/`$`/`\b`/`\B` evaluate against whatever substring `exec()` happens to be called with, not the true start/end of the stream. Now rejected by [input validation](../src/search-strategies/regex/input-validation.ts) at construction time instead of returning incorrect results; see [limitations](../src/search-strategies/regex/README.md#limitations)
+
 ## [2.2.0] - 2026-07-22
 
 ### Added
