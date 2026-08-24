@@ -312,7 +312,7 @@ Quantifier will be satisfied eagerly, thus multiple matches will occur. e.g. chu
 
 ## Credits
 
-See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/README.md#credits) for `regex-partial-match`.
+See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/README.md#-credits) for `regex-partial-match`.
 
 [^1]: After significant performance degradation was observed when attempting [knuth-morris-pratt](https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm) for static string partial matching, the project has prioritised innate matching capabilities of the language.
 
