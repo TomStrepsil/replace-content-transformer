@@ -58,7 +58,10 @@ describe("SyncTransformEngine", () => {
         replacement: fn
       });
       runEngine(engine, ["X"]);
-      expect(fn).toHaveBeenCalledWith("X", { matchIndex: 0, streamIndices: [0, 1] });
+      expect(fn).toHaveBeenCalledWith("X", {
+        matchIndex: 0,
+        streamIndices: [0, 1]
+      });
     });
 
     it("increments matchIndex across chunks", () => {
@@ -66,18 +69,37 @@ describe("SyncTransformEngine", () => {
       const strategy = {
         createState: vi.fn().mockReturnValue({}),
         processChunk: vi.fn().mockImplementation(function* () {
-          yield { isMatch: true, content: "M", streamIndices: [call * 10, call * 10 + 1] as [number, number] };
+          yield {
+            isMatch: true,
+            content: "M",
+            streamIndices: [call * 10, call * 10 + 1] as [number, number]
+          };
           call++;
         }),
         flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockReturnValue("R");
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: fn });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn
+      });
       runEngine(engine, ["M", "M", "M"]);
-      expect(fn).toHaveBeenNthCalledWith(1, "M", expect.objectContaining({ matchIndex: 0 }));
-      expect(fn).toHaveBeenNthCalledWith(2, "M", expect.objectContaining({ matchIndex: 1 }));
-      expect(fn).toHaveBeenNthCalledWith(3, "M", expect.objectContaining({ matchIndex: 2 }));
+      expect(fn).toHaveBeenNthCalledWith(
+        1,
+        "M",
+        expect.objectContaining({ matchIndex: 0 })
+      );
+      expect(fn).toHaveBeenNthCalledWith(
+        2,
+        "M",
+        expect.objectContaining({ matchIndex: 1 })
+      );
+      expect(fn).toHaveBeenNthCalledWith(
+        3,
+        "M",
+        expect.objectContaining({ matchIndex: 2 })
+      );
     });
   });
 
@@ -123,14 +145,21 @@ describe("SyncTransformEngine", () => {
             yield { isMatch: false, content: "text " };
             // strategy internally buffers "OL" — nothing emitted for it
           } else {
-            yield { isMatch: true, content: "OLD", streamIndices: [5, 8] as [number, number] };
+            yield {
+              isMatch: true,
+              content: "OLD",
+              streamIndices: [5, 8] as [number, number]
+            };
             yield { isMatch: false, content: " end" };
           }
         }),
         flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "NEW" });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "NEW"
+      });
       const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       engine.write("text OL");
@@ -144,7 +173,10 @@ describe("SyncTransformEngine", () => {
         { isMatch: true, content: "HELLO", streamIndices: [0, 5] },
         { isMatch: false, content: " world" }
       );
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "HI" });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "HI"
+      });
       expect(runEngine(engine, ["HELLO world"])).toEqual(["HI", " world"]);
     });
   });
@@ -156,7 +188,10 @@ describe("SyncTransformEngine", () => {
         { isMatch: false, content: "-" },
         { isMatch: true, content: "B", streamIndices: [2, 3] }
       );
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "X" });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "X"
+      });
       expect(runEngine(engine, ["A-B"])).toEqual(["X", "-", "X"]);
     });
 
@@ -168,7 +203,10 @@ describe("SyncTransformEngine", () => {
       );
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: strategy,
-        replacement: (_match, ctx) => [`${ctx.matchIndex}a`, `${ctx.matchIndex}b`]
+        replacement: (_match, ctx) => [
+          `${ctx.matchIndex}a`,
+          `${ctx.matchIndex}b`
+        ]
       });
       expect(runEngine(engine, ["M-M"])).toEqual(["0a", "0b", "-", "1a", "1b"]);
     });
@@ -179,32 +217,49 @@ describe("SyncTransformEngine", () => {
         { isMatch: true, content: "X", streamIndices: [4, 5] },
         { isMatch: false, content: " post" }
       );
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: () => [] });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => []
+      });
       expect(runEngine(engine, ["pre X post"])).toEqual(["pre ", " post"]);
     });
   });
 
   describe("end / flush", () => {
     it("emits strategy tail on end()", () => {
-      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
       strategy.flush.mockReturnValue("TAIL");
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "R" });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R"
+      });
       expect(runEngine(engine, ["a"])).toEqual(["a", "TAIL"]);
     });
 
     it("emits nothing on end() when flush returns empty string", () => {
-      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
       strategy.flush.mockReturnValue("");
-      const engine = new SyncReplacementTransformEngine({ searchStrategy: strategy, replacement: "R" });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R"
+      });
       expect(runEngine(engine, ["a"])).toEqual(["a"]);
     });
   });
 
   describe("stopReplacingSignal", () => {
     it("passes chunk through without calling replacement when already aborted", () => {
-      const strategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "X", streamIndices: [0, 1] }
-      );
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
       const fn = vi.fn().mockReturnValue("R");
       const ac = new AbortController();
       ac.abort();
@@ -218,7 +273,10 @@ describe("SyncTransformEngine", () => {
     });
 
     it("flushes buffered tail once on first aborted chunk, then passes subsequent chunks through", () => {
-      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
       // Real strategy: returns buffer on first flush, then "" once consumed.
       strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
       const ac = new AbortController();
@@ -243,8 +301,16 @@ describe("SyncTransformEngine", () => {
       const strategy = {
         createState: vi.fn().mockReturnValue({}),
         processChunk: vi.fn().mockImplementation(function* () {
-          yield { isMatch: true, content: "A", streamIndices: [0, 1] as [number, number] };
-          yield { isMatch: true, content: "B", streamIndices: [1, 2] as [number, number] };
+          yield {
+            isMatch: true,
+            content: "A",
+            streamIndices: [0, 1] as [number, number]
+          };
+          yield {
+            isMatch: true,
+            content: "B",
+            streamIndices: [1, 2] as [number, number]
+          };
         }),
         flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
@@ -292,18 +358,7 @@ describe("SyncTransformEngine", () => {
       return { output: chunks.join(""), seen };
     }
 
-    const emptyPattern = new RegExp("");
-
-    const nullablePatterns: RegExp[] = [
-      /a?/,
-      /a*/,
-      /(?:)/,
-      /x|/,
-      /(?=a)/,
-      emptyPattern
-    ];
-
-    it.each(nullablePatterns)(
+    it.each([/a?/, /a*/, /(?:)/, /x|/, /(?=a)/, new RegExp("")])(
       "%s terminates, never calls the replacement with an empty match, and echoing each match back reproduces the input exactly",
       (pattern) => {
         const echoMatchBack = (match: RegExpExecArray): string => match[0];
@@ -324,5 +379,4 @@ describe("SyncTransformEngine", () => {
       expect(drive(/(ab)?/, ["a", "b"], "#").output).toBe("#");
     });
   });
-
 });
