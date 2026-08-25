@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-25
+
 ### Fixed
 
 - Fixed an infinite loop when a regex pattern could produce a zero-length match (e.g. `/a?/`, `/a*/`, `/(?=a)/`). Zero-length matches are now skipped rather than emitted, so a nullable pattern matches only where it matches something — `/\d*/` behaves as `/\d+/`. See [limitations](../src/search-strategies/regex/README.md#limitations).
