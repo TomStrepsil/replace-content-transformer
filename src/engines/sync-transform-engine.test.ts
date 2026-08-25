@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
+import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
 import {
   collectEngineSink,
   mockSearchStrategyFactory
 } from "../../test/utilities.ts";
 
-function runEngine<TState>(
-  engine: SyncReplacementTransformEngine<TState>,
+function runEngine<TState, TMatch = string>(
+  engine: SyncReplacementTransformEngine<TState, TMatch>,
   inputs: string[]
 ): string[] {
   const { sink, chunks } = collectEngineSink();
@@ -265,4 +266,58 @@ describe("SyncTransformEngine", () => {
       expect(chunks).toEqual(["R", "B"]);
     });
   });
+
+  describe("zero-length matches", () => {
+    function drive(
+      pattern: RegExp,
+      inputs: string[],
+      replacement: string | ((match: RegExpExecArray) => string)
+    ): { output: string; seen: string[] } {
+      const seen: string[] = [];
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: new RegexSearchStrategy(pattern),
+        replacement:
+          typeof replacement === "string"
+            ? replacement
+            : (match: RegExpExecArray) => {
+                seen.push(match[0]);
+                return replacement(match);
+              }
+      });
+      return { output: runEngine(engine, inputs).join(""), seen };
+    }
+
+    const emptyPattern = new RegExp("");
+
+    const nullablePatterns: RegExp[] = [
+      /a?/,
+      /a*/,
+      /(?:)/,
+      /x|/,
+      /(?=a)/,
+      emptyPattern
+    ];
+
+    it.each(nullablePatterns)(
+      "%s terminates, never calls the replacement with an empty match, and echoing each match back reproduces the input exactly",
+      (pattern) => {
+        const echoMatchBack = (match: RegExpExecArray): string => match[0];
+        const { output, seen } = drive(pattern, ["xy", "z"], echoMatchBack);
+        expect(seen).not.toContain("");
+        expect(output).toBe("xyz");
+      }
+    );
+
+    it("treats a nullable pattern exactly as its non-nullable equivalent, including where a chunk boundary splits a run", () => {
+      const inputs = ["a1", "2b3c"];
+      expect(drive(/\d*/, inputs, "#").output).toBe(
+        drive(/\d+/, inputs, "#").output
+      );
+    });
+
+    it("still matches a nullable pattern split across a chunk boundary, buffering instead of passing both characters through", () => {
+      expect(drive(/(ab)?/, ["a", "b"], "#").output).toBe("#");
+    });
+  });
+
 });

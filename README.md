@@ -550,6 +550,9 @@ import { BalancedPairSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new BalancedPairSearchStrategy("{{", "}}"); // delimiter pair, nesting aware
 ```
 
+> [!IMPORTANT]
+> Anchors and delimiters must be non-empty — an empty string is rejected at construction, since `indexOf("")` would never advance the scan.
+
 ...or:
 
 ```ts
