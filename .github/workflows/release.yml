@@ -54,15 +54,27 @@ jobs:
           if [ -z "$LAST_STABLE_TAG" ]; then
             echo "No stable tags found, starting from v0.0.0"
             LAST_STABLE_TAG="v0.0.0"
-            COMMITS=$(git log --oneline)
+            RANGE=""
           else
             echo "Last stable tag: $LAST_STABLE_TAG"
-            COMMITS=$(git log ${LAST_STABLE_TAG}..HEAD --oneline)
+            RANGE="${LAST_STABLE_TAG}..HEAD"
           fi
 
-          if [ -z "$COMMITS" ]; then
+          # All commits since the last stable tag (or all history if there is no tag)
+          ALL_COMMITS=$(git log $RANGE --oneline)
+
+          if [ -z "$ALL_COMMITS" ]; then
             echo "❌ Error: No commits found since $LAST_STABLE_TAG"
             echo "No changes have been made since the last release."
+            exit 1
+          fi
+
+          # Dependabot PRs are exempt from the CHANGELOG/semver checkbox
+          COMMITS=$(git log $RANGE --oneline --perl-regexp --author='^(?!.*dependabot\[bot\])')
+
+          if [ -z "$COMMITS" ]; then
+            echo "❌ Error: Only dependabot commits found since $LAST_STABLE_TAG"
+            echo "No user-facing changes have been made since the last release."
             exit 1
           fi
 

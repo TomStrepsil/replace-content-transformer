@@ -76,6 +76,7 @@ jobs:
   changelog-and-semver-check:
     name: CHANGELOG and Semver Check
     runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
