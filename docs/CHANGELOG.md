@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed an infinite loop when a regex pattern could produce a zero-length match (e.g. `/a?/`, `/a*/`, `/(?=a)/`). Zero-length matches are now skipped rather than emitted, so a nullable pattern matches only where it matches something — `/\d*/` behaves as `/\d+/`. See [limitations](../src/search-strategies/regex/README.md#limitations).
   - Fixed the same loop in the string anchor search strategy: empty anchors (`searchStrategyFactory("")`, `["", ""]`) are now rejected at construction. Also covers `BalancedPairSearchStrategy`, which delegates to it.
 
+### Changes
+
+- Updated `regex-partial-match` to 1.1.2
+
 ## [3.0.0] - 2026-07-28
 
 ### Changed
