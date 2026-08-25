@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
 
-          # Dependabot PRs are exempt from the CHANGELOG/semver checkbox
+          # Dependabot PRs are exempt from the semver checkbox
           COMMITS=$(git log $RANGE --oneline --perl-regexp --author='^(?!.*dependabot\[bot\])')
 
           if [ -z "$COMMITS" ]; then
