@@ -284,7 +284,12 @@ describe("SyncTransformEngine", () => {
                 return replacement(match);
               }
       });
-      return { output: runEngine(engine, inputs).join(""), seen };
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      for (const input of inputs) engine.write(input);
+      engine.end();
+
+      return { output: chunks.join(""), seen };
     }
 
     const emptyPattern = new RegExp("");

@@ -1663,26 +1663,6 @@ describe("RegexSearchStrategy", () => {
   });
 
   describe("zero-length matches", () => {
-    function collectWithIterationBound(
-      strategy: RegexSearchStrategy,
-      chunks: string[],
-      maxResults = 500
-    ): { results: MatchResult<RegExpExecArray>[]; flush: string } {
-      const state = strategy.createState();
-      const results: MatchResult<RegExpExecArray>[] = [];
-      for (const chunk of chunks) {
-        for (const result of strategy.processChunk(chunk, state)) {
-          results.push(result);
-          if (results.length > maxResults) {
-            throw new Error(
-              `processChunk did not advance: exceeded ${maxResults} results`
-            );
-          }
-        }
-      }
-      return { results, flush: strategy.flush(state) };
-    }
-
     const reassemble = (
       results: MatchResult<RegExpExecArray>[],
       flush: string
@@ -1710,14 +1690,14 @@ describe("RegexSearchStrategy", () => {
 
       it("terminates instead of looping forever, bounded so a regression fails the test rather than exhausting the heap and killing the worker", () => {
         expect(() =>
-          collectWithIterationBound(new RegexSearchStrategy(pattern), [input])
+          collectSearchStrategyResults(new RegexSearchStrategy(pattern), [input])
         ).not.toThrow();
       });
 
       it("terminates when the input is split", () => {
         for (let i = 1; i < input.length; i++) {
           expect(() =>
-            collectWithIterationBound(new RegexSearchStrategy(pattern), [
+            collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
               input.slice(0, i),
               input.slice(i)
             ])
@@ -1727,7 +1707,7 @@ describe("RegexSearchStrategy", () => {
 
       it("never yields an empty match, so replacement functions are never invoked with one", () => {
         for (let i = 1; i < input.length; i++) {
-          const { results } = collectWithIterationBound(new RegexSearchStrategy(pattern), [
+          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
             input.slice(0, i),
             input.slice(i)
           ]);
@@ -1736,11 +1716,11 @@ describe("RegexSearchStrategy", () => {
       });
 
       it("is lossless however the input is split", () => {
-        const whole = collectWithIterationBound(new RegexSearchStrategy(pattern), [input]);
+        const whole = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [input]);
         expect(reassemble(whole.results, whole.flush)).toBe(input);
 
         for (let i = 1; i < input.length; i++) {
-          const { results, flush } = collectWithIterationBound(
+          const { results, flush } = collectSearchStrategyResults(
             new RegexSearchStrategy(pattern),
             [input.slice(0, i), input.slice(i)]
           );
@@ -1768,7 +1748,7 @@ describe("RegexSearchStrategy", () => {
       it.each(cases)(
         "%s matches as matchAll minus empty matches",
         (pattern, input) => {
-          const { results } = collectWithIterationBound(new RegexSearchStrategy(pattern), [
+          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
             input
           ]);
           const expected = [
@@ -1788,7 +1768,7 @@ describe("RegexSearchStrategy", () => {
           /(?=a)/,
           /(?!z)/
         ]) {
-          const { results } = collectWithIterationBound(new RegexSearchStrategy(pattern), [
+          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
             "abc"
           ]);
           expect(matchesOf(results)).toEqual([]);
@@ -1798,7 +1778,7 @@ describe("RegexSearchStrategy", () => {
 
     describe("chunk boundaries", () => {
       it("buffers a nullable pattern split mid-token, rather than advancing past the zero-length match and destroying a match more input would have completed", () => {
-        const { results, flush } = collectWithIterationBound(
+        const { results, flush } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
           ["a", "b"]
         );
@@ -1809,13 +1789,13 @@ describe("RegexSearchStrategy", () => {
       it("yields the same matches at every split point", () => {
         const input = "xabyab";
         const whole = matchesOf(
-          collectWithIterationBound(new RegexSearchStrategy(/(ab)?/), [input]).results
+          collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [input]).results
         );
         expect(whole).toEqual(["ab", "ab"]);
 
         for (let i = 1; i < input.length; i++) {
           const split = matchesOf(
-            collectWithIterationBound(new RegexSearchStrategy(/(ab)?/), [
+            collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [
               input.slice(0, i),
               input.slice(i)
             ]).results
@@ -1825,7 +1805,7 @@ describe("RegexSearchStrategy", () => {
       });
 
       it("passes the character through and advances when no partial match could grow from that position", () => {
-        const { results, flush } = collectWithIterationBound(
+        const { results, flush } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
           ["xy"]
         );
@@ -1835,7 +1815,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("emits preceding text as a non-match before buffering, when the partial that preempts a zero-length match starts partway through the chunk", () => {
-      const { results, flush } = collectWithIterationBound(
+      const { results, flush } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)(ab)?/),
         ["ba"]
       );
@@ -1845,7 +1825,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("completes that buffered partial into a real match once the rest arrives", () => {
-      const { results, flush } = collectWithIterationBound(
+      const { results, flush } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)(ab)?/),
         ["ba", "b"]
       );
@@ -1858,7 +1838,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("emits the text before a skipped zero-length match and the skipped code unit as a single non-match yield, unlike the separate yields a real match produces", () => {
-      const { results, flush } = collectWithIterationBound(
+      const { results, flush } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)/),
         ["xa"]
       );
@@ -1871,7 +1851,7 @@ describe("RegexSearchStrategy", () => {
       const input = "\u{1F600}";
       expect(input).toHaveLength(2);
 
-      const { results, flush } = collectWithIterationBound(new RegexSearchStrategy(/a?/), [
+      const { results, flush } = collectSearchStrategyResults(new RegexSearchStrategy(/a?/), [
         input
       ]);
       expect(matchesOf(results)).toEqual([]);
@@ -1879,7 +1859,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("leaves non-nullable patterns untouched", () => {
-      const { results, flush } = collectWithIterationBound(
+      const { results, flush } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(\w+)\}\}/),
         ["a {{na", "me}} b"]
       );
