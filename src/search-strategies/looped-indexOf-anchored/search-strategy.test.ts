@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
+import { searchStrategyFactory } from "../../search-strategy-factory.js";
+import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
@@ -475,4 +477,70 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       expect(strategy.matchToString(match.content)).toBe("{{token}}");
     });
   });
+
+  describe("needle validation", () => {
+    const emptyNeedleCases: [label: string, needles: string[], index: number][] = [
+      ["a lone empty anchor, which would otherwise loop forever", [""], 0],
+      ["every anchor empty, which would otherwise loop forever", ["", ""], 0],
+      ["a leading empty anchor, which would otherwise swallow the stream", ["", "a"], 0],
+      ["a trailing empty anchor, which terminates today but is equally a mistake", ["a", ""], 1]
+    ];
+
+    it.each(emptyNeedleCases)(
+      "rejects %s",
+      (_label, needles, index) => {
+        expect(() => new LoopedIndexOfAnchoredSearchStrategy(needles)).toThrow(
+          `empty anchors are not supported (index ${index})`
+        );
+      }
+    );
+
+    it("rejects an empty anchor list, which would otherwise fail with an unrelated TypeError on first use", () => {
+      expect(() => new LoopedIndexOfAnchoredSearchStrategy([])).toThrow(
+        "at least one anchor is required"
+      );
+    });
+
+    it.each([[["a"]], [["{{", "}}"]], [["a", "b", "c"]]])(
+      "accepts %s",
+      (needles) => {
+        expect(() => new LoopedIndexOfAnchoredSearchStrategy(needles)).not.toThrow();
+      }
+    );
+
+    it("rejects an empty needle through searchStrategyFactory, the entry point the bug was reported against", () => {
+      expect(() => searchStrategyFactory("")).toThrow(
+        "empty anchors are not supported (index 0)"
+      );
+      expect(() => searchStrategyFactory(["", ""])).toThrow(
+        "empty anchors are not supported (index 0)"
+      );
+    });
+
+    it("rejects empty delimiters through BalancedPairSearchStrategy, which delegates its pair to this strategy", () => {
+      expect(() => new BalancedPairSearchStrategy("", "")).toThrow(
+        "empty anchors are not supported (index 0)"
+      );
+      expect(() => new BalancedPairSearchStrategy("{", "")).toThrow(
+        "empty anchors are not supported (index 1)"
+      );
+      expect(() => new BalancedPairSearchStrategy("{", "}")).not.toThrow();
+    });
+
+    it("copies the needle list, so mutating the caller's array cannot reintroduce an empty anchor", () => {
+      const needles = ["a"];
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(needles);
+      needles[0] = "";
+
+      const state = strategy.createState();
+      const results = [];
+      for (const result of strategy.processChunk("xyz", state)) {
+        results.push(result);
+        if (results.length > 100) throw new Error("processChunk did not advance");
+      }
+
+      expect(results).toEqual([{ isMatch: false, content: "xyz" }]);
+    });
+  });
+
 });

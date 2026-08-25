@@ -5,10 +5,7 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.js";
 
-function updateIndices(
-  indices: RegExpIndicesArray,
-  offset: number
-) {
+function updateIndices(indices: RegExpIndicesArray, offset: number) {
   for (const entry of indices) {
     if (entry === undefined) continue;
     entry[0] += offset;
@@ -85,6 +82,39 @@ export class RegexSearchStrategy
           return;
         }
 
+        const matchLength = completeMatch[0].length;
+        if (matchLength === 0) {
+          const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
+          const growablePartialMatch = partialMatch?.[0] ? partialMatch : null;
+
+          if (growablePartialMatch) {
+            position = length;
+            state.buffer = remainingHaystack.slice(growablePartialMatch.index);
+            if (growablePartialMatch.index > 0) {
+              yield {
+                isMatch: false,
+                content: remainingHaystack.slice(0, growablePartialMatch.index)
+              };
+            }
+            return;
+          }
+
+          state.buffer = "";
+          const resumeAfterSkippingZeroLengthMatch = Math.min(
+            position + completeMatch.index + 1,
+            length
+          );
+          yield {
+            isMatch: false,
+            content: haystack.slice(
+              position,
+              resumeAfterSkippingZeroLengthMatch
+            )
+          };
+          position = resumeAfterSkippingZeroLengthMatch;
+          continue;
+        }
+
         state.buffer = "";
         if (completeMatch.index) {
           const matchStart = position + completeMatch.index;
@@ -93,7 +123,6 @@ export class RegexSearchStrategy
           yield { isMatch: false, content: nonMatch };
         }
 
-        const matchLength = completeMatch[0].length;
         const startIndex = baseOffset + position;
         const endIndex = startIndex + matchLength;
         position += matchLength;
@@ -107,7 +136,11 @@ export class RegexSearchStrategy
           }
         }
 
-        yield { isMatch: true, content: completeMatch, streamIndices: [startIndex, endIndex] };
+        yield {
+          isMatch: true,
+          content: completeMatch,
+          streamIndices: [startIndex, endIndex]
+        };
       }
     } finally {
       if (position < length) {

@@ -1661,4 +1661,211 @@ describe("RegexSearchStrategy", () => {
       });
     });
   });
+
+  describe("zero-length matches", () => {
+    const reassemble = (
+      results: MatchResult<RegExpExecArray>[],
+      flush: string
+    ): string =>
+      results.map((r) => (r.isMatch ? r.content[0] : r.content)).join("") + flush;
+
+    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
+      results.filter((r) => r.isMatch).map((r) => r.content[0]);
+
+    const emptyPattern = new RegExp("");
+
+    const zeroLengthPatterns: [name: string, pattern: RegExp][] = [
+      ["empty pattern", emptyPattern],
+      ["empty group", /(?:)/],
+      ["optional atom", /a?/],
+      ["star quantifier", /a*/],
+      ["counted from zero", /a{0,2}/],
+      ["empty alternation branch", /x|/],
+      ["positive lookahead", /(?=a)/],
+      ["negative lookahead", /(?!z)/]
+    ];
+
+    describe.each(zeroLengthPatterns)("%s: %s", (_name, pattern) => {
+      const input = "xaybz";
+
+      it("terminates instead of looping forever, bounded so a regression fails the test rather than exhausting the heap and killing the worker", () => {
+        expect(() =>
+          collectSearchStrategyResults(new RegexSearchStrategy(pattern), [input])
+        ).not.toThrow();
+      });
+
+      it("terminates when the input is split", () => {
+        for (let i = 1; i < input.length; i++) {
+          expect(() =>
+            collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
+              input.slice(0, i),
+              input.slice(i)
+            ])
+          ).not.toThrow();
+        }
+      });
+
+      it("never yields an empty match, so replacement functions are never invoked with one", () => {
+        for (let i = 1; i < input.length; i++) {
+          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
+            input.slice(0, i),
+            input.slice(i)
+          ]);
+          expect(matchesOf(results)).not.toContain("");
+        }
+      });
+
+      it("is lossless however the input is split", () => {
+        const whole = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [input]);
+        expect(reassemble(whole.results, whole.flush)).toBe(input);
+
+        for (let i = 1; i < input.length; i++) {
+          const { results, flush } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            [input.slice(0, i), input.slice(i)]
+          );
+          expect(reassemble(results, flush)).toBe(input);
+        }
+      });
+    });
+
+    describe("documented semantics", () => {
+      const cases: [pattern: RegExp, input: string][] = [
+        [/a?/, "xaybaaz"],
+        [/a*/, "xaayaz"],
+        [/\d*/, "a12b3c"],
+        [/(ab)?/, "xabyab"],
+        [/(ab)*/, "xababyab"],
+        [/x|/, "axbxc"],
+        [/a?b?/, "xaybzabq"],
+        [/(?=a)/, "xaxa"],
+        [/(?:)/, "abc"],
+        [/(foo)?bar/, "xfoobarybar"],
+        [/-?\d+/, "a-12b3"],
+        [/(\w+)?;/, "a;bc;"]
+      ];
+
+      it.each(cases)(
+        "%s matches as matchAll minus empty matches",
+        (pattern, input) => {
+          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
+            input
+          ]);
+          const expected = [
+            ...input.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))
+          ]
+            .map((m) => m[0])
+            .filter((m) => m !== "");
+
+          expect(matchesOf(results)).toEqual(expected);
+        }
+      );
+
+      it("never matches at all when the pattern can only ever match empty, failing silently by design", () => {
+        for (const pattern of [
+          emptyPattern,
+          /(?:)/,
+          /(?=a)/,
+          /(?!z)/
+        ]) {
+          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
+            "abc"
+          ]);
+          expect(matchesOf(results)).toEqual([]);
+        }
+      });
+    });
+
+    describe("chunk boundaries", () => {
+      it("buffers a nullable pattern split mid-token, rather than advancing past the zero-length match and destroying a match more input would have completed", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/(ab)?/),
+          ["a", "b"]
+        );
+        expect(matchesOf(results)).toEqual(["ab"]);
+        expect(reassemble(results, flush)).toBe("ab");
+      });
+
+      it("yields the same matches at every split point", () => {
+        const input = "xabyab";
+        const whole = matchesOf(
+          collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [input]).results
+        );
+        expect(whole).toEqual(["ab", "ab"]);
+
+        for (let i = 1; i < input.length; i++) {
+          const split = matchesOf(
+            collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [
+              input.slice(0, i),
+              input.slice(i)
+            ]).results
+          );
+          expect(split).toEqual(whole);
+        }
+      });
+
+      it("passes the character through and advances when no partial match could grow from that position", () => {
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/(ab)?/),
+          ["xy"]
+        );
+        expect(matchesOf(results)).toEqual([]);
+        expect(reassemble(results, flush)).toBe("xy");
+      });
+    });
+
+    it("emits preceding text as a non-match before buffering, when the partial that preempts a zero-length match starts partway through the chunk", () => {
+      const { results, flush } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?=a)(ab)?/),
+        ["ba"]
+      );
+
+      expect(results).toEqual([{ isMatch: false, content: "b" }]);
+      expect(flush).toBe("a");
+    });
+
+    it("completes that buffered partial into a real match once the rest arrives", () => {
+      const { results, flush } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?=a)(ab)?/),
+        ["ba", "b"]
+      );
+
+      expect(results).toMatchObject([
+        { isMatch: false, content: "b" },
+        { isMatch: true, content: expect.objectContaining({ 0: "ab" }) }
+      ]);
+      expect(flush).toBe("");
+    });
+
+    it("emits the text before a skipped zero-length match and the skipped code unit as a single non-match yield, unlike the separate yields a real match produces", () => {
+      const { results, flush } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?=a)/),
+        ["xa"]
+      );
+
+      expect(results).toEqual([{ isMatch: false, content: "xa" }]);
+      expect(flush).toBe("");
+    });
+
+    it("advances by one code unit rather than one code point, splitting a surrogate pair but remaining lossless", () => {
+      const input = "\u{1F600}";
+      expect(input).toHaveLength(2);
+
+      const { results, flush } = collectSearchStrategyResults(new RegexSearchStrategy(/a?/), [
+        input
+      ]);
+      expect(matchesOf(results)).toEqual([]);
+      expect(reassemble(results, flush)).toBe(input);
+    });
+
+    it("leaves non-nullable patterns untouched", () => {
+      const { results, flush } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{(\w+)\}\}/),
+        ["a {{na", "me}} b"]
+      );
+      expect(matchesOf(results)).toEqual(["{{name}}"]);
+      expect(reassemble(results, flush)).toBe("a {{name}} b");
+    });
+  });
+
 });

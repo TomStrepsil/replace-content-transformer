@@ -198,6 +198,9 @@ type LoopedIndexOfAnchoredSearchState = {
 
 ## Usage Examples
 
+> [!IMPORTANT]
+> Anchors must be non-empty, and at least one is required — both are rejected at construction. `indexOf("")` returns the current position, so an empty anchor would leave the scan cursor where it is and never advance. This also covers [`BalancedPairSearchStrategy`](../balanced-pair/README.md), which delegates its `opening`/`closing` pair to this strategy.
+
 ### Two-Token Pattern (Opening/Closing Delimiters)
 
 ```typescript

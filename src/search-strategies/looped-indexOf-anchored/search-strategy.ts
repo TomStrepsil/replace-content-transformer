@@ -8,6 +8,17 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   currentNeedleIndex: number;
 };
 
+const validateNeedles = (needles: string[]): void => {
+  if (needles.length === 0) {
+    throw new Error("at least one anchor is required");
+  }
+
+  const emptyNeedleIndex = needles.indexOf("");
+  if (emptyNeedleIndex !== -1) {
+    throw new Error(`empty anchors are not supported (index ${emptyNeedleIndex})`);
+  }
+};
+
 /**
  * A high-performance search strategy for finding sequential string patterns (anchor sequences)
  * using smart partial matching to avoid unnecessary buffering.
@@ -37,7 +48,8 @@ export class LoopedIndexOfAnchoredSearchStrategy
 
   constructor(needles: string[]) {
     super();
-    this.needles = needles;
+    validateNeedles(needles);
+    this.needles = [...needles];
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {

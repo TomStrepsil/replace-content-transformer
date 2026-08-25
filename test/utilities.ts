@@ -203,13 +203,19 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
 
 function collectSearchStrategyResults<TState, TMatch = string>(
   strategy: SearchStrategy<TState, TMatch>,
-  chunks: string[]
+  chunks: string[],
+  maxResults = 10_000
 ): { results: MatchResult<TMatch>[]; flush: string } {
   const state = strategy.createState();
   const results: MatchResult<TMatch>[] = [];
   for (const chunk of chunks) {
     for (const result of strategy.processChunk(chunk, state)) {
       results.push(result);
+      if (results.length > maxResults) {
+        throw new Error(
+          `processChunk did not advance: exceeded ${maxResults} results`
+        );
+      }
     }
   }
   const flush = strategy.flush(state);

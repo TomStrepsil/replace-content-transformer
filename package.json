@@ -116,7 +116,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "regex-partial-match": "^1.1.0"
+    "regex-partial-match": "^1.1.2"
   },
   "devDependencies": {
     "@typescript/lib-es2022": "file:types/lib-es2022",

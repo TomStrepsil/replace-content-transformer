@@ -294,6 +294,44 @@ Quantifier will be satisfied eagerly, thus multiple matches will occur. e.g. chu
 >
 > This will ensure matches are only satisfied with a complete expression, properly terminated (with caveats about potential whole-stream buffering, as mentioned above). In this example, `foo` and `bar` anchor the match.
 
+### ⚠️ Zero-length matches
+
+```js
+/\d*/;
+/a?/;
+/(?=a)/;
+```
+
+Problem: A pattern that can match the empty string would leave the scan cursor where it is, because the cursor advances by the length of the match. Left alone, that never terminates.
+
+Such a pattern is accepted, but **a zero-length match is never emitted**. The rule is:
+
+> Zero-length matches are skipped, and your replacement function is never called with one. Everything else matches as [`String.prototype.matchAll`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/matchAll) would.
+
+The practical effect is that a nullable pattern matches only where it matches something:
+
+```js
+/\d*/; // matches like /\d+/  — "a12b3c" ➜ "12", "3"
+/a?/; //  matches like /a/    — "xaybaaz" ➜ "a", "a", "a"
+/(ab)*/; // matches like /(ab)+/
+```
+
+Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked.
+
+> [!WARNING]
+> A pattern that can **only** match empty therefore never matches **anything**, and does so silently:[^4]
+>
+> ```js
+> new RegExp(""); //  never matches
+> /(?:)/; //          never matches
+> /(?=a)/; //         never matches — the lookahead consumes nothing
+> /(?!z)/; //         never matches
+> ```
+
+Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point — see [Surrogate pairs separated by chunks](#️-surrogate-pairs-separated-by-chunks) above. Output remains lossless either way.
+
+Skipping is not the whole story for a nullable pattern: where a partial match *is* possible at that position, the strategy buffers instead, so the same buffering limits described under [Unbounded Quantifiers](#️-unbounded-quantifiers) above still apply. `/(a*b)?/` buffers exactly as `/a*b/` does.
+
 ### ✅ Supported Features
 
 - 🔤 [Literal characters](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Literal_character) / simple patterns: `/test/`
@@ -308,11 +346,11 @@ Quantifier will be satisfied eagerly, thus multiple matches will occur. e.g. chu
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
 - 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
-- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices)[^4]: `/foo/d`
+- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices)[^5]: `/foo/d`
 
 ## Credits
 
-See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/README.md#credits) for `regex-partial-match`.
+See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/README.md#-credits) for `regex-partial-match`.
 
 [^1]: After significant performance degradation was observed when attempting [knuth-morris-pratt](https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm) for static string partial matching, the project has prioritised innate matching capabilities of the language.
 
@@ -320,4 +358,6 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^3]: Each internal `exec()` call runs against a fresh substring starting where the last match ended, but `lastIndex` (set by the previous `g`/`y` call) is left pointing at an offset within the *previous, longer* substring. Reused verbatim as an offset into the new, shorter one, it can point past a real match — which then gets flushed as ordinary non-match content instead of surfacing as a match. `y` compounds this: it also refuses to scan forward from `lastIndex` at all, so a match anywhere but exactly there is missed even on the first call.
 
-[^4]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
+[^4]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern *only* match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
+
+[^5]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
