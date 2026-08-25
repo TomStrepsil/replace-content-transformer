@@ -6,8 +6,8 @@ import {
   mockSearchStrategyFactory
 } from "../../test/utilities.ts";
 
-function runEngine<TState, TMatch = string>(
-  engine: SyncReplacementTransformEngine<TState, TMatch>,
+function runEngine<TState>(
+  engine: SyncReplacementTransformEngine<TState>,
   inputs: string[]
 ): string[] {
   const { sink, chunks } = collectEngineSink();
