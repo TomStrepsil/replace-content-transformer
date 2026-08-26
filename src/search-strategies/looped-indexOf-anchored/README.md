@@ -100,9 +100,12 @@ for (
   const haystackSuffix = haystack.slice(-partialLength);
   const needlePrefix = currentNeedle.slice(0, partialLength);
   if (haystackSuffix === needlePrefix) {
-    // Found partial match - buffer it
-    yield { isMatch: false, content: haystack.slice(position, -partialLength) };
+    // Found partial match - report what precedes it, leave the cursor on it
+    const beforePartial = haystack.slice(position, -partialLength);
     position = length - partialLength;
+    if (beforePartial) {
+      yield { isMatch: false, content: beforePartial };
+    }
     return;
   }
 }
