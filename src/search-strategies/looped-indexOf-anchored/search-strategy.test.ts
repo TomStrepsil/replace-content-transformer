@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
+import { collectSearchStrategyResults } from "../../../test/utilities.js";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
@@ -540,6 +541,98 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       }
 
       expect(results).toEqual([{ isMatch: false, content: "xyz" }]);
+    });
+  });
+
+  describe("bordered anchors at a chunk boundary", () => {
+    const run = (needles: string[], chunks: string[]) =>
+      collectSearchStrategyResults(
+        new LoopedIndexOfAnchoredSearchStrategy(needles),
+        chunks
+      );
+
+    it.each([
+      [
+        "the shortest bordered anchor, whose leftover is one character",
+        ["---"],
+        ["----"],
+        [{ isMatch: true, content: "---", streamIndices: [0, 3] }],
+        "-"
+      ],
+      [
+        "the same input split, which must agree with the unsplit result",
+        ["---"],
+        ["--", "--"],
+        [{ isMatch: true, content: "---", streamIndices: [0, 3] }],
+        "-"
+      ],
+      [
+        "a longer border, where two characters would otherwise repeat",
+        ["----"],
+        ["-----"],
+        [{ isMatch: true, content: "----", streamIndices: [0, 4] }],
+        "-"
+      ],
+      [
+        "an anchor sequence, whose match ends in the bordered first anchor",
+        ["---", "---"],
+        ["---a----"],
+        [{ isMatch: true, content: "---a---", streamIndices: [0, 7] }],
+        "-"
+      ],
+      [
+        "a border reaching back through the closing anchor of a pair",
+        ["aba", "za"],
+        ["abaXzab"],
+        [
+          { isMatch: true, content: "abaXza", streamIndices: [0, 6] },
+          { isMatch: false, content: "b" }
+        ],
+        ""
+      ],
+      [
+        "a leftover long enough for the border, which must still buffer it",
+        ["---"],
+        ["--- --"],
+        [
+          { isMatch: true, content: "---", streamIndices: [0, 3] },
+          { isMatch: false, content: " " }
+        ],
+        "--"
+      ]
+    ])(
+      "reports each character once with %s",
+      (_label, needles, chunks, results, flush) => {
+        const actual = run(needles, chunks);
+
+        expect(actual.results).toEqual(results);
+        expect(actual.flush).toBe(flush);
+        expect(actual.output).toBe(chunks.join(""));
+      }
+    );
+
+    it("does not invent an overlapping match when duplicated characters are re-scanned", () => {
+      const unsplit = run(["aba"], ["ababa"]);
+
+      expect(run(["aba"], ["abab", "a"])).toEqual(unsplit);
+      expect(unsplit.results).toEqual([
+        { isMatch: true, content: "aba", streamIndices: [0, 3] },
+        { isMatch: false, content: "b" }
+      ]);
+      expect(unsplit.flush).toBe("a");
+    });
+
+    it("inherits the fix in BalancedPairSearchStrategy, which delegates to this strategy", () => {
+      const { results, flush, output } = collectSearchStrategyResults(
+        new BalancedPairSearchStrategy("***", "**"),
+        ["***bold***"]
+      );
+
+      expect(results).toEqual([
+        { isMatch: true, content: "***bold**", streamIndices: [0, 9] }
+      ]);
+      expect(flush).toBe("*");
+      expect(output).toBe("***bold***");
     });
   });
 
