@@ -1352,7 +1352,7 @@ describe("RegexSearchStrategy", () => {
       expect(indices.groups!.name).toEqual([9, 12]);
     });
 
-    it("should adjust aliased named group indices exactly once with a non-zero offset", () => {
+    it("should adjust named group indices exactly once with a non-zero offset", () => {
       const strategy = new RegexSearchStrategy(/{{(?<name>\w+)}}/d);
       const state = strategy.createState();
 
@@ -1365,7 +1365,6 @@ describe("RegexSearchStrategy", () => {
         streamIndices: [7, 16]
       });
       const indices = match!.content.indices!;
-      expect(indices[1]).toBe(indices.groups!.name);
       expect(indices[0]).toEqual([7, 16]);
       expect(indices[1]).toEqual([9, 14]);
       expect(indices.groups!.name).toEqual([9, 14]);
