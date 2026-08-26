@@ -1,4 +1,5 @@
 import type { SyncTransformEngine, AsyncTransformEngine, EngineSink } from "../../src/engines/types.ts";
+import type { MatchResult } from "../../src/search-strategies/types.ts";
 
 export function syncHarnessTransformer(engine: SyncTransformEngine) {
   let started = false;
@@ -53,15 +54,17 @@ export function callbackHarnessTransformer(processor: {
 
 export function generatorHarnessTransformer(processor: {
   processChunk(chunk: string): Generator<string, void, undefined>;
-  flush(): string;
+  flush(): Generator<MatchResult, void, undefined>;
 }) {
   return {
     transform(chunk: string, controller: EngineSink) {
       for (const out of processor.processChunk(chunk)) controller.enqueue(out);
     },
     flush(controller: EngineSink) {
-      const flushed = processor.flush();
-      if (flushed) controller.enqueue(flushed);
+      for (const result of processor.flush()) {
+        const flushed = result.isMatch ? result.content : result.content;
+        if (flushed) controller.enqueue(flushed);
+      }
     }
   };
 }

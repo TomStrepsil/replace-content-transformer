@@ -3,7 +3,16 @@ import { RegexSearchStrategy } from "./search-strategy.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
-import { collectSearchStrategyResults } from "../../../test/utilities.js";
+import {
+  collectCanonicalSearchStrategyResults,
+  collectSearchStrategyResults,
+  flushToString
+} from "../../../test/utilities.js";
+import {
+  characterBySplit,
+  everyThreeWaySplit,
+  everyTwoWaySplit
+} from "../../../test/splits.js";
 
 vi.mock("./input-validation.js");
 
@@ -486,11 +495,11 @@ describe("RegexSearchStrategy", () => {
         typeof Bun !== "undefined" &&
           name.includes("complement unicodeSet character classes")
       )(name, () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
         );
-        if (flush) results.push({ isMatch: false, content: flush });
+        results.push(...flushResults);
 
         expect(results).toMatchObject(expected);
       });
@@ -527,11 +536,11 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
         );
-        if (flush) results.push({ isMatch: false, content: flush });
+        results.push(...flushResults);
 
         expect(results).toMatchObject(expected);
       });
@@ -718,16 +727,15 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles wildcards at the end, across chunks (with caveat, will yield optimistically only to end of chunk, on unbounded wildcard)",
+        name: "handles wildcards at the end, across chunks, deferring while the quantifier could still grow",
         pattern: /COMPLEX PATTERN.+/,
         chunks: ["Find THE COMPLEX PATTE", "RN he", "re"],
         expected: [
           { isMatch: false, content: "Find THE " },
           {
             isMatch: true,
-            content: expect.arrayContaining(["COMPLEX PATTERN he"])
-          },
-          { isMatch: false, content: "re" }
+            content: expect.arrayContaining(["COMPLEX PATTERN here"])
+          }
         ]
       },
       {
@@ -755,12 +763,9 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, content: "Find \n" },
           {
             isMatch: true,
-            content: expect.arrayContaining(["THE FIRST PATTERN"])
-          },
-          { isMatch: false, content: "\n here and \n" },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE SECOND PATTERN"])
+            content: expect.arrayContaining([
+              "THE FIRST PATTERN\n here and \nTHE SECOND PATTERN"
+            ])
           },
           { isMatch: false, content: "\n there" }
         ]
@@ -828,13 +833,12 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with character classes, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with character classes, across chunks",
         pattern: /[A-Z]+/,
         chunks: ["find PAT", "TERN here"],
         expected: [
           { isMatch: false, content: "find " },
-          { isMatch: true, content: expect.arrayContaining(["PAT"]) },
-          { isMatch: true, content: expect.arrayContaining(["TERN"]) },
+          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
           { isMatch: false, content: " here" }
         ]
       },
@@ -850,24 +854,22 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicode character class escapes, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicode character class escapes, across chunks",
         pattern: /\p{Script=Hiragana}+/u,
         chunks: ["Say こんに", "ちは to everyone"],
         expected: [
           { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
-          { isMatch: true, content: expect.arrayContaining(["ちは"]) },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
           { isMatch: false, content: " to everyone" }
         ]
       },
       {
-        name: "handles patterns with unicodeSet character classes, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicodeSet character classes, across chunks",
         pattern: /[\p{Script=Hiragana}]+/v,
         chunks: ["Say こん", "にちは to everyone"],
         expected: [
           { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こん"]) },
-          { isMatch: true, content: expect.arrayContaining(["にちは"]) },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
           { isMatch: false, content: " to everyone" }
         ]
       },
@@ -881,18 +883,17 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicodeSet character classes with intersections, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicodeSet character classes with intersections, across chunks",
         pattern: /[\p{Script=Hiragana}&&\p{Alphabetic}]+/v,
         chunks: ["Say こんに", "ちは to everyone"],
         expected: [
           { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
-          { isMatch: true, content: expect.arrayContaining(["ちは"]) },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
           { isMatch: false, content: " to everyone" }
         ]
       },
       {
-        name: "handles patterns with complement unicodeSet character classes with intersections, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with complement unicodeSet character classes with intersections, across chunks",
         pattern: /[\P{Script=Hiragana}&&\P{Alphabetic}]+/v,
         chunks: ["Say こんに", "ちは12", "3 to everyone"],
         expected: [
@@ -900,22 +901,20 @@ describe("RegexSearchStrategy", () => {
           { isMatch: true, content: expect.arrayContaining([" "]) },
           { isMatch: false, content: "こんに" },
           { isMatch: false, content: "ちは" },
-          { isMatch: true, content: expect.arrayContaining(["12"]) },
-          { isMatch: true, content: expect.arrayContaining(["3 "]) },
+          { isMatch: true, content: expect.arrayContaining(["123 "]) },
           { isMatch: false, content: "to" },
           { isMatch: true, content: expect.arrayContaining([" "]) },
           { isMatch: false, content: "everyone" }
         ]
       },
       {
-        name: "handles patterns with unicodeSet union character classes, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicodeSet union character classes, across chunks",
         pattern: /[\p{Script=Hiragana}\p{Alphabetic}]+/v,
         chunks: ["Say こん", "にちは to everyone"],
         expected: [
           { isMatch: true, content: expect.arrayContaining(["Say"]) },
           { isMatch: false, content: " " },
-          { isMatch: true, content: expect.arrayContaining(["こん"]) },
-          { isMatch: true, content: expect.arrayContaining(["にちは"]) },
+          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
           { isMatch: false, content: " " },
           { isMatch: true, content: expect.arrayContaining(["to"]) },
           { isMatch: false, content: " " },
@@ -938,13 +937,12 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with unicodeSet character classes with subtraction, across chunks (with caveat that multiple matches may occur)",
+        name: "handles patterns with unicodeSet character classes with subtraction, across chunks",
         pattern: /[\p{Script=Hiragana}--[ちは]]+/v,
         chunks: ["Say こん", "にちは to everyone"],
         expected: [
           { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こん"]) },
-          { isMatch: true, content: expect.arrayContaining(["に"]) },
+          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
           { isMatch: false, content: "ちは to everyone" }
         ]
       },
@@ -1014,17 +1012,15 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "returns multiple matches for surrogate pairs when matching as a single character, via the unicode flag, across chunks",
+        name: "rejoins a surrogate pair split across chunks into a single match, via the unicode flag",
         pattern: /(?<foo>.)/u,
         chunks: ["\ud83d", "\ude04"],
         expected: [
           {
             isMatch: true,
-            content: expect.objectContaining({ groups: { foo: "\ud83d" } })
-          },
-          {
-            isMatch: true,
-            content: expect.objectContaining({ groups: { foo: "\ude04" } })
+            content: expect.objectContaining({
+              groups: { foo: "\ud83d\ude04" }
+            })
           }
         ]
       }
@@ -1035,11 +1031,11 @@ describe("RegexSearchStrategy", () => {
         typeof Bun !== "undefined" &&
           name.includes("complement unicodeSet character classes")
       )(name, () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
         );
-        if (flush) results.push({ isMatch: false, content: flush });
+        results.push(...flushResults);
 
         expect(results).toMatchObject(expected);
       });
@@ -1138,14 +1134,477 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
         );
 
-        expect(results).toMatchObject(expected);
+        expect([...results, ...flushResults]).toMatchObject(expected);
       });
     });
+  });
+
+  describe("chunk-boundary independence", () => {
+    const invariantCases = [
+      {
+        name: "literal token",
+        pattern: /PLACEHOLDER/,
+        haystack: "a PLACEHOLDER b",
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: "PLACEHOLDER" },
+          { isMatch: false, text: " b" }
+        ]
+      },
+      {
+        name: "delimited token with capture",
+        pattern: /\{\{(\w+)\}\}/,
+        haystack: "hi {{name}} and {{other}}!",
+        expected: [
+          { isMatch: false, text: "hi " },
+          { isMatch: true, text: "{{name}}" },
+          { isMatch: false, text: " and " },
+          { isMatch: true, text: "{{other}}" },
+          { isMatch: false, text: "!" }
+        ]
+      },
+      {
+        name: "character class between anchoring literals",
+        pattern: /foo[A-Z]+bar/,
+        haystack: "a fooABCbar b fooZbar c",
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: "fooABCbar" },
+          { isMatch: false, text: " b " },
+          { isMatch: true, text: "fooZbar" },
+          { isMatch: false, text: " c" }
+        ]
+      },
+      {
+        name: "distinct alternation branches",
+        pattern: /cat|dog/,
+        haystack: "a cat and a dog",
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: "cat" },
+          { isMatch: false, text: " and a " },
+          { isMatch: true, text: "dog" }
+        ]
+      },
+      {
+        name: "alternation where one branch prefixes another",
+        pattern: /<a>|<abc>/,
+        haystack: "x<a>y<abc>z",
+        expected: [
+          { isMatch: false, text: "x" },
+          { isMatch: true, text: "<a>" },
+          { isMatch: false, text: "y" },
+          { isMatch: true, text: "<abc>" },
+          { isMatch: false, text: "z" }
+        ]
+      },
+      {
+        name: "shortest branch matching inside the longer branch",
+        pattern: /abc|b/,
+        haystack: "abc",
+        previouslyBrokeAt: [["ab", "c"]],
+        expected: [{ isMatch: true, text: "abc" }]
+      },
+      {
+        // The mirror of the case above: having buffered `ab` on the chance that
+        // `abc` completes, the strategy must release it and take the `b` match
+        // once `X` rules the longer branch out.
+        name: "longer branch ruled out, shorter branch still matched",
+        pattern: /abc|b/,
+        haystack: "abX",
+        expected: [
+          { isMatch: false, text: "a" },
+          { isMatch: true, text: "b" },
+          { isMatch: false, text: "X" }
+        ]
+      },
+      {
+        name: "quantified group whose tail is also the pattern's terminator",
+        pattern: /(ab)*b/,
+        haystack: "abb",
+        previouslyBrokeAt: [["ab", "b"]],
+        expected: [{ isMatch: true, text: "abb" }]
+      },
+      {
+        name: "template token whose own closing delimiter is a rival branch",
+        pattern: /\{\{[^{}]*\}\}|\}/,
+        haystack: "a {{b}} c }",
+        previouslyBrokeAt: [["a {{b}", "} c }"]],
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: "{{b}}" },
+          { isMatch: false, text: " c " },
+          { isMatch: true, text: "}" }
+        ]
+      },
+      {
+        name: "tag pair whose own closing tag is a rival branch",
+        pattern: /<b>[^<]*<\/b>|<\/b>/,
+        haystack: "p <b>q</b> r",
+        expected: [
+          { isMatch: false, text: "p " },
+          { isMatch: true, text: "<b>q</b>" },
+          { isMatch: false, text: " r" }
+        ]
+      },
+      {
+        name: "alternation branch matching inside a longer branch",
+        pattern: /foo.?bar|o/,
+        haystack: "x fooXbar y o z",
+        previouslyBrokeAt: [["x fo", "oXbar y o z"]],
+        expected: [
+          { isMatch: false, text: "x " },
+          { isMatch: true, text: "fooXbar" },
+          { isMatch: false, text: " y " },
+          { isMatch: true, text: "o" },
+          { isMatch: false, text: " z" }
+        ]
+      },
+      {
+        name: "quoted string containing the rival alternation branch",
+        pattern: /"[^"]*"|\}/,
+        haystack: `a "b}c" d } e`,
+        previouslyBrokeAt: [[`a "b}`, `c" d } e`]],
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: `"b}c"` },
+          { isMatch: false, text: " d " },
+          { isMatch: true, text: "}" },
+          { isMatch: false, text: " e" }
+        ]
+      },
+      {
+        name: "backreference",
+        pattern: /(.+?) \1/,
+        haystack: "foo foo bar",
+        expected: [
+          { isMatch: true, text: "foo foo" },
+          { isMatch: false, text: " bar" }
+        ]
+      },
+      {
+        name: "matched tag pair via backreference",
+        pattern: /<([a-zA-Z][\w:-]*)>[^<]*?<\/\1>/,
+        haystack: "head <esi:include>body</esi:include> tail",
+        expected: [
+          { isMatch: false, text: "head " },
+          { isMatch: true, text: "<esi:include>body</esi:include>" },
+          { isMatch: false, text: " tail" }
+        ]
+      }
+    ];
+
+    // Previously split-dependent, and fixed by deferring while anything
+    // starting here is still growing. Each was verified failing before the fix.
+    const promotedCases = [
+      {
+        name: "eager quantifier satisfied at the boundary",
+        pattern: /[A-Z]+/,
+        haystack: "please MATCH this",
+        previouslyBrokeAt: [["please MAT", "CH this"]],
+        expected: [
+          { isMatch: false, text: "please " },
+          { isMatch: true, text: "MATCH" },
+          { isMatch: false, text: " this" }
+        ]
+      },
+      {
+        name: "trailing unbounded quantifier truncated by the boundary",
+        pattern: /foo.+/,
+        haystack: "foo bar",
+        previouslyBrokeAt: [["foo ", "bar"]],
+        expected: [{ isMatch: true, text: "foo bar" }]
+      },
+      {
+        // Hazard 3: both candidates start at the same index and the accepted
+        // match ended well short of the chunk edge, so comparing start
+        // positions could never have caught this — only the partial match
+        // reaching end-of-haystack reveals that `2024-` was still viable.
+        name: "higher-priority alternation branch still viable past the accepted match",
+        pattern: /\d{4}-\d{2}|\d{4}/,
+        haystack: "born 2024-06 ok",
+        previouslyBrokeAt: [["born 2024-", "06 ok"]],
+        expected: [
+          { isMatch: false, text: "born " },
+          { isMatch: true, text: "2024-06" },
+          { isMatch: false, text: " ok" }
+        ]
+      },
+      {
+        name: "one branch anchored by a literal, the other eagerly quantified",
+        pattern: /a\d+z|\d+/,
+        haystack: "x a12z y 34 z",
+        previouslyBrokeAt: [["x a12z y 3", "4 z"]],
+        expected: [
+          { isMatch: false, text: "x " },
+          { isMatch: true, text: "a12z" },
+          { isMatch: false, text: " y " },
+          { isMatch: true, text: "34" },
+          { isMatch: false, text: " z" }
+        ]
+      },
+      {
+        // Ending in a literal was never sufficient: `\w?` can consume the same
+        // `b` that terminates the pattern.
+        name: "optional atom able to consume the pattern's own terminator",
+        pattern: /x?\w?b/,
+        haystack: "<}bba<x<",
+        previouslyBrokeAt: [["<}b", "ba<x<"]],
+        expected: [
+          { isMatch: false, text: "<}" },
+          { isMatch: true, text: "bb" },
+          { isMatch: false, text: "a<x<" }
+        ]
+      }
+    ];
+
+    [...invariantCases, ...promotedCases].forEach(
+      ({ name, pattern, haystack, expected, previouslyBrokeAt }) => {
+        describe(name, () => {
+          it("matches the non-streaming result when unsplit", () => {
+            const { segments, output } = collectCanonicalSearchStrategyResults(
+              new RegexSearchStrategy(pattern),
+              [haystack]
+            );
+            expect(segments).toEqual(expected);
+            expect(output).toBe(haystack);
+          });
+
+          previouslyBrokeAt?.forEach((chunks) => {
+            it(`matches it when split as ${JSON.stringify(chunks)}`, () => {
+              const { segments, output } = collectCanonicalSearchStrategyResults(
+                new RegexSearchStrategy(pattern),
+                chunks
+              );
+              expect(segments).toEqual(expected);
+              expect(output).toBe(haystack);
+            });
+          });
+
+          it("matches it at every two-way, three-way and per-character split", () => {
+            const splits = [
+              ...everyTwoWaySplit(haystack),
+              ...everyThreeWaySplit(haystack),
+              characterBySplit(haystack)
+            ];
+
+            for (const chunks of splits) {
+              const { segments, output } =
+                collectCanonicalSearchStrategyResults(
+                  new RegexSearchStrategy(pattern),
+                  chunks
+                );
+              // Compared as one object so a failure reports the offending split.
+              expect({ chunks, segments, output }).toEqual({
+                chunks,
+                segments: expected,
+                output: haystack
+              });
+            }
+          });
+        });
+      }
+    );
+
+    describe("which regex drives the scan", () => {
+      function countExecs(
+        pattern: RegExp,
+        chunks: string[]
+      ): { partial: number; original: number } {
+        const partialSpy = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+        const originalSpy = vi.spyOn(pattern, "exec");
+        try {
+          const strategy = new RegexSearchStrategy(pattern);
+          const state = strategy.createState();
+          partialSpy.mockClear();
+          originalSpy.mockClear();
+          for (const chunk of chunks) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- draining the generator is the point
+            [...strategy.processChunk(chunk, state)];
+          }
+          return {
+            partial: partialSpy.mock.calls.length,
+            original: originalSpy.mock.calls.length
+          };
+        } finally {
+          partialSpy.mockRestore();
+          originalSpy.mockRestore();
+        }
+      }
+
+      it("never consults the original pattern while input can still arrive", () => {
+        expect(countExecs(/abc|b/, ["Xabc", "Y"]).original).toBe(0);
+        expect(countExecs(/\{\{\w+\}\}/, ["a {{b}} c", " d"]).original).toBe(0);
+      });
+
+      it("consults the partial regex exactly once per scan position", () => {
+        expect(countExecs(/abc|b/, ["Xabc"]).partial).toBe(1);
+        expect(countExecs(/abc|b/, ["Xa"]).partial).toBe(1);
+        expect(countExecs(/\{\{\w+\}\}/, ["a {{b}} c"]).partial).toBe(2);
+      });
+
+      it("settles the buffer with the original pattern, and only at flush", () => {
+        const pattern = /abc|b/;
+        const strategy = new RegexSearchStrategy(pattern);
+        const state = strategy.createState();
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- draining the generator is the point
+        [...strategy.processChunk("ab", state)];
+
+        const originalSpy = vi.spyOn(pattern, "exec");
+        const partialSpy = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- draining the generator is the point
+          [...strategy.flush(state)];
+          expect(originalSpy.mock.calls.length).toBeGreaterThan(0);
+          expect(partialSpy.mock.calls.length).toBe(0);
+        } finally {
+          originalSpy.mockRestore();
+          partialSpy.mockRestore();
+        }
+      });
+    });
+
+    describe("settling at end of stream", () => {
+      it("emits a match the stream ended on, rather than flushing it as text", () => {
+        const { results, flushResults } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/abc|b/),
+          ["ab"]
+        );
+        expect(results).toEqual([]);
+        expect(flushResults).toMatchObject([
+          { isMatch: false, content: "a" },
+          { isMatch: true, content: expect.arrayContaining(["b"]) }
+        ]);
+      });
+
+      it("maps capture-group and `d`-flag indices of a settled match onto the stream", () => {
+        const { flushResults } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
+          ["prefix ", "{{value}}"]
+        );
+
+        const match = flushResults.find((result) => result.isMatch);
+        expect(match).toMatchObject({
+          isMatch: true,
+          streamIndices: [7, 16]
+        });
+        const content = (match as { content: RegExpExecArray }).content;
+        expect(content.groups?.name).toBe("value");
+        expect(content.indices?.[0]).toEqual([7, 16]);
+        expect(content.indices?.groups?.name).toEqual([9, 14]);
+      });
+
+      it("emits content that never became a match as one trailing non-match segment", () => {
+        const { results, flushResults } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/\{\{\w+\}\}/),
+          ["a {{b}} and {{unclo"]
+        );
+        expect(results).toMatchObject([
+          { isMatch: false, content: "a " },
+          { isMatch: true, content: expect.arrayContaining(["{{b}}"]) },
+          { isMatch: false, content: " and " }
+        ]);
+        expect(flushResults).toEqual([
+          { isMatch: false, content: "{{unclo" }
+        ]);
+      });
+
+      it("yields nothing when the buffer is empty", () => {
+        const strategy = new RegexSearchStrategy(/OLD/);
+        const state = strategy.createState();
+        expect([...strategy.flush(state)]).toEqual([]);
+      });
+    });
+
+    describe("the partial-match contract the scan relies on", () => {
+      it("reports a zero-length match at end-of-haystack when nothing viable remains, rather than null", () => {
+        const partial = new PartialMatchRegExp(/OLD/);
+        const match = partial.exec("zzz");
+        expect(match).not.toBeNull();
+        expect(match![0]).toBe("");
+        expect(match!.index).toBe(3);
+      });
+
+      it("reports an incomplete match only where it reaches end-of-haystack", () => {
+        const partial = new PartialMatchRegExp(/OLD/);
+        const truncated = partial.exec("xxOL")!;
+        expect(truncated[0]).toBe("OL");
+        expect(truncated.index + truncated[0].length).toBe(4);
+
+        const settled = partial.exec("xxOLDyy")!;
+        expect(settled[0]).toBe("OLD");
+        expect(settled.index + settled[0].length).toBeLessThan(7);
+      });
+
+      it("passes the remainder through if the partial regex ever reports no match at all", () => {
+        const strategy = new RegexSearchStrategy(/OLD/);
+        const state = strategy.createState();
+        vi.spyOn(PartialMatchRegExp.prototype, "exec").mockReturnValue(null);
+        try {
+          const results = [...strategy.processChunk("anything", state)];
+          expect(results).toEqual([{ isMatch: false, content: "anything" }]);
+          expect(state.buffer).toBe("");
+        } finally {
+          vi.restoreAllMocks();
+        }
+      });
+    });
+
+    // Deferring to a still-viable longer branch has a cost at the end of the
+    // stream: no further input arrives to settle it, and buffered content is
+    // flushed verbatim — so a shorter branch that *would* have matched is emitted
+    // as literal content instead. The same trade the strategy has always made for
+    // an incomplete match at end of stream, now reachable with a complete one.
+    const endOfStreamCases = [
+      {
+        name: "shorter branch deferred to a longer one that never arrives",
+        pattern: /abc|b/,
+        chunks: ["ab"],
+        nonStreamingWouldMatch: "b",
+        expectedYields: [],
+        expectedFlush: "ab"
+      },
+      {
+        name: "deferred across a chunk boundary, stream then ends",
+        pattern: /foo.?bar|o/,
+        chunks: ["x f", "o"],
+        nonStreamingWouldMatch: "o",
+        expectedYields: [{ isMatch: false, content: "x " }],
+        expectedFlush: "fo"
+      }
+    ];
+
+    endOfStreamCases.forEach(
+      ({
+        name,
+        pattern,
+        chunks,
+        nonStreamingWouldMatch,
+        expectedYields,
+        expectedFlush
+      }) => {
+        it(`flushes a deferred match as literal content — ${name}`, () => {
+          // Establish that there really is a match to lose.
+          expect(pattern.exec(chunks.join(""))?.[0]).toBe(
+            nonStreamingWouldMatch
+          );
+
+          const { results, flush } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            chunks
+          );
+
+          expect(results).toEqual(expectedYields);
+          expect(flush).toBe(expectedFlush);
+          expect(results.map(getValue).join("") + flush).toBe(chunks.join(""));
+        });
+      }
+    );
   });
 
   describe("cancellation scenarios", () => {
@@ -1158,7 +1617,7 @@ describe("RegexSearchStrategy", () => {
       let generator = strategy.processChunk("Text with ", state);
       outputs.push(getValue(generator.next().value!));
       expect(generator.return().value).toBeUndefined();
-      expect(strategy.flush(state)).toBe("");
+      expect(flushToString(strategy, state)).toBe("");
       expect(outputs).toMatchObject(["Text with "]);
     });
 
@@ -1171,7 +1630,7 @@ describe("RegexSearchStrategy", () => {
       let generator = strategy.processChunk("Text with {", state);
       outputs.push(getValue(generator.next().value!));
       const remainder = generator.return().value;
-      outputs.push(strategy.flush(state));
+      outputs.push(flushToString(strategy, state));
       expect(remainder).toBeUndefined();
       expect(outputs).toMatchObject(["Text with ", "{"]);
     });
@@ -1193,7 +1652,7 @@ describe("RegexSearchStrategy", () => {
         { isMatch: false, content: "Text with " },
         { isMatch: true, content: expect.arrayContaining(["{{ something }}"]) }
       ]);
-      expect(strategy.flush(state)).toBe(" and {{ something more }}");
+      expect(flushToString(strategy, state)).toBe(" and {{ something more }}");
     });
   });
 
@@ -1258,12 +1717,18 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
 
       const state1 = strategy.createState();
-      const results1 = [...strategy.processChunk("OLD", state1)];
+      const results1 = [
+        ...strategy.processChunk("OLD", state1),
+        ...strategy.flush(state1)
+      ];
       const match1 = results1.find((r) => r.isMatch);
       expect(match1?.streamIndices[0]).toBe(0);
 
       const state2 = strategy.createState();
-      const results2 = [...strategy.processChunk("OLD", state2)];
+      const results2 = [
+        ...strategy.processChunk("OLD", state2),
+        ...strategy.flush(state2)
+      ];
       const match2 = results2.find((r) => r.isMatch);
       expect(match2?.streamIndices[0]).toBe(0);
     });
@@ -1517,13 +1982,13 @@ describe("RegexSearchStrategy", () => {
 
       // Stream 1: match at position 7
       const results1 = [...strategy.processChunk("prefix hello suffix", state)];
-      strategy.flush(state);
+      flushToString(strategy, state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [7, 12] });
 
       // Stream 2: reuse state after flush — indices should start from 0 again
       const results2 = [...strategy.processChunk("prefix hello suffix", state)];
-      strategy.flush(state);
+      flushToString(strategy, state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [7, 12] });
     });
@@ -1536,7 +2001,7 @@ describe("RegexSearchStrategy", () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       [...strategy.processChunk("hello ", state)];
       const results1 = [...strategy.processChunk("world!", state)];
-      strategy.flush(state);
+      flushToString(strategy, state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [6, 11] });
 
@@ -1544,7 +2009,7 @@ describe("RegexSearchStrategy", () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       [...strategy.processChunk("hello ", state)];
       const results2 = [...strategy.processChunk("world!", state)];
-      strategy.flush(state);
+      flushToString(strategy, state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [6, 11] });
     });
@@ -1562,7 +2027,10 @@ describe("RegexSearchStrategy", () => {
     it("returns the full match, not a capture group", () => {
       const strategy = new RegexSearchStrategy(/(\w+)@(\w+)/);
       const state = strategy.createState();
-      const results = [...strategy.processChunk("user@example", state)];
+      const results = [
+        ...strategy.processChunk("user@example", state),
+        ...strategy.flush(state)
+      ];
       const match = results.find((r) => r.isMatch)!;
       expect(strategy.matchToString(match.content)).toBe("user@example");
     });
@@ -1766,16 +2234,19 @@ describe("RegexSearchStrategy", () => {
       it.each(cases)(
         "%s matches as matchAll minus empty matches",
         (pattern, input) => {
-          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
-            input
-          ]);
+          const { results, flushResults } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            [input]
+          );
           const expected = [
             ...input.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))
           ]
             .map((m) => m[0])
             .filter((m) => m !== "");
 
-          expect(matchesOf(results)).toEqual(expected);
+          // A match ending at end-of-input is deferred while it could still
+          // grow, and settled by flush() once nothing more can arrive.
+          expect(matchesOf([...results, ...flushResults])).toEqual(expected);
         }
       );
 
@@ -1796,29 +2267,31 @@ describe("RegexSearchStrategy", () => {
 
     describe("chunk boundaries", () => {
       it("buffers a nullable pattern split mid-token, rather than advancing past the zero-length match and destroying a match more input would have completed", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flush, flushResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
           ["a", "b"]
         );
-        expect(matchesOf(results)).toEqual(["ab"]);
+        expect(matchesOf([...results, ...flushResults])).toEqual(["ab"]);
         expect(reassemble(results, flush)).toBe("ab");
       });
 
       it("yields the same matches at every split point", () => {
         const input = "xabyab";
-        const whole = matchesOf(
-          collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [input]).results
-        );
+        const allMatchesOf = (chunks: string[]) => {
+          const { results, flushResults } = collectSearchStrategyResults(
+            new RegexSearchStrategy(/(ab)?/),
+            chunks
+          );
+          return matchesOf([...results, ...flushResults]);
+        };
+
+        const whole = allMatchesOf([input]);
         expect(whole).toEqual(["ab", "ab"]);
 
         for (let i = 1; i < input.length; i++) {
-          const split = matchesOf(
-            collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [
-              input.slice(0, i),
-              input.slice(i)
-            ]).results
+          expect(allMatchesOf([input.slice(0, i), input.slice(i)])).toEqual(
+            whole
           );
-          expect(split).toEqual(whole);
         }
       });
 
@@ -1843,16 +2316,15 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("completes that buffered partial into a real match once the rest arrives", () => {
-      const { results, flush } = collectSearchStrategyResults(
+      const { results, flushResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)(ab)?/),
         ["ba", "b"]
       );
 
-      expect(results).toMatchObject([
+      expect([...results, ...flushResults]).toMatchObject([
         { isMatch: false, content: "b" },
         { isMatch: true, content: expect.objectContaining({ 0: "ab" }) }
       ]);
-      expect(flush).toBe("");
     });
 
     it("emits the text before a skipped zero-length match and the skipped code unit as a single non-match yield, unlike the separate yields a real match produces", () => {

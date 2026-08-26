@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { flushToString } from "../../../test/utilities.js";
 import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
@@ -9,7 +10,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [...strategy.processChunk("before {{ after", state)];
-    const flushed = strategy.flush(state);
+    const flushed = flushToString(strategy, state);
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
@@ -24,7 +25,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [...strategy.processChunk("before {{name}} after", state)];
-    const flushed = strategy.flush(state);
+    const flushed = flushToString(strategy, state);
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
@@ -41,7 +42,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("before {", state),
       ...strategy.processChunk("{name}}", state),
-      { isMatch: false, content: strategy.flush(state) }
+      { isMatch: false, content: flushToString(strategy, state) }
     ];
 
     expect(results).toEqual([
@@ -59,7 +60,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       ...strategy.processChunk("before {{name}", state),
       ...strategy.processChunk("} after", state)
     ];
-    const flushed = strategy.flush(state);
+    const flushed = flushToString(strategy, state);
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
@@ -76,7 +77,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("no matches here", state),
       ...strategy.processChunk("or here either", state),
-      { isMatch: false, content: strategy.flush(state) }
+      { isMatch: false, content: flushToString(strategy, state) }
     ];
 
     expect(results).toEqual([
@@ -121,7 +122,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("text {", state),
       ...strategy.processChunk("x {{match}}", state),
-      { isMatch: false, content: strategy.flush(state) }
+      { isMatch: false, content: flushToString(strategy, state) }
     ];
 
     expect(results).toEqual([
@@ -138,7 +139,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     const results = [
       ...strategy.processChunk("{{first}}{{second}}{{third}}", state),
-      { isMatch: false, content: strategy.flush(state) }
+      { isMatch: false, content: flushToString(strategy, state) }
     ];
 
     expect(results).toEqual([
@@ -161,7 +162,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const results = [
       ...strategy.processChunk("before <{{name}}> after", state)
     ];
-    const flushed = strategy.flush(state);
+    const flushed = flushToString(strategy, state);
 
     expect(results).toEqual([
       { isMatch: false, content: "before " },
@@ -177,7 +178,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     const results = [
       ...strategy.processChunk("{{incomplete", state),
-      { isMatch: false, content: strategy.flush(state) }
+      { isMatch: false, content: flushToString(strategy, state) }
     ];
 
     expect(results).toEqual([{ isMatch: false, content: "{{incomplete" }]);
@@ -204,7 +205,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // No partial match, buffer is empty
-      expect(strategy.flush(state)).toBe("");
+      expect(flushToString(strategy, state)).toBe("");
     });
 
     it("flushes buffer when cancelling with detected partial match", () => {
@@ -223,7 +224,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // Smart buffering detected "{" as partial match
-      expect(strategy.flush(state)).toBe("{");
+      expect(flushToString(strategy, state)).toBe("{");
     });
 
     it("flushes buffer when cancelling mid-match (after finding first needle)", () => {
@@ -245,7 +246,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       // At this point, generator returned naturally after setting buffer in finally
       // Mid-match (currentNeedleIndex = 1): buffer from matchStartPosition
       expect(state.currentNeedleIndex).toBe(1);
-      expect(strategy.flush(state)).toBe("{{ something");
+      expect(flushToString(strategy, state)).toBe("{{ something");
     });
 
     it("flushes buffer when cancelling after complete match before processing remaining content", () => {
@@ -259,7 +260,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       // Generator was cancelled after match
       // Unprocessed content (" and more") should be buffered
-      expect(strategy.flush(state)).toBe(" and more");
+      expect(flushToString(strategy, state)).toBe(" and more");
     });
 
     it("flushes buffer when cancelling after first match with more matches remaining", () => {
@@ -274,7 +275,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return(); // Cancel before processing " and {{ second }}"
 
       // Generator was cancelled, unprocessed content should be buffered
-      expect(strategy.flush(state)).toBe(" and {{ second }}");
+      expect(flushToString(strategy, state)).toBe(" and {{ second }}");
     });
 
     it("flushes buffer when cancelling with partial match after complete match", () => {
@@ -287,7 +288,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // Smart buffering detected "{" as partial match
-      expect(strategy.flush(state)).toBe("{");
+      expect(flushToString(strategy, state)).toBe("{");
     });
 
     it("handles cancellation with three-needle sequence mid-match continuing into next chunk", () => {
@@ -310,7 +311,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       // Now cancel before processing next chunk
       // The buffered mid-match content should be in the buffer
-      expect(strategy.flush(state)).toBe("{{ }}");
+      expect(flushToString(strategy, state)).toBe("{{ }}");
     });
 
     it("handles cancellation when generator completes naturally", () => {
@@ -328,7 +329,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       expect(finalResult.done).toBe(true);
 
       // No buffer since no partial match
-      expect(strategy.flush(state)).toBe("");
+      expect(flushToString(strategy, state)).toBe("");
     });
 
     it("handles cancellation when partial match is multiple characters", () => {
@@ -344,7 +345,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // "STA" should be buffered as partial match
-      expect(strategy.flush(state)).toBe("STA");
+      expect(flushToString(strategy, state)).toBe("STA");
     });
 
     it("handles cancellation before second yield when mid-match", () => {
@@ -363,7 +364,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // Should buffer from match start
-      expect(strategy.flush(state)).toBe("{{middle");
+      expect(flushToString(strategy, state)).toBe("{{middle");
     });
 
     it("handles cancellation with no partial match after complete match", () => {
@@ -376,7 +377,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // "xyz" doesn't match any prefix of "{{", so buffer is empty
-      expect(strategy.flush(state)).toBe("");
+      expect(flushToString(strategy, state)).toBe("");
     });
 
     it("handles cancellation during partial match check with long partial", () => {
@@ -389,7 +390,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       generator.return();
 
       // Should buffer "{{{"
-      expect(strategy.flush(state)).toBe("{{{");
+      expect(flushToString(strategy, state)).toBe("{{{");
     });
   });
 
@@ -440,13 +441,13 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       // Stream 1
       const results1 = [...strategy.processChunk("text {{m1}}", state)];
-      strategy.flush(state);
+      flushToString(strategy, state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [5, 11] });
 
       // Stream 2: reuse state after flush — indices should start from 0 again
       const results2 = [...strategy.processChunk("text {{m2}}", state)];
-      strategy.flush(state);
+      flushToString(strategy, state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [5, 11] });
     });

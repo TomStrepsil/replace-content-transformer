@@ -127,15 +127,16 @@ interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
 
 **Flush behaviour:**
 
-If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` returns all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer:
+If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` yields all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer, as non-match results:
 
 ```typescript
-flush(state: BalancedPairSearchState): string {
+*flush(state: BalancedPairSearchState): Generator<MatchResult, void, undefined> {
   const flushed = state.balancedBuffer;
   state.balancedBuffer = "";
   state.balancedBufferStart = 0;
   state.nestingLevel = 0;
-  return flushed + this.anchorStringSearchStrategy.flush(state);
+  if (flushed) yield { isMatch: false, content: flushed };
+  yield* this.anchorStringSearchStrategy.flush(state);
 }
 ```
 

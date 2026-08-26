@@ -40,20 +40,39 @@ class RegexSearchStrategy {
 }
 ```
 
-### Complete Match Detection
+### Scanning with the Partial Regex
 
-First, attempt to find complete matches using the original pattern:
+The scan uses the **partial** regex exclusively: one `exec` per scan position, and that result is the answer. The original pattern has exactly one job, at [End of Stream](#end-of-stream), where it settles whatever is left buffered.
+
+```
+p = partialMatchRegex.exec(remainingHaystack)
+
+  nothing viable            → nothing here can ever match; emit the remainder
+  p reaches end-of-haystack → still growing; buffer from p.index, emit the prefix
+  p ends before the end     → settled; it IS the match — emit it
+```
+
+Two properties make this sound:
+
+- **Superset** — the partial regex matches everything the original matches, and never starts later. A partial scan cannot miss what a complete scan would find.
+- **Identity** — an *incomplete* partial match can only end at end-of-haystack, because that is what the `$(?![\s\S])` truncation marker asserts. So a partial match ending *before* end-of-haystack cannot have used that branch: it is the original pattern's match at that index, identical in extent, capture groups and `d`-flag indices.
+
+Note that "nothing viable" is reported as a zero-length match at end-of-haystack rather than as `null` — the truncation branch always matches the empty string there.
+
+### Settled Match
+
+A partial match that ends before the end of the chunk is final, and is emitted as the match:
 
 ```
 Pattern: /PLACEHOLDER/
 Chunk:   "Hello PLACEHOLDER world"
 
-Step 1: completeMatchRegex.exec() → match at position 6
+partialMatchRegex.exec() → "PLACEHOLDER" at position 6, ending at 17 of 23
 
 ┌─────────────────────────────────────┐
 │ Chunk: "Hello PLACEHOLDER world"    │
 │               ^^^^^^^^^^^           │
-│               Complete match found  │
+│               ends before the edge  │
 └─────────────────────────────────────┘
 
 Result:
@@ -62,32 +81,40 @@ Result:
   - " world" → non-match
 ```
 
-### Partial Match Detection
+### Deferred Match
 
-When no complete match is found, use the partial regex to detect potential incomplete patterns:
+A partial match that runs to the end of the chunk might still grow, so it is buffered rather than emitted:
 
 ```
 Pattern: /PLACEHOLDER/
 Chunk:   "Hello PLACE"
 
-Step 1: completeMatchRegex.exec() → no match
-Step 2: partialMatchRegex.exec() → match at position 6
+partialMatchRegex.exec() → "PLACE" at position 6, ending at 11 of 11
 
 ┌──────────────────────────────────────────────┐
 │ Chunk: "Hello PLACE"                         │
 │               ^^^^^                          │
-│               Partial match detected         │
-│                                              │
-│ Partial regex matches "PLACE" (incomplete)   │
-│ Buffer "PLACE" for next chunk                │
+│               runs to the edge — defer       │
 └──────────────────────────────────────────────┘
-
-State:
-  - matchBuffer: "PLACE"
 
 Output: "Hello " (non-match)
 Buffer: "PLACE"
 ```
+
+This is what makes the strategy chunk-invariant. The same rule covers three hazards that look distinct but are the same question — *is anything starting here still growing?*
+
+```
+Pattern: /foo.?bar|o/    "x fooXbar"
+  ["x fo", "oXbar"]  → one match, "fooXbar"   (not two `o` matches)
+
+Pattern: /[A-Z]+/        "please MATCH this"
+  ["please MAT", "CH this"]  → one match, "MATCH"   (not "MAT" + "CH")
+
+Pattern: /\d{4}-\d{2}|\d{4}/    "born 2024-06 ok"
+  ["born 2024-", "06 ok"]  → one match, "2024-06"   (not "2024")
+```
+
+The third is the one that defeats a naive guard: `2024` ends at index 9 of a 10-character chunk, comfortably short of the edge, while `2024-` was still a viable prefix of the higher-priority branch. Comparing where the candidates *start* finds nothing to prefer — only the partial match reaching end-of-haystack reveals it.
 
 ### Buffer Continuation
 
@@ -123,8 +150,7 @@ Next chunk:      "BO wrong"
 
 Combined: "PLACEBO wrong"
 
-Step 1: completeMatchRegex.exec(/PLACEHOLDER/) → no match
-Step 2: partialMatchRegex.exec() → no match for "PLACEHOLDER"
+partialMatchRegex.exec() → nothing viable for "PLACEHOLDER"
 
 ┌──────────────────────────────────────────────┐
 │ Combined: "PLACEBO wrong"                    │
@@ -133,6 +159,30 @@ Step 2: partialMatchRegex.exec() → no match for "PLACEHOLDER"
 │ Flush buffer                                 │
 └──────────────────────────────────────────────┘
 ```
+
+### End of Stream
+
+Once the stream ends, nothing further can arrive, so whatever is buffered is settled with the **original** pattern — no partial regex, no deferral:
+
+```
+Pattern: /abc|b/
+Buffer at end of stream: "ab"
+
+completeMatchRegex.exec("ab") → "b" at position 1
+
+┌──────────────────────────────────────────────┐
+│ Buffer: "ab"                                 │
+│           ^   nothing more can extend it     │
+│               so the match is final          │
+└──────────────────────────────────────────────┘
+
+Output: "a" (non-match), then "b" (match)
+```
+
+Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
+
+> [!NOTE]
+> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`. Anyone implementing `SearchStrategy`, or driving a strategy directly, has to handle that — see the [v3 → v4 codemods](../../../codemods/transforms/v3-v4/README.md).
 
 ## Partial Match Transformation
 
@@ -165,7 +215,7 @@ type RegexSearchState = {
 - **Complete match found:** Clear buffer, emit match
 - **Partial match detected:** Buffer matched portion
 - **No match (complete or partial):** Emit content as non-match
-- **Flush:** Return buffered content
+- **Flush:** Settle the buffer — emit any matches it still holds, then any trailing content
 
 ## Limitations
 
@@ -238,7 +288,7 @@ Backreferences are supported, including across chunk boundaries: [`regex-partial
 
 That comes with real caveats for streaming use:
 
-- **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Partial Match Detection](#partial-match-detection) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom.
+- **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Scanning with the Partial Regex](#scanning-with-the-partial-regex) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom.
 - **Prefix-ambiguous top-level alternation can silently drop a match.** When a top-level `|` has branches sharing a prefix (e.g. `/^(ab)\1|^(abc)\2/`, where the first branch's `"ab"` is a strict prefix of the second branch's `"abc"`), the internal capture scan can resolve the *shorter* branch before enough input has arrived, causing the partial-match `exec()` to return `null` for content that is in fact a valid partial match. Since [`processChunk`](./search-strategy.ts) treats a `null` partial-match result as "definitely not a match" — flushing what's buffered as ordinary non-match content, rather than continuing to buffer it — this isn't just a slower path, it's a **lost match**: `/^(ab)\1|^(abc)\2/` fed `"ab"`, then `"ca"`, then `"bc"` yields two non-matches (`"abca"`, `"bc"`) instead of the single match `"abcabc"` a non-chunked `exec()` on the concatenated string would find.
 
 > [!TIP]
@@ -246,53 +296,38 @@ That comes with real caveats for streaming use:
 
 - **`\k<name>` with no named capturing groups in the pattern** is treated by `regex-partial-match` as an atomic (all-or-nothing) backreference, rather than the [identity escape](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape) [Annex B](https://tc39.es/ecma262/#sec-regular-expressions-patterns) would otherwise permit — so `"k"` or `"k<"` alone won't register as a valid partial match if this is the pattern's only reference to `\k`. This is a narrow edge case; if the deprecated Annex B identity-escape meaning is actually intended, use `k` instead of `\k`.
 
-### ⚠️ Surrogate pairs separated by chunks
-
-```js
-/(?<foo>.)/u;
-```
-
-Problem: A chunk ending `\ud83d` and another starting `\ude04` will produce two matches, and thus two calls to any defined replacement function, when applied to a stream of text in a binary encoding, such as UTF-8 etc.
-
-In this example. the named group "foo" will be returned with these individual bytes / code points as matches, rather than the intended single match of `😄`.
-
-> [!TIP]
-> It's intended that the transform is used on [well-formed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/isWellFormed) strings, hence a [`TextDecoderStream`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoderStream) should be used to ensure multi-byte characters do not span chunks.
-
 ### ⚠️ Unbounded Quantifiers
 
 ```js
 /foo.+bar/s;
-```
-
-Challenge: Partial regex could match "foo" then greedy quantifier could continue to match indefinitely, thus may buffer entire stream before recognising non-match.
-
-```js
 /foo.+/;
-```
-
-Challenge: Quantifier will be satisfied at the end of a chunk, which may be arbitrary. e.g. a chunk of "foo ba" will output "foo ba" as a match, without understanding that chunks yet to come may continue to match.
-
-> [!TIP]
-> Use non-greedy [quantifiers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Quantifiers) (e.g. `.+?`) to mitigate
-
-Or, more examples:
-
-```js
 /[A-Z]+/;
 /\p{Uppercase_Letter}+/u;
 ```
 
-Quantifier will be satisfied eagerly, thus multiple matches will occur. e.g. chunks "please MAT" and "CH this" will produce two matches for the above expression, for "MAT" and "CH".
+Problem: an unbounded quantifier has no reason to stop at a chunk edge. While a match could still grow, it is buffered rather than emitted — so the matches are the same however the stream is split, but the memory is not.
+
+The cost is decided by whether the pattern can *settle*:
+
+| Pattern | Peak buffer over 20 chunks |
+|---|---|
+| `/\{\{[^{}]*\}\}/` over templating text | 0 |
+| `/\{\{[^{}]*\}\}/` over prose | 0 |
+| `/foo.+/` | the rest of the stream |
+| `/\S+/` over unbroken text | the whole stream |
+
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream. There is no way around that in a streaming scan — nothing but the next chunk can say whether the run continues — and re-scanning a growing buffer each chunk costs time as well as memory (measured ~3.4× on that shape).
 
 > [!TIP]
-> Wherever possible, deterministic anchor tokens should be used, e.g.
+> Give the pattern a terminator its own body cannot consume:
 >
 > ```js
 > /foo[A-Z]+bar/;
 > ```
 >
-> This will ensure matches are only satisfied with a complete expression, properly terminated (with caveats about potential whole-stream buffering, as mentioned above). In this example, `foo` and `bar` anchor the match.
+> `bar` ends the match and `[A-Z]+` cannot eat it, so the match settles as soon as it is complete and nothing is held beyond it. Non-greedy quantifiers (`.+?`) help for the same reason.
+>
+> Ending in a literal is not sufficient on its own. `/x?\w?b/` ends in `b`, but `\w?` can also consume that `b`, so the match cannot settle until the following character is known.
 
 ### ⚠️ Zero-length matches
 
@@ -328,9 +363,12 @@ Output stays lossless — skipped positions are passed through as ordinary non-m
 > /(?!z)/; //         never matches
 > ```
 
-Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point — see [Surrogate pairs separated by chunks](#️-surrogate-pairs-separated-by-chunks) above. Output remains lossless either way.
+Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point — so a surrogate pair is never split by the skip. Output remains lossless either way.
 
 Skipping is not the whole story for a nullable pattern: where a partial match *is* possible at that position, the strategy buffers instead, so the same buffering limits described under [Unbounded Quantifiers](#️-unbounded-quantifiers) above still apply. `/(a*b)?/` buffers exactly as `/a*b/` does.
+A skipped zero-length match is the one place the cursor still advances on chunk-relative grounds, so the [Deferred Match](#deferred-match) rule does not apply to it. Where a partial match *is* viable at that position the strategy defers instead, so nullable patterns buffer exactly as their non-nullable equivalents do.
+
+Both the invariant and the split-dependent cases are pinned in [`search-strategy.test.ts`](./search-strategy.test.ts), driven over every two-way, three-way and per-character split of their input.
 
 ### ✅ Supported Features
 

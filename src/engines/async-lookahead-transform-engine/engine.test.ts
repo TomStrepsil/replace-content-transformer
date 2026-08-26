@@ -10,7 +10,8 @@ import {
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
-  settleMicrotasks
+  settleMicrotasks,
+  flushesText
 } from "../../../test/utilities.ts";
 
 async function runEngine(
@@ -45,7 +46,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         isMatch: false,
         content: "head "
       });
-      strategy.flush.mockReturnValue("tail");
+      strategy.flush.mockImplementation(flushesText("tail"));
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -272,7 +273,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
     it("flushes buffered search-strategy tail in-order before the first passthrough chunk", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
+      strategy.flush.mockImplementationOnce(flushesText("BUF")).mockImplementation(flushesText());
       const ac = new AbortController();
       ac.abort();
       const { sink, chunks } = collectEngineSink();
@@ -291,7 +292,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
     it("calls flush() exactly once across multiple writes and end() when the signal is pre-aborted", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: false, content: "" });
-      strategy.flush.mockReturnValue("BUF");
+      strategy.flush.mockImplementation(flushesText("BUF"));
       const ac = new AbortController();
       ac.abort();
       const { sink, chunks } = collectEngineSink();
@@ -318,7 +319,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           ac.abort();
           yield { isMatch: true, content: "B", streamIndices: [1, 2] as [number, number] };
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
       const fn = vi.fn(async () => asyncIterable("R"));
@@ -344,7 +345,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           ac.abort();
           yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockReturnValue("raw-M")
       };
       const { sink, chunks } = collectEngineSink();
@@ -415,7 +416,7 @@ describe("AsyncLookaheadTransformEngine", () => {
             yield { isMatch: false, content: chunk };
           }
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
       const ac = new AbortController();
@@ -527,7 +528,7 @@ describe("AsyncLookaheadTransformEngine", () => {
             yield { isMatch: false, content: chunk.slice(last) };
           }
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
 
@@ -699,7 +700,7 @@ describe("AsyncLookaheadTransformEngine", () => {
             streamIndices: [0, chunk.length]
           };
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((match: string) => match)
       };
 
@@ -880,7 +881,7 @@ describe("AsyncLookaheadTransformEngine", () => {
             yield { isMatch: false, content: chunk };
           }
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const gate = deferred<void>();
@@ -912,7 +913,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         processChunk: vi.fn().mockImplementation(function* (chunk: string) {
           yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] as [number, number] };
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
     }

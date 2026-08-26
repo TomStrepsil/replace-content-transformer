@@ -245,7 +245,7 @@ const transformer = new AsyncReplaceContentTransformer(
 ```
 
 > [!TIP] 
-> For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`AsyncLookaheadTransformEngine`](#-pipelined-async-replacement-with-asynclookaheadtransformengine) (see below).
+> For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`AsyncLookaheadTransformEngine`](#pipelined-async-replacement-with-asynclookaheadtransformengine) (see below).
 
 #### Iterable Replacement
 
@@ -496,7 +496,7 @@ interface SearchStrategy<TState, TMatch = string> {
     haystack: string,
     state: TState
   ): Generator<MatchResult<TMatch>, void, undefined>;
-  flush(state: TState): string;
+  flush(state: TState): Generator<MatchResult<TMatch>, void, undefined>;
 }
 ```
 
@@ -504,7 +504,10 @@ The `TState` type is specific to the strategy, managed by the consuming engine /
 
 The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
 
-The `flush` is called by the engine to extract anything buffered from the search strategy. This also re-sets the provided state parameter for re-use.
+The `flush` is called by the engine once no further input can arrive, to settle anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. Strategies with nothing to settle yield their buffer as a single non-match result. This also re-sets the provided state parameter for re-use.
+
+> [!IMPORTANT]
+> `flush` returned a `string` in v3. See the [v3 → v4 codemods](./codemods/transforms/v3-v4/README.md) for migrating implementations and call sites.
 
 > [!NOTE]
 > The `streamIndices` property contains absolute character offsets into the stream passed to the engine as `[startIndex, endIndex]`, thus not chunk-relative.
@@ -604,8 +607,8 @@ The sync/async distinction determines which adapter accepts the engine (`Replace
   }
 }
 // common to all engines
-flush(): string {
-  return this.searchStrategy.flush(this.searchState);
+*flush(): Generator<MatchResult<TMatch>, void, undefined> {
+  yield* this.searchStrategy.flush(this.searchState);
 }
 ```
 
@@ -663,6 +666,15 @@ npm run build
 - **Streaming scenarios** - Transformers with engines in stream pipelines
 - **Promise handling** - Async replacement functions and promise-based workflows
 - **Abort signals** - Cancellation and signal propagation
+
+### Exhaustive Chunk-Boundary Tests
+
+For each pattern in a curated table, the regex search strategy is driven over **every** two-way split of the input, every three-way split, and a character-by-character split, asserting:
+
+- **Chunk invariance** - the match sequence is identical however the input was split, and equal to the non-streaming result
+- **Lossless output** - concatenating every yield plus `flush()` reproduces the input exactly
+
+The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, and a terminator the pattern's own body can consume — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced.
 
 ### Functional Validation Tests
 

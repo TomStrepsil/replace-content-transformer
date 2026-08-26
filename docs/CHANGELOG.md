@@ -7,9 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`. Anything buffered at end of stream used to be emitted verbatim, which meant a strategy could never defer a decision at a chunk boundary — deferral is only correct if the deferred content can still become a match once the stream ends. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; everyone else has [two codemods](../codemods/transforms/v3-v4/README.md)
+- **BREAKING:** matches that were previously chunk-dependent no longer are, so tests asserting over chunked output will change. A match that runs to the end of a chunk is now deferred until the next chunk settles it, or until `flush` does at end of stream — the same matches, arriving later
+- Unbounded quantifiers are no longer a *correctness* caveat, only a buffering one. `/[A-Z]+/` over `"please MAT"` + `"CH this"` yields one `MATCH`, not `MAT` and `CH`. What remains is cost: a pattern that never stops growing (`/\S+/` over unbroken text) buffers to end of stream, measured ~3.4x slower on that shape. Patterns with a terminator their own body cannot consume (`/\{\{[^{}]*\}\}/`) buffer nothing either way, and several common shapes get *faster*, since the redundant second scan is gone. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- Removed an unreachable branch in `AsyncLookaheadTransformEngine`'s constructor: its scan signal is always defined, since the abandon signal is composed unconditionally. Internal only, no behaviour change
+
 ### Fixed
 
 - Fixed double-offset named capture group indices in the regex search strategy when using the `d` flag across chunk boundaries
+- Fixed chunking-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)). Three mechanisms — a match accepted at a position later than a viable partial began, a match ending exactly at the boundary that more input would extend, and a match ending *before* the boundary while a higher-priority alternation branch was still viable — turn out to be one question, *is anything starting here still growing?*, which the partial-match regex already answers. The scan is now driven by the partial regex alone, and the original pattern is not consulted until `flush`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
+- Surrogate pairs split across chunks now rejoin into a single match, rather than yielding one match per lone surrogate. Previously documented as a limitation
+
+### Added
+
+- Chunk-boundary tests driving the regex search strategy over *every* two-way, three-way and per-character split of each curated pattern, asserting a match sequence identical to the non-streaming result and lossless output. The patterns that used to be split-dependent are in that table, so the fix is verified rather than assumed
+- Tests for engine paths that had none: cancelling an async-serial replacement mid-flight (between results, from inside the replacement, and mid-iterable), and settling a deferred match when the stream is aborted
+- `codemods/transforms/v3-v4` — `flush-implementation-to-generator` and `flush-call-site-to-drain`, with fixtures and a [run order](../codemods/transforms/v3-v4/README.md)
 
 ## [3.0.1] - 2026-08-25
 

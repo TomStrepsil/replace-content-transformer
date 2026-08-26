@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { flushToString } from "../../../../test/utilities.js";
 import { BufferedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { MatchResult } from "../../types.js";
 
@@ -25,7 +26,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       }
     });
 
-    const flushed = strategy.flush(state);
+    const flushed = flushToString(strategy, state);
     return { outputs, flushed };
   }
 
@@ -310,7 +311,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       let generator = strategy.processChunk("Text with ", state);
       outputs.push(getValue(generator.next().value!));
       generator.return();
-      outputs.push(strategy.flush(state));
+      outputs.push(flushToString(strategy, state));
       expect(outputs).toEqual(["Text with", " "]);
     });
 
@@ -323,7 +324,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       let generator = strategy.processChunk("Text with {", state);
       outputs.push(getValue(generator.next().value!));
       generator.return();
-      outputs.push(strategy.flush(state));
+      outputs.push(flushToString(strategy, state));
       expect(outputs).toEqual(["Text with ", "{"]);
     });
 
@@ -337,7 +338,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       outputs.push(getValue(generator.next().value!));
       expect(outputs).toEqual(["Text with "]);
       generator.return();
-      expect(strategy.flush(state)).toBe("{{ something");
+      expect(flushToString(strategy, state)).toBe("{{ something");
     });
 
     it("flushes buffer when cancelling after a match, with matches remaining", () => {
@@ -357,7 +358,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
         { isMatch: true, content: "{{ something }}", streamIndices: [10, 25] }
       ]);
       generator.return();
-      expect(strategy.flush(state)).toBe(" and {{ something more }}");
+      expect(flushToString(strategy, state)).toBe(" and {{ something more }}");
     });
 
     it("flushes buffer correctly when remaining content is smaller than bufferSize", () => {
@@ -366,7 +367,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
 
       const generator = strategy.processChunk("X", state);
       generator.next();
-      expect(strategy.flush(state)).toBe("X");
+      expect(flushToString(strategy, state)).toBe("X");
     });
 
     it("flushes buffer correctly when buffer point equals walk position", () => {
@@ -379,7 +380,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       expect(getValue(result.value!)).toBe("A");
       expect(result.done).toBe(false);
       generator.return();
-      expect(strategy.flush(state)).toBe("B");
+      expect(flushToString(strategy, state)).toBe("B");
     });
 
     it("preserves correct buffer when cancelled before yielding in 'needle not found' path", () => {
@@ -393,7 +394,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       const generator = strategy.processChunk("ABC", state);
       const result = generator.next();
       expect(result.done).toBe(true); // No yield happened
-      expect(strategy.flush(state)).toBe("ABC"); // All content buffered
+      expect(flushToString(strategy, state)).toBe("ABC"); // All content buffered
     });
 
     it("handles cancellation mid-sequence with correct matchStartPosition", () => {
@@ -413,7 +414,7 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
       generator.return(); // Cancel mid-sequence (found "{{" and "}}", looking for "!")
 
       // Should buffer from where "{{" started (matchStartPosition)
-      expect(strategy.flush(state)).toBe("{{ }} more");
+      expect(flushToString(strategy, state)).toBe("{{ }} more");
     });
   });
 });

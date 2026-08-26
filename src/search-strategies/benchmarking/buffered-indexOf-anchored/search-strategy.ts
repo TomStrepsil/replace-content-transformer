@@ -126,8 +126,10 @@ export class BufferedIndexOfAnchoredSearchStrategy
     }
   }
 
-  flush(state: BufferedIndexOfAnchoredSearchState): string {
+  *flush(
+    state: BufferedIndexOfAnchoredSearchState
+  ): Generator<MatchResult, void, undefined> {
     state.currentNeedleIndex = 0;
-    return super.flush(state);
+    yield* super.flush(state);
   }
 }
