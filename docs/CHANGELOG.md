@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed double-offset named capture group indices in the regex search strategy when using the `d` flag across chunk boundaries
 - Fixed chunking-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)). Three mechanisms — a match accepted at a position later than a viable partial began, a match ending exactly at the boundary that more input would extend, and a match ending *before* the boundary while a higher-priority alternation branch was still viable — turn out to be one question, *is anything starting here still growing?*, which the partial-match regex already answers. The scan is now driven by the partial regex alone, and the original pattern is not consulted until `flush`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
 - Surrogate pairs split across chunks now rejoin into a single match, rather than yielding one match per lone surrogate. Previously documented as a limitation
+- Fixed the string anchor search strategy reporting characters twice at a chunk boundary, and the phantom overlapping match that could follow, when an anchor has a border (a proper prefix that is also a suffix, e.g. `---`, `aba`)
+  - Also covers `BalancedPairSearchStrategy`, which delegates to it
 
 ### Added
 
@@ -31,7 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed an infinite loop when a regex pattern could produce a zero-length match (e.g. `/a?/`, `/a*/`, `/(?=a)/`). Zero-length matches are now skipped rather than emitted, so a nullable pattern matches only where it matches something — `/\d*/` behaves as `/\d+/`. See [limitations](../src/search-strategies/regex/README.md#limitations).
-  - Fixed the same loop in the string anchor search strategy: empty anchors (`searchStrategyFactory("")`, `["", ""]`) are now rejected at construction. Also covers `BalancedPairSearchStrategy`, which delegates to it.
+  - Fixed the same loop in the string anchor search strategy: empty anchors (`searchStrategyFactory("")`, `["", ""]`) are now rejected at construction
+     - Also covers `BalancedPairSearchStrategy`, which delegates to it
 - Ensured Dependabot can raise PRs without being blocked by CI
 
 ### Changed

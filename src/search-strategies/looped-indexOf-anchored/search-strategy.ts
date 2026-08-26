@@ -8,8 +8,12 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   currentNeedleIndex: number;
 };
 
-const partialMatchLength = (haystack: string, needle: string): number => {
-  let partialLength = needle.length - 1;
+const partialMatchLength = (
+  haystack: string,
+  needle: string,
+  unreportedLength: number
+): number => {
+  let partialLength = Math.min(needle.length - 1, unreportedLength);
   while (
     partialLength >= 1 &&
     !haystack.endsWith(needle.slice(0, partialLength))
@@ -85,8 +89,10 @@ export class LoopedIndexOfAnchoredSearchStrategy
 
         if (index === -1) {
           if (searchingFirstNeedle) {
+            const unreportedLength = length - position;
             const resumeAt =
-              length - partialMatchLength(haystack, currentNeedle);
+              length -
+              partialMatchLength(haystack, currentNeedle, unreportedLength);
             const nonMatch = haystack.slice(position, resumeAt);
             position = resumeAt;
             if (nonMatch) yield { isMatch: false, content: nonMatch };

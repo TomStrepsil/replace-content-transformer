@@ -31,6 +31,9 @@ function flushToString<TState, TMatch>(
 /**
  * Drive `strategy` over `chunks`, collecting every yield plus the final `flush()`.
  *
+ * `output` concatenates everything the strategy reported, matches rendered as their
+ * raw text, so it must always reproduce the input exactly.
+ *
  * Kept free of any test-runner import so non-test tooling (e.g. the chunk-variance
  * diagnostic) can reuse it.
  */
@@ -42,6 +45,7 @@ function collectSearchStrategyResults<TState, TMatch = string>(
   results: MatchResult<TMatch>[];
   flush: string;
   flushResults: MatchResult<TMatch>[];
+  output: string;
 } {
   const state = strategy.createState();
   const results: MatchResult<TMatch>[] = [];
@@ -59,7 +63,9 @@ function collectSearchStrategyResults<TState, TMatch = string>(
   const flush = flushResults
     .map((result) => resultToString(strategy, result))
     .join("");
-  return { results, flush, flushResults };
+  const output =
+    results.map((result) => resultToString(strategy, result)).join("") + flush;
+  return { results, flush, flushResults, output };
 }
 
 /**
