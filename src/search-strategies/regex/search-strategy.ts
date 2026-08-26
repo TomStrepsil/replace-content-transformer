@@ -131,9 +131,6 @@ export class RegexSearchStrategy
           const indices = completeMatch.indices;
           const offset = startIndex - completeMatch.index;
           updateIndices(indices, offset);
-          if (indices.groups) {
-            updateIndices(Object.values(indices.groups), offset);
-          }
         }
 
         yield {
