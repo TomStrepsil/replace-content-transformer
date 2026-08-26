@@ -72,8 +72,12 @@ export class LoopedIndexOfAnchoredSearchStrategy
         const index = haystack.indexOf(currentNeedle, position);
         if (index === -1) {
           if (state.currentNeedleIndex === 0) {
+            const unreportedLength = length - position;
             for (
-              let partialLength = currentNeedle.length - 1;
+              let partialLength = Math.min(
+                currentNeedle.length - 1,
+                unreportedLength
+              );
               partialLength >= 1;
               partialLength--
             ) {

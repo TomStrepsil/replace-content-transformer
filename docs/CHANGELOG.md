@@ -10,13 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed double-offset named capture group indices in the regex search strategy when using the `d` flag across chunk boundaries
+- Fixed the string anchor search strategy reporting characters twice at a chunk boundary, and the phantom overlapping match that could follow, when an anchor has a border (a proper prefix that is also a suffix, e.g. `---`, `aba`)
+  - Also covers `BalancedPairSearchStrategy`, which delegates to it
 
 ## [3.0.1] - 2026-08-25
 
 ### Fixed
 
 - Fixed an infinite loop when a regex pattern could produce a zero-length match (e.g. `/a?/`, `/a*/`, `/(?=a)/`). Zero-length matches are now skipped rather than emitted, so a nullable pattern matches only where it matches something — `/\d*/` behaves as `/\d+/`. See [limitations](../src/search-strategies/regex/README.md#limitations).
-  - Fixed the same loop in the string anchor search strategy: empty anchors (`searchStrategyFactory("")`, `["", ""]`) are now rejected at construction. Also covers `BalancedPairSearchStrategy`, which delegates to it.
+  - Fixed the same loop in the string anchor search strategy: empty anchors (`searchStrategyFactory("")`, `["", ""]`) are now rejected at construction
+     - Also covers `BalancedPairSearchStrategy`, which delegates to it
 - Ensured Dependabot can raise PRs without being blocked by CI
 
 ### Changed

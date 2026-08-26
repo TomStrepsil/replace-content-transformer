@@ -91,18 +91,21 @@ The key optimization over blind buffering happens when no match is found for the
 
 ```typescript
 // When index === -1 and currentNeedleIndex === 0
-const remainder = haystack.slice(position);
+const unreportedLength = length - position;
 for (
-  let partialLength = currentNeedle.length - 1;
+  let partialLength = Math.min(currentNeedle.length - 1, unreportedLength);
   partialLength >= 1;
   partialLength--
 ) {
-  const haystackSuffix = remainder.slice(-partialLength);
+  const haystackSuffix = haystack.slice(-partialLength);
   const needlePrefix = currentNeedle.slice(0, partialLength);
   if (haystackSuffix === needlePrefix) {
-    // Found partial match - buffer it
-    yield { isMatch: false, content: remainder.slice(0, -partialLength) };
-    state.buffer = haystackSuffix;
+    // Found partial match - report what precedes it, leave the cursor on it
+    const beforePartial = haystack.slice(position, -partialLength);
+    position = length - partialLength;
+    if (beforePartial) {
+      yield { isMatch: false, content: beforePartial };
+    }
     return;
   }
 }

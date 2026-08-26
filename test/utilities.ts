@@ -1,4 +1,7 @@
-import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
+import type {
+  MatchResult,
+  SearchStrategy
+} from "../src/search-strategies/types.ts";
 import type { IterableSlotNode } from "../src/engines/async-lookahead-transform-engine/slot-tree/types.ts";
 import type { Nested } from "../src/engines/async-lookahead-transform-engine/nested.ts";
 import type {
@@ -156,13 +159,17 @@ function createIterableSlotNode(
   };
 }
 
-/** 
- * Build an `AsyncIterable<string>` that yields the given chunks in order. 
- * 
+/**
+ * Build an `AsyncIterable<string>` that yields the given chunks in order.
+ *
  * (Awaiting AsyncIterator.from(chunks) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
  */
 function asyncIterable(...chunks: string[]): AsyncIterable<string> {
-  return { [Symbol.asyncIterator]: async function* () { yield* chunks; } };
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      yield* chunks;
+    }
+  };
 }
 
 /** Thin wrapper over {@link Promise.withResolvers} for test expressiveness. */
@@ -175,7 +182,9 @@ async function settleMicrotasks(times = 2): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
-function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMatch>[]): Mocked<SearchStrategy<object, TMatch>> {
+function mockSearchStrategyFactory<TMatch = string>(
+  ...results: MatchResult<TMatch>[]
+): Mocked<SearchStrategy<object, TMatch>> {
   return {
     createState: vi.fn().mockReturnValue({}),
     processChunk: vi.fn().mockImplementation(function* () {
@@ -205,7 +214,7 @@ function collectSearchStrategyResults<TState, TMatch = string>(
   strategy: SearchStrategy<TState, TMatch>,
   chunks: string[],
   maxResults = 10_000
-): { results: MatchResult<TMatch>[]; flush: string } {
+): { results: MatchResult<TMatch>[]; flush: string; output: string } {
   const state = strategy.createState();
   const results: MatchResult<TMatch>[] = [];
   for (const chunk of chunks) {
@@ -219,7 +228,13 @@ function collectSearchStrategyResults<TState, TMatch = string>(
     }
   }
   const flush = strategy.flush(state);
-  return { results, flush };
+  const output =
+    results
+      .map((result) =>
+        result.isMatch ? strategy.matchToString(result.content) : result.content
+      )
+      .join("") + flush;
+  return { results, flush, output };
 }
 
 function collectEngineSink(): {
@@ -261,7 +276,9 @@ function mockSyncEngine() {
 function mockAsyncEngine() {
   return {
     start: vi.fn<(sink: EngineSink) => void>(),
-    write: vi.fn<(chunk: string) => Promise<void>>().mockResolvedValue(undefined),
+    write: vi
+      .fn<(chunk: string) => Promise<void>>()
+      .mockResolvedValue(undefined),
     end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     cancel: vi.fn<() => void>()
   } satisfies AsyncTransformEngine & { cancel: () => void };
