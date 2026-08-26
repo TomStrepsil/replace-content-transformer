@@ -8,6 +8,17 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   currentNeedleIndex: number;
 };
 
+const partialMatchLength = (haystack: string, needle: string): number => {
+  let partialLength = needle.length - 1;
+  while (
+    partialLength >= 1 &&
+    !haystack.endsWith(needle.slice(0, partialLength))
+  ) {
+    partialLength--;
+  }
+  return partialLength;
+};
+
 const validateNeedles = (needles: string[]): void => {
   if (needles.length === 0) {
     throw new Error("at least one anchor is required");
@@ -68,38 +79,22 @@ export class LoopedIndexOfAnchoredSearchStrategy
     let matchStartPosition = 0;
     try {
       while (position < length) {
+        const searchingFirstNeedle = state.currentNeedleIndex === 0;
         const currentNeedle = this.needles[state.currentNeedleIndex];
         const index = haystack.indexOf(currentNeedle, position);
-        if (index === -1) {
-          if (state.currentNeedleIndex === 0) {
-            for (
-              let partialLength = currentNeedle.length - 1;
-              partialLength >= 1;
-              partialLength--
-            ) {
-              const haystackSuffix = haystack.slice(-partialLength);
-              const needlePrefix = currentNeedle.slice(0, partialLength);
-              if (haystackSuffix === needlePrefix) {
-                const beforePartial = haystack.slice(position, -partialLength);
-                position = length - partialLength;
-                if (beforePartial) {
-                  yield {
-                    isMatch: false,
-                    content: beforePartial
-                  };
-                }
-                return;
-              }
-            }
 
-            const nonMatch = haystack.slice(position);
-            position = length;
-            yield { isMatch: false, content: nonMatch };
+        if (index === -1) {
+          if (searchingFirstNeedle) {
+            const resumeAt =
+              length - partialMatchLength(haystack, currentNeedle);
+            const nonMatch = haystack.slice(position, resumeAt);
+            position = resumeAt;
+            if (nonMatch) yield { isMatch: false, content: nonMatch };
           }
           return;
         }
 
-        if (state.currentNeedleIndex === 0) {
+        if (searchingFirstNeedle) {
           if (index > position) {
             const nonMatch = haystack.slice(position, index);
             position = index;
@@ -112,13 +107,13 @@ export class LoopedIndexOfAnchoredSearchStrategy
         state.currentNeedleIndex =
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
-          const content = haystack.slice(matchStartPosition, position);
-          const startIndex = baseOffset + matchStartPosition;
-          const endIndex = baseOffset + position;
           yield {
             isMatch: true,
-            content,
-            streamIndices: [startIndex, endIndex]
+            content: haystack.slice(matchStartPosition, position),
+            streamIndices: [
+              baseOffset + matchStartPosition,
+              baseOffset + position
+            ]
           };
         }
       }

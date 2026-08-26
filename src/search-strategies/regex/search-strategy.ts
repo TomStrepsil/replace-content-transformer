@@ -13,6 +13,19 @@ function updateIndices(indices: RegExpIndicesArray, offset: number) {
   }
 }
 
+function toMatchResult(
+  match: RegExpExecArray,
+  startIndex: number
+): MatchResult<RegExpExecArray> {
+  const indices = match.indices;
+  if (indices) updateIndices(indices, startIndex - match.index);
+  return {
+    isMatch: true,
+    content: match,
+    streamIndices: [startIndex, startIndex + match[0].length]
+  };
+}
+
 /**
  * A search strategy for finding patterns using regular expressions.
  *
@@ -64,23 +77,25 @@ export class RegexSearchStrategy
       while (position < length) {
         const remainingHaystack = haystack.substring(position);
         const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
-
-        if (partialMatch === null) {
-          state.buffer = "";
-          position = length;
-          yield { isMatch: false, content: remainingHaystack };
-          return;
-        }
-
-        const matchLength = partialMatch[0].length;
+        const matchLength = partialMatch === null ? 0 : partialMatch[0].length;
         const endsAtEndOfHaystack =
+          partialMatch !== null &&
           partialMatch.index + matchLength === remainingHaystack.length;
 
-        const nothingHereCanEverMatch = matchLength === 0 && endsAtEndOfHaystack;
-        if (nothingHereCanEverMatch) {
-          state.buffer = "";
+        const chunkIsSpent = partialMatch === null || endsAtEndOfHaystack;
+        if (chunkIsSpent) {
+          const couldStillBeGrowing = partialMatch !== null && matchLength > 0;
+          const bufferFrom = couldStillBeGrowing
+            ? partialMatch.index
+            : remainingHaystack.length;
           position = length;
-          yield { isMatch: false, content: remainingHaystack };
+          state.buffer = remainingHaystack.slice(bufferFrom);
+          if (bufferFrom > 0) {
+            yield {
+              isMatch: false,
+              content: remainingHaystack.slice(0, bufferFrom)
+            };
+          }
           return;
         }
 
@@ -100,19 +115,6 @@ export class RegexSearchStrategy
           continue;
         }
 
-        const couldStillBeGrowing = endsAtEndOfHaystack;
-        if (couldStillBeGrowing) {
-          position = length;
-          state.buffer = remainingHaystack.slice(partialMatch.index);
-          if (partialMatch.index > 0) {
-            yield {
-              isMatch: false,
-              content: remainingHaystack.slice(0, partialMatch.index)
-            };
-          }
-          return;
-        }
-
         const settledMatch = partialMatch;
         state.buffer = "";
         if (settledMatch.index) {
@@ -123,20 +125,9 @@ export class RegexSearchStrategy
         }
 
         const startIndex = baseOffset + position;
-        const endIndex = startIndex + matchLength;
         position += matchLength;
 
-        if (settledMatch.indices) {
-          const indices = settledMatch.indices;
-          const offset = startIndex - settledMatch.index;
-          updateIndices(indices, offset);
-        }
-
-        yield {
-          isMatch: true,
-          content: settledMatch,
-          streamIndices: [startIndex, endIndex]
-        };
+        yield toMatchResult(settledMatch, startIndex);
       }
     } finally {
       if (position < length) {
@@ -164,21 +155,10 @@ export class RegexSearchStrategy
         yield { isMatch: false, content: remaining.slice(0, finalMatch.index) };
       }
 
-      const startIndex = baseOffset + position + finalMatch.index;
-      const endIndex = startIndex + finalMatch[0].length;
+      const matchStart = position + finalMatch.index;
+      position = matchStart + finalMatch[0].length;
 
-      if (finalMatch.indices) {
-        const indices = finalMatch.indices;
-        const offset = startIndex - finalMatch.index;
-        updateIndices(indices, offset);
-      }
-
-      yield {
-        isMatch: true,
-        content: finalMatch,
-        streamIndices: [startIndex, endIndex]
-      };
-      position += finalMatch.index + finalMatch[0].length;
+      yield toMatchResult(finalMatch, baseOffset + matchStart);
     }
 
     if (position < buffer.length) {
