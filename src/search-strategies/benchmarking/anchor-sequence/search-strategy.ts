@@ -163,6 +163,10 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
     const remainder = state.buffer + carried;
     state.buffer = "";
     state.streamOffset = 0;
+    state.currentNeedleIndex = 0;
+    state.strategyStates = this.subStrategies.map((subStrategy) =>
+      subStrategy.createState()
+    );
     if (remainder) yield { isMatch: false, content: remainder };
   }
 }

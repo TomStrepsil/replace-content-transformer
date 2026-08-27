@@ -379,6 +379,69 @@ describe("AnchorSequenceSearchStrategy", () => {
     });
   });
 
+  describe("reusing state after flush", () => {
+    // `flush` is documented as re-setting the state for re-use, which the other
+    // strategies honour: `LoopedIndexOfAnchoredSearchStrategy` resets its needle
+    // index, `BalancedPairSearchStrategy` its nesting level. A sequence left
+    // mid-way through its anchors has the same obligation — otherwise the next
+    // stream opens looking for a closing anchor it never saw opened.
+    const sequence = () =>
+      new AnchorSequenceSearchStrategy(
+        ["{{", "}}"].map(
+          (delimiter) => new IndexOfKnuthMorrisPrattSearchStrategy(delimiter)
+        )
+      );
+
+    test("starts the next stream at the first anchor after ending mid-sequence", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      expect([...strategy.processChunk("Start {{incomplete", state)]).toEqual([
+        { isMatch: false, content: "Start " }
+      ]);
+      expect(flushToString(strategy, state)).toBe("{{incomplete");
+
+      expect([...strategy.processChunk("Hello {{name}} world", state)]).toEqual([
+        { isMatch: false, content: "Hello " },
+        { isMatch: true, content: "{{name}}", streamIndices: [6, 14] },
+        { isMatch: false, content: " world" }
+      ]);
+    });
+
+    test("leaves state equivalent to a freshly created one", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk("Start {{incomplete", state),
+        ...strategy.flush(state)
+      ];
+
+      expect(emitted).toEqual([
+        { isMatch: false, content: "Start " },
+        { isMatch: false, content: "{{incomplete" }
+      ]);
+      expect(state).toEqual(strategy.createState());
+    });
+
+    test("leaves state equivalent to a freshly created one after a complete match", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk("Hello {{name}} world", state),
+        ...strategy.flush(state)
+      ];
+
+      expect(emitted).toEqual([
+        { isMatch: false, content: "Hello " },
+        { isMatch: true, content: "{{name}}", streamIndices: [6, 14] },
+        { isMatch: false, content: " world" }
+      ]);
+      expect(state).toEqual(strategy.createState());
+    });
+  });
+
   describe("settling a sub-strategy at end of stream", () => {
     // A sub-strategy that defers can be holding a real match when the stream
     // ends, and settling it may leave a tail that belongs to the next anchor.
