@@ -1145,7 +1145,7 @@ describe("RegexSearchStrategy", () => {
   });
 
   describe("chunk-boundary independence", () => {
-    const invariantCases = [
+    const cases = [
       {
         name: "literal token",
         pattern: /PLACEHOLDER/,
@@ -1207,7 +1207,6 @@ describe("RegexSearchStrategy", () => {
         name: "shortest branch matching inside the longer branch",
         pattern: /abc|b/,
         haystack: "abc",
-        previouslyBrokeAt: [["ab", "c"]],
         expected: [{ isMatch: true, text: "abc" }]
       },
       {
@@ -1227,14 +1226,12 @@ describe("RegexSearchStrategy", () => {
         name: "quantified group whose tail is also the pattern's terminator",
         pattern: /(ab)*b/,
         haystack: "abb",
-        previouslyBrokeAt: [["ab", "b"]],
         expected: [{ isMatch: true, text: "abb" }]
       },
       {
         name: "template token whose own closing delimiter is a rival branch",
         pattern: /\{\{[^{}]*\}\}|\}/,
         haystack: "a {{b}} c }",
-        previouslyBrokeAt: [["a {{b}", "} c }"]],
         expected: [
           { isMatch: false, text: "a " },
           { isMatch: true, text: "{{b}}" },
@@ -1256,7 +1253,6 @@ describe("RegexSearchStrategy", () => {
         name: "alternation branch matching inside a longer branch",
         pattern: /foo.?bar|o/,
         haystack: "x fooXbar y o z",
-        previouslyBrokeAt: [["x fo", "oXbar y o z"]],
         expected: [
           { isMatch: false, text: "x " },
           { isMatch: true, text: "fooXbar" },
@@ -1269,7 +1265,6 @@ describe("RegexSearchStrategy", () => {
         name: "quoted string containing the rival alternation branch",
         pattern: /"[^"]*"|\}/,
         haystack: `a "b}c" d } e`,
-        previouslyBrokeAt: [[`a "b}`, `c" d } e`]],
         expected: [
           { isMatch: false, text: "a " },
           { isMatch: true, text: `"b}c"` },
@@ -1296,17 +1291,11 @@ describe("RegexSearchStrategy", () => {
           { isMatch: true, text: "<esi:include>body</esi:include>" },
           { isMatch: false, text: " tail" }
         ]
-      }
-    ];
-
-    // Previously split-dependent, and fixed by deferring while anything
-    // starting here is still growing. Each was verified failing before the fix.
-    const promotedCases = [
+      },
       {
         name: "eager quantifier satisfied at the boundary",
         pattern: /[A-Z]+/,
         haystack: "please MATCH this",
-        previouslyBrokeAt: [["please MAT", "CH this"]],
         expected: [
           { isMatch: false, text: "please " },
           { isMatch: true, text: "MATCH" },
@@ -1317,18 +1306,15 @@ describe("RegexSearchStrategy", () => {
         name: "trailing unbounded quantifier truncated by the boundary",
         pattern: /foo.+/,
         haystack: "foo bar",
-        previouslyBrokeAt: [["foo ", "bar"]],
         expected: [{ isMatch: true, text: "foo bar" }]
       },
       {
-        // Hazard 3: both candidates start at the same index and the accepted
-        // match ended well short of the chunk edge, so comparing start
-        // positions could never have caught this — only the partial match
-        // reaching end-of-haystack reveals that `2024-` was still viable.
+        // Both branches start at the same index and the shorter one ends well
+        // short of the chunk edge; only a partial match reaching
+        // end-of-haystack reveals that `2024-` is still viable.
         name: "higher-priority alternation branch still viable past the accepted match",
         pattern: /\d{4}-\d{2}|\d{4}/,
         haystack: "born 2024-06 ok",
-        previouslyBrokeAt: [["born 2024-", "06 ok"]],
         expected: [
           { isMatch: false, text: "born " },
           { isMatch: true, text: "2024-06" },
@@ -1339,7 +1325,6 @@ describe("RegexSearchStrategy", () => {
         name: "one branch anchored by a literal, the other eagerly quantified",
         pattern: /a\d+z|\d+/,
         haystack: "x a12z y 34 z",
-        previouslyBrokeAt: [["x a12z y 3", "4 z"]],
         expected: [
           { isMatch: false, text: "x " },
           { isMatch: true, text: "a12z" },
@@ -1349,12 +1334,11 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        // Ending in a literal was never sufficient: `\w?` can consume the same
-        // `b` that terminates the pattern.
+        // `\w?` can consume the very `b` that terminates the pattern, so
+        // ending in a literal does not pin down where the match ends.
         name: "optional atom able to consume the pattern's own terminator",
         pattern: /x?\w?b/,
         haystack: "<}bba<x<",
-        previouslyBrokeAt: [["<}b", "ba<x<"]],
         expected: [
           { isMatch: false, text: "<}" },
           { isMatch: true, text: "bb" },
@@ -1363,53 +1347,39 @@ describe("RegexSearchStrategy", () => {
       }
     ];
 
-    [...invariantCases, ...promotedCases].forEach(
-      ({ name, pattern, haystack, expected, previouslyBrokeAt }) => {
-        describe(name, () => {
-          it("matches the non-streaming result when unsplit", () => {
+    cases.forEach(({ name, pattern, haystack, expected }) => {
+      describe(name, () => {
+        it("matches the non-streaming result when unsplit", () => {
+          const { segments, output } = collectCanonicalSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            [haystack]
+          );
+          expect(segments).toEqual(expected);
+          expect(output).toBe(haystack);
+        });
+
+        it("matches it at every two-way, three-way and per-character split", () => {
+          const splits = [
+            ...everyTwoWaySplit(haystack),
+            ...everyThreeWaySplit(haystack),
+            characterBySplit(haystack)
+          ];
+
+          for (const chunks of splits) {
             const { segments, output } = collectCanonicalSearchStrategyResults(
               new RegexSearchStrategy(pattern),
-              [haystack]
+              chunks
             );
-            expect(segments).toEqual(expected);
-            expect(output).toBe(haystack);
-          });
-
-          previouslyBrokeAt?.forEach((chunks) => {
-            it(`matches it when split as ${JSON.stringify(chunks)}`, () => {
-              const { segments, output } = collectCanonicalSearchStrategyResults(
-                new RegexSearchStrategy(pattern),
-                chunks
-              );
-              expect(segments).toEqual(expected);
-              expect(output).toBe(haystack);
+            // Compared as one object so a failure reports the offending split.
+            expect({ chunks, segments, output }).toEqual({
+              chunks,
+              segments: expected,
+              output: haystack
             });
-          });
-
-          it("matches it at every two-way, three-way and per-character split", () => {
-            const splits = [
-              ...everyTwoWaySplit(haystack),
-              ...everyThreeWaySplit(haystack),
-              characterBySplit(haystack)
-            ];
-
-            for (const chunks of splits) {
-              const { segments, output } =
-                collectCanonicalSearchStrategyResults(
-                  new RegexSearchStrategy(pattern),
-                  chunks
-                );
-              // Compared as one object so a failure reports the offending split.
-              expect({ chunks, segments, output }).toEqual({
-                chunks,
-                segments: expected,
-                output: haystack
-              });
-            }
-          });
+          }
         });
-      }
-    );
+      });
+    });
 
     describe("which regex drives the scan", () => {
       function countExecs(
