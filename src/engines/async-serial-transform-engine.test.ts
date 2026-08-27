@@ -274,9 +274,6 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(strategy.processChunk).not.toHaveBeenCalled();
     });
 
-    // Cancelling part-way through a chunk's results has to stop the engine
-    // between results too, not only before the first one — each of these
-    // covers a different point at which control returns to the emit loop.
     it("stops before the next result when cancel() lands while draining", async () => {
       const strategy = mockSearchStrategyFactory<string>(
         { isMatch: false, content: "first" },

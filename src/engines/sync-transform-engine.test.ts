@@ -256,9 +256,6 @@ describe("SyncTransformEngine", () => {
   });
 
   describe("settling a deferred match after abort", () => {
-    // Deferral means the strategy can be holding a real match when the signal
-    // fires. It must still reach the sink, as its original text rather than a
-    // replacement, or aborting would silently delete content.
     function flushYielding(
       ...results: MatchResult<string>[]
     ): () => Generator<MatchResult<string>, void, undefined> {
