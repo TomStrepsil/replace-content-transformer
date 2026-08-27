@@ -67,8 +67,7 @@ export class RegexSearchStrategy
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
-    const usesLookahead = partialMatchRegex.features.has("lookahead");
-    this.lookaheadConfirmationRegex = usesLookahead
+    this.lookaheadConfirmationRegex = partialMatchRegex.features.has("lookahead")
       ? new RegExp(needle.source, needle.flags + "y")
       : null;
   }
