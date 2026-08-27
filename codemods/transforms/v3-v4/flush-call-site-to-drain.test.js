@@ -108,4 +108,46 @@ describe("flush-call-site-to-drain codemod", () => {
     expect(output).toBeNull();
     expect(reports[0]).toContain("flows somewhere this codemod will not rewrite");
   });
+  it("leaves a flush() that is not a search strategy's alone", () => {
+    const reports = [];
+    const output = runTransform(
+      [
+        "const tail = writer.flush();",
+        "if (tail) out(tail);",
+        ""
+      ].join("\n"),
+      reports
+    );
+
+    expect(output).toBeNull();
+    expect(reports.join("\n")).toContain("not identifiably a SearchStrategy");
+  });
+
+  it("does not absorb a following statement that ignores the tail", () => {
+    const output = runTransform(
+      [
+        "const tail = strategy.flush(state);",
+        "logOnce();",
+        "if (tail) enqueue(tail);",
+        ""
+      ].join("\n")
+    );
+
+    expect(output).toBeNull();
+  });
+
+  it("does not shadow a binding the consumed statements rely on", () => {
+    const output = runTransform(
+      [
+        "const result = prefix;",
+        "const tail = strategy.flush(state);",
+        "if (tail) enqueue(result + tail);",
+        ""
+      ].join("\n")
+    );
+
+    expect(output).toContain("const result = prefix;");
+    expect(output).toMatch(/for \(const (result\d+|[a-z]+Result) of/);
+    expect(output).toContain("enqueue(result + tail)");
+  });
 });

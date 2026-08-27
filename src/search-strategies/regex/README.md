@@ -365,14 +365,16 @@ Problem: an unbounded quantifier has no reason to stop at a chunk edge. While a 
 
 The cost is decided by whether the pattern can _settle_:
 
-| Pattern                                 | Peak buffer over 20 chunks |
-| --------------------------------------- | -------------------------- |
-| `/\{\{[^{}]*\}\}/` over templating text | 0                          |
-| `/\{\{[^{}]*\}\}/` over prose           | 0                          |
-| `/foo.+/`                               | the rest of the stream     |
-| `/\S+/` over unbroken text              | the whole stream           |
+| Pattern                                 | Peak buffer                            |
+| --------------------------------------- | -------------------------------------- |
+| `/\{\{[^{}]*\}\}/` over templating text | one pending match (8 chars measured)   |
+| `/\{\{[^{}]*\}\}/` over prose           | one pending delimiter prefix           |
+| `/foo.+/`                               | the rest of the stream                 |
+| `/\S+/` over unbroken text              | the whole stream                       |
 
-`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream. There is no way around that in a streaming scan — nothing but the next chunk can say whether the run continues — and re-scanning a growing buffer each chunk costs time as well as memory (measured ~3.4× on that shape).
+A terminator the body cannot consume **bounds** the buffer; it does not empty it. A match still in progress when a chunk ends is held until the next chunk completes it, so the peak is the length of the longest pending match rather than zero — 8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md). What matters is that the bound does not grow with the stream.
+
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream. There is no way around that in a streaming scan — nothing but the next chunk can say whether the run continues. Re-scanning a growing buffer each chunk costs time as well as memory, and because the whole buffer is re-scanned from position 0 every chunk that cost is **quadratic** in stream length rather than a constant factor: measured 23 µs at 1.5 KB, 323 µs at 6 KB and 4.99 ms at 24 KB, roughly 4× per doubling.
 
 > [!TIP]
 > Give the pattern a terminator its own body cannot consume:
@@ -419,7 +421,7 @@ Output stays lossless — skipped positions are passed through as ordinary non-m
 > /(?!z)/; //         never matches
 > ```
 
-Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point — so a surrogate pair is never split by the skip. Output remains lossless either way.
+Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point, so the skip can split a surrogate pair across two non-match segments. Output remains lossless — the pieces reassemble exactly — and no match is affected, since a skipped position yields text rather than a match. Deferral is what rejoins a pair that lands on a chunk edge; this path is the one place the cursor moves without consulting it.
 
 Skipping is not the whole story for a nullable pattern: where a partial match _is_ possible at that position, the strategy buffers instead, so the same buffering limits described under [Unbounded Quantifiers](#️-unbounded-quantifiers) above still apply. `/(a*b)?/` buffers exactly as `/a*b/` does.
 A skipped zero-length match is the one place the cursor still advances on chunk-relative grounds, so the [Deferred Match](#deferred-match) rule does not apply to it. Where a partial match _is_ viable at that position the strategy defers instead, so nullable patterns buffer exactly as their non-nullable equivalents do.

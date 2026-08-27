@@ -75,9 +75,18 @@ Behaviour-preserving by construction: the same bytes come out, and the *opportun
 
 Reported as skipped paths rather than transformed, so nothing is silently mangled:
 
+- **anything not identifiably a `SearchStrategy`.** `flush(): string` is an ordinary name on cache, logger, stream and database APIs, and neither codemod will touch one. An implementation qualifies by its class `implements SearchStrategy<…>` or `extends …StrategyBase<…>`; a call site qualifies by its receiver being named for a strategy (`strategy`, `this.searchStrategy`). A strategy that satisfies the interface structurally, without saying so, is reported rather than rewritten
 - `flush` implementations that compose the result from several sources (`return flushed + this.inner.flush(state)`), or whose return type is not `string`
 - call sites where the result flows somewhere structural: returned, awaited, concatenated, stored on a field, or passed straight as an argument
+- call sites where the tail is not read by the statements immediately following, or is read again after an unrelated one — moving a statement into the drain loop would run it once per result
 - dynamic dispatch (`strategy[name](state)`)
 - type-only declarations of the interface (`flush: (state: S) => string`), since the correct replacement type depends on your `TMatch`
 
 Each skip prints a file and line to migrate by hand.
+
+## What they get right that is easy to get wrong
+
+- **The match type is taken from your class, not assumed.** `implements SearchStrategy<State, RegExpExecArray>` produces `Generator<MatchResult<RegExpExecArray>, void, undefined>`, not `MatchResult<string>`. Where the rewritten signature needs a `MatchResult` import you do not already have, that is reported.
+- **A `return` that was not in tail position still ends the generator.** `if (cached) return cached; return state.buffer;` becomes a `yield` followed by `return;`, rather than a generator that yields both.
+- **`return`s inside nested callbacks are left alone.** Only the `flush` method's own returns are rewritten; a `return` inside a `map` or `forEach` argument belongs to that function.
+- **The drain loop variable cannot shadow.** Where `result` is already bound in scope, the loop uses `result2`, and so on.

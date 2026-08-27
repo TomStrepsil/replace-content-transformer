@@ -27,8 +27,34 @@
  */
 
 const FLUSH = "flush";
+const STRATEGY_RECEIVER = /strategy/i;
 const TODO =
   " TODO(v4): flush() now yields matches; apply your replacement here if wanted.";
+
+/**
+ * `flush()` is an ordinary name on cache, logger, stream and database APIs that
+ * this change does not touch, so the receiver has to look like a search strategy
+ * before its call site is rewritten. Anything else is reported for a human.
+ */
+function looksLikeStrategy(receiver) {
+  if (receiver?.type === "Identifier") {
+    return STRATEGY_RECEIVER.test(receiver.name);
+  }
+  if (receiver?.type === "MemberExpression") {
+    return STRATEGY_RECEIVER.test(receiver.property?.name ?? "");
+  }
+  return false;
+}
+
+/** A loop variable that cannot shadow anything the moved statements read. */
+function unusedName(base, root, j) {
+  const taken = new Set();
+  root.find(j.Identifier).forEach((path) => taken.add(path.node.name));
+  if (!taken.has(base)) return base;
+  let suffix = 2;
+  while (taken.has(`${base}${suffix}`)) suffix++;
+  return `${base}${suffix}`;
+}
 
 function isFlushCall(node) {
   return (
@@ -56,6 +82,14 @@ export default function transform(fileInfo, api) {
         parent.type === "VariableDeclarator" &&
         parent.id.type === "Identifier" &&
         path.parent.parent.node.type === "VariableDeclaration";
+
+      if (!looksLikeStrategy(path.node.callee.object)) {
+        if (parent.type === "ForOfStatement") return;
+        skipped.push(
+          `${fileInfo.path}:${path.node.loc?.start.line ?? "?"}: flush() is called on something that is not identifiably a SearchStrategy; migrate it by hand if it is one`
+        );
+        return;
+      }
 
       if (!isSimpleDeclaration) {
         if (parent.type === "ForOfStatement") return;
@@ -85,16 +119,34 @@ export default function transform(fileInfo, api) {
       const usesTail = (statement) =>
         j(statement).find(j.Identifier, { name: tailName }).size() > 0;
 
+      // Only statements that actually read the tail belong inside the loop.
+      // Anything else would start running once per yielded result.
       const consumed = [];
       for (const statement of following) {
+        if (!usesTail(statement)) break;
         consumed.push(statement);
-        const next = following[consumed.length];
-        if (!next || !usesTail(next)) break;
       }
+
+      if (consumed.length === 0) {
+        skipped.push(
+          `${fileInfo.path}:${path.node.loc?.start.line ?? "?"}: flush() result is not read by the statement that follows it; migrate it by hand`
+        );
+        return;
+      }
+
+      const strays = following.slice(consumed.length).filter(usesTail);
+      if (strays.length > 0) {
+        skipped.push(
+          `${fileInfo.path}:${path.node.loc?.start.line ?? "?"}: flush() result is read again after an unrelated statement; migrate it by hand`
+        );
+        return;
+      }
+
+      const resultName = unusedName("result", root, j);
 
       const loop = j.forOfStatement(
         j.variableDeclaration("const", [
-          j.variableDeclarator(j.identifier("result"), null)
+          j.variableDeclarator(j.identifier(resultName), null)
         ]),
         path.node,
         j.blockStatement([
@@ -103,20 +155,20 @@ export default function transform(fileInfo, api) {
               j.identifier(tailName),
               j.conditionalExpression(
                 j.memberExpression(
-                  j.identifier("result"),
+                  j.identifier(resultName),
                   j.identifier("isMatch")
                 ),
                 j.callExpression(
                   j.memberExpression(receiver, j.identifier("matchToString")),
                   [
                     j.memberExpression(
-                      j.identifier("result"),
+                      j.identifier(resultName),
                       j.identifier("content")
                     )
                   ]
                 ),
                 j.memberExpression(
-                  j.identifier("result"),
+                  j.identifier(resultName),
                   j.identifier("content")
                 )
               )

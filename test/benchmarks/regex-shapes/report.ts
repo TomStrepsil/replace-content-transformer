@@ -7,7 +7,12 @@
 
 import { RegexSearchStrategy } from "../../../src/search-strategies/regex/search-strategy.ts";
 import { chunksOf, shapes, scalingSizes, unbrokenContent } from "./shapes.ts";
-import { drive, referenceMatchCount } from "./drive.ts";
+import {
+  drive,
+  firstDivergence,
+  referenceMatches,
+  type EmittedMatch
+} from "./drive.ts";
 
 const asJson = process.argv.includes("--json");
 
@@ -19,6 +24,7 @@ interface ShapeReport {
   flushMatches: number;
   referenceMatches: number;
   agreesWithReference: boolean;
+  divergence: ReturnType<typeof firstDivergence>;
   peakBuffer: number;
   peakBufferRatio: number;
   lossless: boolean;
@@ -27,16 +33,18 @@ interface ShapeReport {
 const reports: ShapeReport[] = shapes.map((shape) => {
   const chunks = chunksOf(shape.content, shape.chunkSize);
   const result = drive(new RegexSearchStrategy(shape.pattern), chunks);
-  const referenceMatches = referenceMatchCount(shape.pattern, shape.content);
+  const expected = referenceMatches(shape.pattern, shape.content);
+  const emitted: EmittedMatch[] = [...result.matches, ...result.flushMatches];
+  const divergence = firstDivergence(emitted, expected);
   return {
     shape: shape.name,
     boundary: shape.boundary,
     chunks: chunks.length,
-    matches: result.matches,
-    flushMatches: result.flushMatches,
-    referenceMatches,
-    agreesWithReference:
-      result.matches + result.flushMatches === referenceMatches,
+    matches: result.matches.length,
+    flushMatches: result.flushMatches.length,
+    referenceMatches: expected.length,
+    agreesWithReference: divergence === null,
+    divergence,
     peakBuffer: result.peakBuffer,
     peakBufferRatio: result.peakBuffer / shape.content.length,
     lossless: result.output === shape.content
@@ -46,7 +54,11 @@ const reports: ShapeReport[] = shapes.map((shape) => {
 const growth = scalingSizes.map((size) => {
   const content = unbrokenContent(size);
   const result = drive(new RegexSearchStrategy(/\S+/), chunksOf(content, 64));
-  return { size, peakBuffer: result.peakBuffer, lossless: result.output === content };
+  return {
+    size,
+    peakBuffer: result.peakBuffer,
+    lossless: result.output === content
+  };
 });
 
 if (asJson) {
@@ -66,16 +78,28 @@ if (asJson) {
     );
   }
 
-  console.log("\nBuffer growth for a shape that never settles (/\\S+/, 64-byte chunks)\n");
+  console.log(
+    "\nBuffer growth for a shape that never settles (/\\S+/, 64-byte chunks)\n"
+  );
   console.log(`${pad("input", 8)} ${pad("peak buffer", 12)}`);
   for (const row of growth) {
     console.log(`${pad(row.size, 8)} ${pad(row.peakBuffer, 12)}`);
   }
 
   const wrong = reports.filter((r) => !r.agreesWithReference || !r.lossless);
-  console.log(
-    wrong.length === 0
-      ? "\n✅ every shape agrees with the non-streaming reference, and output is lossless\n"
-      : `\n⚠️  ${wrong.length} shape(s) disagree with the non-streaming reference\n`
-  );
+  if (wrong.length === 0) {
+    console.log(
+      "\n✅ every shape matches the non-streaming reference match for match, in text and stream offsets, and output is lossless\n"
+    );
+  } else {
+    console.log("");
+    for (const report of wrong) {
+      const { divergence } = report;
+      const detail = divergence
+        ? `match ${divergence.at}: emitted ${JSON.stringify(divergence.streamed)} vs reference ${JSON.stringify(divergence.reference)}`
+        : "output is not lossless";
+      console.log(`⚠️  ${report.shape}\n    ${detail}`);
+    }
+    console.log("");
+  }
 }
