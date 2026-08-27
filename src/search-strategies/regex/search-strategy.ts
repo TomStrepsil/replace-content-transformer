@@ -13,6 +13,16 @@ function updateIndices(indices: RegExpIndicesArray, offset: number) {
   }
 }
 
+function sameCaptures(
+  candidate: RegExpExecArray,
+  confirmed: RegExpExecArray
+): boolean {
+  return (
+    candidate.length === confirmed.length &&
+    candidate.every((capture, group) => capture === confirmed[group])
+  );
+}
+
 function nonMatch(content: string): MatchResult<RegExpExecArray> {
   return { isMatch: false, content };
 }
@@ -90,7 +100,8 @@ export class RegexSearchStrategy
 
     confirmation.lastIndex = candidate.index;
     const completeMatch = confirmation.exec(haystack);
-    return completeMatch?.[0].length === matchLength ? candidate : null;
+    if (completeMatch === null) return null;
+    return sameCaptures(candidate, completeMatch) ? completeMatch : null;
   }
 
   *processChunk(

@@ -76,7 +76,19 @@ partialMatchRegex.exec() → "a" at position 0, ending at 1 of 2
 └──────────────────────────────────────────────┘
 ```
 
-By the rule above that candidate is settled — yet `/a(?=bc)/` does not match `"ab"` at all. So where the pattern uses a lookahead, a settled candidate is confirmed before it is emitted: the original pattern, anchored at the candidate's index, has to match there with the same extent. Where it does not, the candidate is treated as still growing, and buffered from its own index exactly like a partial that reached the edge.
+By the rule above that candidate is settled — yet `/a(?=bc)/` does not match `"ab"` at all. So where the pattern uses a lookahead, a settled candidate is confirmed before it is emitted: the original pattern, anchored at the candidate's index, has to match there and produce **the same match** — the same extent *and* the same captures. Where it does not, the candidate is treated as still growing, and buffered from its own index exactly like a partial that reached the edge. What is emitted is the confirmation's own match object, so `groups` and `d`-flag indices are the ones a non-streaming `exec` would hand back.
+
+Comparing the extent alone is not enough, because a truncated lookahead can decide which *branch* of an alternation wins without moving where the match ends:
+
+```
+Pattern: /a(?=bc)|(a)/
+Chunk:   "ab"
+
+partial       → "a" via branch 1, the lookahead truncated at the edge; capture 1 undefined
+confirmation  → "a" via branch 2, since `bc` never arrives;              capture 1 = "a"
+```
+
+Both are one character long, so an extent-only check would pass the *partial's* match through and a replacement would see `undefined` where `exec` gives `"a"`. Since the branch that wins is exactly what the missing content decides, the candidate is not settled at all: it is buffered, and re-decided when the next chunk arrives or `flush` settles it against the original pattern.
 
 ```
 Pattern: /a(?=bc)/

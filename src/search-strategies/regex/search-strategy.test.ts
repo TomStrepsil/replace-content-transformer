@@ -74,6 +74,30 @@ function expectSameMatchesAtEverySplit(
   }
 }
 
+function nativeMatchCapturesOf(pattern: RegExp, haystack: string) {
+  const global = new RegExp(pattern.source, `${pattern.flags}g`);
+  return [...haystack.matchAll(global)]
+    .filter((match) => match[0].length > 0)
+    .map((match) => [...match]);
+}
+
+function streamedMatchCapturesOf(pattern: RegExp, chunks: string[]) {
+  return matchDetailsOf(pattern, chunks).map((detail) => detail.captures);
+}
+
+function expectNativeCapturesAtEverySplit(
+  pattern: RegExp,
+  haystack: string
+): void {
+  const expected = nativeMatchCapturesOf(pattern, haystack);
+
+  for (const chunks of [[haystack], ...everySplitOf(haystack)]) {
+    expect({ chunks, captures: streamedMatchCapturesOf(pattern, chunks) }).toEqual(
+      { chunks, captures: expected }
+    );
+  }
+}
+
 function describeChunkInvariantCases(
   cases: {
     name: string;
@@ -95,6 +119,10 @@ function describeChunkInvariantCases(
 
       it("matches it at every two-way, three-way and per-character split", () => {
         expectSameMatchesAtEverySplit(pattern, haystack, expected);
+      });
+
+      it("reports the captures a non-streaming exec would, at every split", () => {
+        expectNativeCapturesAtEverySplit(pattern, haystack);
       });
     });
   });
@@ -944,6 +972,62 @@ describe("RegexSearchStrategy", () => {
     ]);
   });
 
+  describe("captures under a lookahead the partial regex can satisfy by truncation", () => {
+    // The partial regex may take an alternation branch the original would not,
+    // because a truncated lookahead is satisfied by end-of-haystack. The branch
+    // is zero-width, so the candidate ends short of the haystack and looks
+    // settled; confirming only its extent would let that branch's captures
+    // through, and a replacement would see capture data a non-streaming `exec`
+    // never produces.
+    describeChunkInvariantCases([
+      {
+        name: "only the losing branch captures",
+        pattern: /a(?=bc)|(a)/,
+        haystack: "ab",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "b" }
+        ]
+      },
+      {
+        name: "each branch captures into a different group",
+        pattern: /(a)(?=bc)|(a)/,
+        haystack: "ab",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "b" }
+        ]
+      },
+      {
+        name: "the lookahead is satisfied by input that does arrive",
+        pattern: /a(?=bc)|(a)/,
+        haystack: "abc",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "bc" }
+        ]
+      },
+      {
+        name: "the lookahead is ruled out by input that does arrive",
+        pattern: /a(?=bc)|(a)/,
+        haystack: "abz",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "bz" }
+        ]
+      },
+      {
+        name: "the truncated branch wins mid-stream but loses at the end",
+        pattern: /foo(?=bar)|(foo.)/,
+        haystack: "xfoob",
+        expected: [
+          { isMatch: false, text: "x" },
+          { isMatch: true, text: "foob" }
+        ]
+      }
+    ]);
+  });
+
   describe("incomplete matches requiring flush", () => {
     const testCases = [
       {
@@ -1089,6 +1173,28 @@ describe("RegexSearchStrategy", () => {
       expect(flushResults).toEqual([{ isMatch: false, content: "{{unclo" }]);
     });
 
+    it("settles a match that was deferred across a chunk boundary, onto the right stream offset", () => {
+      const pattern = /foo.?bar|o/;
+      const chunks = ["x f", "o"];
+      expect(pattern.exec(chunks.join(""))?.[0]).toBe("o");
+
+      const { results, flushResults, output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(pattern),
+        chunks
+      );
+
+      expect(results).toEqual([{ isMatch: false, content: "x " }]);
+      expect(flushResults).toMatchObject([
+        { isMatch: false, content: "f" },
+        {
+          isMatch: true,
+          content: expect.arrayContaining(["o"]),
+          streamIndices: [3, 4]
+        }
+      ]);
+      expect(output).toBe(chunks.join(""));
+    });
+
     it("yields nothing when the buffer is empty", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
@@ -1129,55 +1235,6 @@ describe("RegexSearchStrategy", () => {
       }
     });
   });
-
-  // Deferring to a still-viable longer branch has a cost at the end of the
-  // stream: no further input arrives to settle it, and buffered content is
-  // flushed verbatim — so a shorter branch that *would* have matched is emitted
-  // as literal content instead. The same trade the strategy has always made for
-  // an incomplete match at end of stream, now reachable with a complete one.
-  const endOfStreamCases = [
-    {
-      name: "shorter branch deferred to a longer one that never arrives",
-      pattern: /abc|b/,
-      chunks: ["ab"],
-      nonStreamingWouldMatch: "b",
-      expectedYields: [],
-      expectedFlush: "ab"
-    },
-    {
-      name: "deferred across a chunk boundary, stream then ends",
-      pattern: /foo.?bar|o/,
-      chunks: ["x f", "o"],
-      nonStreamingWouldMatch: "o",
-      expectedYields: [{ isMatch: false, content: "x " }],
-      expectedFlush: "fo"
-    }
-  ];
-
-  endOfStreamCases.forEach(
-    ({
-      name,
-      pattern,
-      chunks,
-      nonStreamingWouldMatch,
-      expectedYields,
-      expectedFlush
-    }) => {
-      it(`flushes a deferred match as literal content — ${name}`, () => {
-        // Establish that there really is a match to lose.
-        expect(pattern.exec(chunks.join(""))?.[0]).toBe(nonStreamingWouldMatch);
-
-        const { results, flush } = collectSearchStrategyResults(
-          new RegexSearchStrategy(pattern),
-          chunks
-        );
-
-        expect(results).toEqual(expectedYields);
-        expect(flush).toBe(expectedFlush);
-        expect(results.map(getValue).join("") + flush).toBe(chunks.join(""));
-      });
-    }
-  );
 
   describe("cancellation scenarios", () => {
     it("has no remainder when cancelling with no matches", () => {
