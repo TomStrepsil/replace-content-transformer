@@ -16,17 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed double-offset named capture group indices in the regex search strategy when using the `d` flag across chunk boundaries
 - Fixed chunking-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)). Three mechanisms — a match accepted at a position later than a viable partial began, a match ending exactly at the boundary that more input would extend, and a match ending *before* the boundary while a higher-priority alternation branch was still viable — turn out to be one question, *is anything starting here still growing?*, which the partial-match regex already answers. The scan is now driven by the partial regex alone, and the original pattern is not consulted until `flush`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
 - Surrogate pairs split across chunks now rejoin into a single match, rather than yielding one match per lone surrogate. Previously documented as a limitation
-- Fixed the string anchor search strategy reporting characters twice at a chunk boundary, and the phantom overlapping match that could follow, when an anchor has a border (a proper prefix that is also a suffix, e.g. `---`, `aba`)
-  - Also covers `BalancedPairSearchStrategy`, which delegates to it
 
 ### Added
 
 - Chunk-boundary tests driving the regex search strategy over *every* two-way, three-way and per-character split of each curated pattern, asserting a match sequence identical to the non-streaming result and lossless output. The patterns that used to be split-dependent are in that table, so the fix is verified rather than assumed
 - Tests for engine paths that had none: cancelling an async-serial replacement mid-flight (between results, from inside the replacement, and mid-iterable), and settling a deferred match when the stream is aborted
 - `codemods/transforms/v3-v4` — `flush-implementation-to-generator` and `flush-call-site-to-drain`, with fixtures and a [run order](../codemods/transforms/v3-v4/README.md)
+
+## [3.0.2] - 2026-08-27
+
+### Fixed
+
+- Fixed double-offset named capture group indices in the regex search strategy when using the `d` flag across chunk boundaries
+- Fixed the string anchor search strategy reporting characters twice at a chunk boundary, and the phantom overlapping match that could follow, when an anchor has a border (a proper prefix that is also a suffix, e.g. `---`, `aba`)
+  - Also covers `BalancedPairSearchStrategy`, which delegates to it
 
 ## [3.0.1] - 2026-08-25
 
