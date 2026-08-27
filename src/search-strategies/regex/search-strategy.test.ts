@@ -338,8 +338,6 @@ describe("RegexSearchStrategy", () => {
         name: "handles patterns with positive lookahead (inverse scenario)",
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN not here"],
-        knownChunkDependence:
-          "a lookahead still incomplete at the buffer edge is accepted, rather than re-checked, once the rest of the stream arrives",
         expected: [
           { isMatch: false, content: "Find THE COMPLEX PATTERN not here" }
         ]
@@ -667,7 +665,7 @@ describe("RegexSearchStrategy", () => {
     ];
 
     testCases.forEach(
-      ({ name, pattern, chunks, expected, knownChunkDependence }) => {
+      ({ name, pattern, chunks, expected }) => {
         const skipOnBun =
           typeof Bun !== "undefined" &&
           name.includes("complement unicodeSet character classes");
@@ -683,7 +681,7 @@ describe("RegexSearchStrategy", () => {
             expect(results).toMatchObject(expected);
           });
 
-          test.skipIf(skipOnBun || knownChunkDependence !== undefined)(
+          test.skipIf(skipOnBun)(
             "matches the same at every two-way, three-way and per-character split",
             () => {
               expectSameMatchesAtEverySplit(pattern, chunks.join(""));
@@ -886,6 +884,61 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, text: "<}" },
           { isMatch: true, text: "bb" },
           { isMatch: false, text: "a<x<" }
+        ]
+      }
+    ]);
+  });
+
+  describe("lookahead", () => {
+    describeChunkInvariantCases([
+      {
+        name: "lookahead that only the rest of the stream can rule out",
+        pattern: /a(?=bc)/,
+        haystack: "abX",
+        expected: [{ isMatch: false, text: "abX" }]
+      },
+      {
+        name: "lookahead that fails between two matches",
+        pattern: /foo(?=bar)/,
+        haystack: "foobarfoobazfoobar",
+        expected: [
+          { isMatch: true, text: "foo" },
+          { isMatch: false, text: "barfoobaz" },
+          { isMatch: true, text: "foo" },
+          { isMatch: false, text: "bar" }
+        ]
+      },
+      {
+        name: "quantifier whose extent is decided by a lookahead",
+        pattern: /a+(?=bc)/,
+        haystack: "aaabc aab aaabc",
+        expected: [
+          { isMatch: true, text: "aaa" },
+          { isMatch: false, text: "bc aab " },
+          { isMatch: true, text: "aaa" },
+          { isMatch: false, text: "bc" }
+        ]
+      },
+      {
+        name: "capture followed by a lookahead with a near-miss",
+        pattern: /(\w+)(?= END)/,
+        haystack: "alpha END beta ENDX gamma END",
+        expected: [
+          { isMatch: true, text: "alpha" },
+          { isMatch: false, text: " END " },
+          { isMatch: true, text: "beta" },
+          { isMatch: false, text: " ENDX " },
+          { isMatch: true, text: "gamma" },
+          { isMatch: false, text: " END" }
+        ]
+      },
+      {
+        name: "lookahead nested inside a lookahead",
+        pattern: /a(?=b(?=c))/,
+        haystack: "abc abd",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "bc abd" }
         ]
       }
     ]);

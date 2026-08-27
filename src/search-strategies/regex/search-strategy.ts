@@ -55,6 +55,8 @@ export class RegexSearchStrategy
 {
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: RegExp;
+  private readonly lookaheadMayBeTruncated: boolean;
+  private readonly anchoredCompleteMatchRegex: RegExp;
 
   constructor(needle: RegExp) {
     super();
@@ -62,6 +64,20 @@ export class RegexSearchStrategy
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
+    this.lookaheadMayBeTruncated = partialMatchRegex.features.has("lookahead");
+    this.anchoredCompleteMatchRegex = new RegExp(
+      needle.source,
+      needle.flags + "y"
+    );
+  }
+
+  private isCompleteMatch(candidate: RegExpExecArray, haystack: string) {
+    const anchoredAtCandidate = this.anchoredCompleteMatchRegex;
+    anchoredAtCandidate.lastIndex = candidate.index;
+    const completeMatch = anchoredAtCandidate.exec(haystack);
+    return (
+      completeMatch !== null && completeMatch[0].length === candidate[0].length
+    );
   }
 
   *processChunk(
@@ -82,7 +98,17 @@ export class RegexSearchStrategy
           partialMatch !== null &&
           partialMatch.index + matchLength === remainingHaystack.length;
 
-        const chunkIsSpent = partialMatch === null || endsAtEndOfHaystack;
+        const lookaheadOutrunsTheMatch =
+          this.lookaheadMayBeTruncated &&
+          partialMatch !== null &&
+          !endsAtEndOfHaystack &&
+          matchLength > 0 &&
+          !this.isCompleteMatch(partialMatch, remainingHaystack);
+
+        const chunkIsSpent =
+          partialMatch === null ||
+          endsAtEndOfHaystack ||
+          lookaheadOutrunsTheMatch;
         if (chunkIsSpent) {
           const couldStillBeGrowing = partialMatch !== null && matchLength > 0;
           const bufferFrom = couldStillBeGrowing

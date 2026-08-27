@@ -21,13 +21,13 @@ Every shape declares which one it exercises, and the timing run groups by it, so
 | Behaviour | What the scan does | Buffering |
 |---|---|---|
 | `settles` | The match completes and cannot grow, so it is emitted at once | none |
-| `defers` | The partial reaches end-of-haystack, so the match is held until the next chunk or `flush` resolves it | bounded by the pending match |
+| `defers` | The partial reaches end-of-haystack, so the match is held until the next chunk or `flush` resolves it — a lookahead counts, since what it inspects reaches past the matched text | bounded by the pending match |
 | `buffers-to-end` | Nothing can stop the match growing, so the buffer runs to the end of the stream | whole stream |
 | `no-match` | Nothing viable anywhere — one partial `exec` per scan position | none |
 
 ## Shapes
 
-Beyond the boundary behaviours, the catalogue covers the scan features whose cost is not visible in anchor-shaped content: `d`-flag index rebasing, named groups, genuine backreferences (which cannot use the cheap static partial regex, and re-expand the captured value atom by atom), surrogate pairs straddling chunk edges, nullable patterns that take the zero-length skip path, and match-dense content that isolates per-match overhead from scanning overhead.
+Beyond the boundary behaviours, the catalogue covers the scan features whose cost is not visible in anchor-shaped content: `d`-flag index rebasing, named groups, genuine backreferences (which cannot use the cheap static partial regex, and re-expand the captured value atom by atom), positive lookaheads (whose every candidate costs a second, anchored `exec` against the original pattern before it can settle), surrogate pairs straddling chunk edges, nullable patterns that take the zero-length skip path, and match-dense content that isolates per-match overhead from scanning overhead.
 
 Add one by appending to [`shapes.ts`](./shapes.ts) — the timing run, the report and the grouping all derive from that array.
 

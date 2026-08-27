@@ -42,7 +42,7 @@ class RegexSearchStrategy {
 
 ### Scanning with the Partial Regex
 
-The scan uses the **partial** regex exclusively: one `exec` per scan position, and that result is the answer. The original pattern has exactly one job, at [End of Stream](#end-of-stream), where it settles whatever is left buffered.
+The scan uses the **partial** regex: one `exec` per scan position, and (for every pattern that does not use a lookahead) that result is the answer. The original pattern settles whatever is left buffered at [End of Stream](#end-of-stream), and confirms candidates for the lookahead case below.
 
 ```
 p = partialMatchRegex.exec(remainingHaystack)
@@ -55,9 +55,38 @@ p = partialMatchRegex.exec(remainingHaystack)
 Two properties make this sound:
 
 - **Superset** — the partial regex matches everything the original matches, and never starts later. A partial scan cannot miss what a complete scan would find.
-- **Identity** — an _incomplete_ partial match can only end at end-of-haystack, because that is what the `$(?![\s\S])` truncation marker asserts. So a partial match ending _before_ end-of-haystack cannot have used that branch: it is the original pattern's match at that index, identical in extent, capture groups and `d`-flag indices.
+- **Identity** — an _incomplete_ partial match can only end at end-of-haystack, because that is what the `$(?![\s\S])` truncation marker asserts. So a partial match ending _before_ end-of-haystack cannot have used that branch: it is the original pattern's match at that index, identical in extent, capture groups and `d`-flag indices. A zero-width assertion is the exception, since the branch it takes cannot move where the match ends — see [Lookahead Confirmation](#lookahead-confirmation).
 
 Note that "nothing viable" is reported as a zero-length match at end-of-haystack rather than as `null` — the truncation branch always matches the empty string there.
+
+### Lookahead Confirmation
+
+Identity holds for the text a match _consumes_, not for what it _asserts_. A positive lookahead is zero-width: its atoms are partialised like everything else, so `(?=bc)` is satisfied by a bare `b` at end-of-haystack — but that truncation happens _inside_ the assertion, where it cannot extend the match's own end.
+
+```
+Pattern: /a(?=bc)/
+Chunk:   "ab"
+
+partialMatchRegex.exec() → "a" at position 0, ending at 1 of 2
+
+┌──────────────────────────────────────────────┐
+│ Chunk: "ab"                                  │
+│         ^     ends before the edge …         │
+│          ^    … but the lookahead ran into it│
+└──────────────────────────────────────────────┘
+```
+
+By the rule above that candidate is settled — yet `/a(?=bc)/` does not match `"ab"` at all. So where the pattern uses a lookahead, a settled candidate is confirmed before it is emitted: the original pattern, anchored at the candidate's index, has to match there with the same extent. Where it does not, the candidate is treated as still growing, and buffered from its own index exactly like a partial that reached the edge.
+
+```
+Pattern: /a(?=bc)/
+
+  ["abc"]      → confirmed on the spot → match "a", then "bc"
+  ["ab", "c"]  → "ab" held; "abc" confirms → match "a", then "bc"
+  ["ab", "X"]  → "ab" held; "abX" can never match → "abX" as non-match text
+```
+
+The check is decided once, at construction, from the partial regex's `features` — a pattern with no lookahead never pays for it and keeps the single-`exec` scan. See [Positive lookaheads](#️-positive-lookaheads) for what it costs the ones that do.
 
 ### Settled Match
 
@@ -278,6 +307,21 @@ Problem: `m` only changes the behaviour of `^` and `$`, both of which are unsupp
 
 Problem: This strategy already finds every match itself by advancing its own cursor, but `exec()`'s `g`/`y` behaviour keeps its own `lastIndex` cursor on the regex object, which goes stale between the strategy's internal calls and can silently drop matches[^3]. Rejected by [input validation](./input-validation.ts) rather than silently stripped.
 
+### ⚠️ Positive lookaheads
+
+```js
+/border(?=-top)/;
+```
+
+Supported, and chunk-invariant — but the assertion reads content the match itself does not consume, so a candidate cannot be emitted until that content has arrived. Fed `"border"`, the strategy holds it: `-top` may be in the next chunk, or may never come. See [Lookahead Confirmation](#lookahead-confirmation) for the mechanism.
+
+Two costs follow:
+
+- **Deferral past the end of the match.** A match whose own text ends well inside the chunk is still buffered, for as much content as the lookahead can inspect. That is bounded by the assertion's own length for a fixed one like `(?=-top)`, but a lookahead containing an unbounded quantifier (`/foo(?=.*;)/`) inherits [Unbounded Quantifiers](#️-unbounded-quantifiers) and can hold the buffer to the end of the stream.
+- **A second `exec` per candidate.** Confirmation costs one anchored `exec` against the original pattern for every candidate the scan would otherwise settle on the spot — including the ones it goes on to rule out. On the lookahead shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md) that measured around a fifth slower, on a single-machine before/after rather than the A/B/B/A method that suite recommends. Patterns with no lookahead are unaffected.
+
+That shape doubles as a guard on the confirmation itself: with the check removed it reports 42 matches where a non-streaming `matchAll` over the same content finds 40.
+
 ### ⚠️ Backreferences
 
 ```js
@@ -373,7 +417,7 @@ Both the invariant and the split-dependent cases are pinned in [`search-strategy
 ### ✅ Supported Features
 
 - 🔤 [Literal characters](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Literal_character) / simple patterns: `/test/`
-- 👀 [Lookahead assertions](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion) (positive only): `/foo(?=bar)/`
+- 👀 [Lookahead assertions](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion) (positive only): `/foo(?=bar)/` (see [caveats](#️-positive-lookaheads) above)
 - 🔢 [Quantifiers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Cheatsheet#quantifiers): `/a{2,4}/`, `/b*?/`, `/c+/` (with caveats above for potential split matching, etc.)
 - 📋 [Character classes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_class): `/[a-z]/`
 - 🔣 [Character escapes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape): (`\n`, `\t`, `\x61`, `\u0061`, `\u{1F600}`)
@@ -392,7 +436,7 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^1]: After significant performance degradation was observed when attempting [knuth-morris-pratt](https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm) for static string partial matching, the project has prioritised innate matching capabilities of the language.
 
-[^2]: `(?![\s\S])` asserts "no character exists at the current position" — a claim about content already in hand, decidable immediately from the buffer as it stands, never contingent on anything still to arrive. It isn't looking _ahead_ into unseen content at all; it's a boundary check on the known buffer, spelled as a negative lookahead only because that's the native way to express "and nothing follows." It's also confined to the _partial_-match regex, never the original/complete-match regex — its only job is answering "could this still become a match with more input," a permissive buffering decision, not a definitive pass/fail on the match itself. Where it applies, a false positive there just means "keep buffering a little longer," not an incorrectly emitted match. The same reasoning is why `(?=...)` (positive lookahead) is fully supported (see [Supported Features](#-supported-features)) but `(?!...)` isn't: a positive lookahead's own atoms get the same "or buffer more" treatment as the rest of the pattern, so there's no predictive claim being smuggled in.
+[^2]: `(?![\s\S])` asserts "no character exists at the current position" — a claim about content already in hand, decidable immediately from the buffer as it stands, never contingent on anything still to arrive. It isn't looking _ahead_ into unseen content at all; it's a boundary check on the known buffer, spelled as a negative lookahead only because that's the native way to express "and nothing follows." It's also confined to the _partial_-match regex, never the original/complete-match regex — its only job is answering "could this still become a match with more input," a permissive buffering decision, not a definitive pass/fail on the match itself. Where it applies, a false positive there just means "keep buffering a little longer," not an incorrectly emitted match. The same reasoning is why `(?=...)` (positive lookahead) is fully supported (see [Supported Features](#-supported-features)) but `(?!...)` isn't: a positive lookahead's own atoms get the same "or buffer more" treatment as the rest of the pattern, so there's no predictive claim being smuggled in. The catch is that the assertion is zero-width, so that "buffer more" has to be read out of the assertion explicitly rather than from where the match ends — see [Lookahead Confirmation](#lookahead-confirmation).
 
 [^3]: Each internal `exec()` call runs against a fresh substring starting where the last match ended, but `lastIndex` (set by the previous `g`/`y` call) is left pointing at an offset within the _previous, longer_ substring. Reused verbatim as an offset into the new, shorter one, it can point past a real match — which then gets flushed as ordinary non-match content instead of surfacing as a match. `y` compounds this: it also refuses to scan forward from `lastIndex` at all, so a match anywhere but exactly there is missed even on the first call.
 

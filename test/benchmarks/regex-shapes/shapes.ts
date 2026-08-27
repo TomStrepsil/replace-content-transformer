@@ -14,7 +14,8 @@
  *
  * - `settles` — the match completes and cannot grow, so it is emitted at once.
  * - `defers` — the partial reaches end-of-haystack, so the match is held until
- *   the next chunk (or `flush`) resolves it. Buffering is bounded by the length
+ *   the next chunk (or `flush`) resolves it. A lookahead counts: what it
+ *   inspects reaches past the matched text. Buffering is bounded by the length
  *   of the pending match.
  * - `buffers-to-end` — nothing can ever stop the match growing, so the buffer
  *   runs to the end of the stream. This is the worst case the deferral buys.
@@ -58,6 +59,10 @@ const attributes = repeat(
 );
 const duplicated = repeat("alpha alpha beta gamma gamma delta epsilon ", 20);
 const digits = repeat("8675309", 200);
+const declarations = repeat(
+  "border-top: 1px; border-bottom: 2px; padding-top: 3px; border-top: 4px; ",
+  20
+);
 
 export const shapes: ContentShape[] = [
   {
@@ -112,6 +117,15 @@ export const shapes: ContentShape[] = [
     boundary: "defers",
     pattern: /(\w+) \1/,
     content: duplicated,
+    chunkSize: 64
+  },
+  {
+    name: "lookahead — /border(?=-top)/ over stylesheet declarations",
+    description:
+      "The matched text stops four characters short of what the assertion inspects, so a candidate that ends well inside the chunk still cannot settle until the lookahead's content has arrived. Every candidate costs a second, anchored `exec` against the original pattern, and one in three is ruled out by it.",
+    boundary: "defers",
+    pattern: /border(?=-top)/,
+    content: declarations,
     chunkSize: 64
   },
   {

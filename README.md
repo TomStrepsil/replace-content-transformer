@@ -197,7 +197,7 @@ const transformer = new ReplaceContentTransformer(
 ```
 
 > [!CAUTION]
-> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations) — backreferences in particular carry their own streaming-specific caveats, documented in that same section.
+> The `regex` search strategy is marginally less performant than static string anchors, and does not support all regular expression features. See [limitations](./src/search-strategies/regex/README.md#limitations) — backreferences and positive lookaheads in particular carry their own streaming-specific caveats, documented in that same section.
 
 #### Replacing Balanced Pairs (respecting nesting)
 
@@ -674,7 +674,7 @@ For each pattern in a curated table, the regex search strategy is driven over **
 - **Chunk invariance** - the match sequence is identical however the input was split, and equal to the non-streaming result
 - **Lossless output** - concatenating every yield plus `flush()` reproduces the input exactly
 
-The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, and a terminator the pattern's own body can consume — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced.
+The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, a terminator the pattern's own body can consume, and lookaheads whose assertion reaches past the text the match consumes — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced.
 
 ### Functional Validation Tests
 
