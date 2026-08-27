@@ -79,6 +79,7 @@ Reported as skipped paths rather than transformed, so nothing is silently mangle
 - `flush` implementations that compose the result from several sources (`return flushed + this.inner.flush(state)`), or whose return type is not `string`
 - call sites where the result flows somewhere structural: returned, awaited, concatenated, stored on a field, or passed straight as an argument
 - call sites where the tail is not read by the statements immediately following, or is read again after an unrelated one — moving a statement into the drain loop would run it once per result
+- call sites whose declaration declares more than one variable (`const tail = strategy.flush(state), metric = createMetric();`) — the rewrite replaces the whole declaration, and a sibling declarator would go with it
 - dynamic dispatch (`strategy[name](state)`)
 - type-only declarations of the interface (`flush: (state: S) => string`), since the correct replacement type depends on your `TMatch`
 

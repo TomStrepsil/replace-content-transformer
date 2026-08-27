@@ -150,4 +150,18 @@ describe("flush-call-site-to-drain codemod", () => {
     expect(output).toMatch(/for \(const (result\d+|[a-z]+Result) of/);
     expect(output).toContain("enqueue(result + tail)");
   });
+  it("does not delete sibling declarators sharing the declaration", () => {
+    const reports = [];
+    const output = runTransform(
+      [
+        "const tail = strategy.flush(state), metric = createMetric();",
+        "if (tail) enqueue(tail);",
+        ""
+      ].join("\n"),
+      reports
+    );
+
+    expect(output).toBeNull();
+    expect(reports.join("\n")).toContain("declares more than one variable");
+  });
 });

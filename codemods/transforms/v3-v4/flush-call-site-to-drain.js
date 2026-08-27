@@ -78,10 +78,11 @@ export default function transform(fileInfo, api) {
     .forEach((path) => {
       const parent = path.parent.node;
 
+      const declarationNode = path.parent.parent.node;
       const isSimpleDeclaration =
         parent.type === "VariableDeclarator" &&
         parent.id.type === "Identifier" &&
-        path.parent.parent.node.type === "VariableDeclaration";
+        declarationNode.type === "VariableDeclaration";
 
       if (!looksLikeStrategy(path.node.callee.object)) {
         if (parent.type === "ForOfStatement") return;
@@ -95,6 +96,13 @@ export default function transform(fileInfo, api) {
         if (parent.type === "ForOfStatement") return;
         skipped.push(
           `${fileInfo.path}:${path.node.loc?.start.line ?? "?"}: flush() result flows somewhere this codemod will not rewrite; migrate it by hand`
+        );
+        return;
+      }
+
+      if (declarationNode.declarations?.length !== 1) {
+        skipped.push(
+          `${fileInfo.path}:${path.node.loc?.start.line ?? "?"}: flush() shares a declaration that declares more than one variable; migrate it by hand`
         );
         return;
       }
