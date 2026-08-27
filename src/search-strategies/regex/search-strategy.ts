@@ -59,8 +59,7 @@ export class RegexSearchStrategy
 {
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: RegExp;
-  private readonly lookaheadMayBeTruncated: boolean;
-  private readonly anchoredCompleteMatchRegex: RegExp;
+  private readonly lookaheadConfirmationRegex: RegExp | null;
 
   constructor(needle: RegExp) {
     super();
@@ -68,20 +67,10 @@ export class RegexSearchStrategy
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
-    this.lookaheadMayBeTruncated = partialMatchRegex.features.has("lookahead");
-    this.anchoredCompleteMatchRegex = new RegExp(
-      needle.source,
-      needle.flags + "y"
-    );
-  }
-
-  private isCompleteMatch(candidate: RegExpExecArray, haystack: string) {
-    const anchoredAtCandidate = this.anchoredCompleteMatchRegex;
-    anchoredAtCandidate.lastIndex = candidate.index;
-    const completeMatch = anchoredAtCandidate.exec(haystack);
-    return (
-      completeMatch !== null && completeMatch[0].length === candidate[0].length
-    );
+    const usesLookahead = partialMatchRegex.features.has("lookahead");
+    this.lookaheadConfirmationRegex = usesLookahead
+      ? new RegExp(needle.source, needle.flags + "y")
+      : null;
   }
 
   private settledMatch(
@@ -91,8 +80,13 @@ export class RegexSearchStrategy
     if (candidate === null) return null;
     const matchLength = candidate[0].length;
     if (candidate.index + matchLength === haystack.length) return null;
-    if (!this.lookaheadMayBeTruncated || matchLength === 0) return candidate;
-    return this.isCompleteMatch(candidate, haystack) ? candidate : null;
+
+    const confirmation = this.lookaheadConfirmationRegex;
+    if (confirmation === null || matchLength === 0) return candidate;
+
+    confirmation.lastIndex = candidate.index;
+    const completeMatch = confirmation.exec(haystack);
+    return completeMatch?.[0].length === matchLength ? candidate : null;
   }
 
   *processChunk(
