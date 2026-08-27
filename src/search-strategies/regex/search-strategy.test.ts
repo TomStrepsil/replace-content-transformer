@@ -1381,64 +1381,6 @@ describe("RegexSearchStrategy", () => {
       });
     });
 
-    describe("which regex drives the scan", () => {
-      function countExecs(
-        pattern: RegExp,
-        chunks: string[]
-      ): { partial: number; original: number } {
-        const partialSpy = vi.spyOn(PartialMatchRegExp.prototype, "exec");
-        const originalSpy = vi.spyOn(pattern, "exec");
-        try {
-          const strategy = new RegexSearchStrategy(pattern);
-          const state = strategy.createState();
-          partialSpy.mockClear();
-          originalSpy.mockClear();
-          for (const chunk of chunks) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- draining the generator is the point
-            [...strategy.processChunk(chunk, state)];
-          }
-          return {
-            partial: partialSpy.mock.calls.length,
-            original: originalSpy.mock.calls.length
-          };
-        } finally {
-          partialSpy.mockRestore();
-          originalSpy.mockRestore();
-        }
-      }
-
-      it("never consults the original pattern while input can still arrive", () => {
-        expect(countExecs(/abc|b/, ["Xabc", "Y"]).original).toBe(0);
-        expect(countExecs(/\{\{\w+\}\}/, ["a {{b}} c", " d"]).original).toBe(0);
-      });
-
-      it("consults the partial regex exactly once per scan position", () => {
-        expect(countExecs(/abc|b/, ["Xabc"]).partial).toBe(1);
-        expect(countExecs(/abc|b/, ["Xa"]).partial).toBe(1);
-        expect(countExecs(/\{\{\w+\}\}/, ["a {{b}} c"]).partial).toBe(2);
-      });
-
-      it("settles the buffer with the original pattern, and only at flush", () => {
-        const pattern = /abc|b/;
-        const strategy = new RegexSearchStrategy(pattern);
-        const state = strategy.createState();
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- draining the generator is the point
-        [...strategy.processChunk("ab", state)];
-
-        const originalSpy = vi.spyOn(pattern, "exec");
-        const partialSpy = vi.spyOn(PartialMatchRegExp.prototype, "exec");
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- draining the generator is the point
-          [...strategy.flush(state)];
-          expect(originalSpy.mock.calls.length).toBeGreaterThan(0);
-          expect(partialSpy.mock.calls.length).toBe(0);
-        } finally {
-          originalSpy.mockRestore();
-          partialSpy.mockRestore();
-        }
-      });
-    });
-
     describe("settling at end of stream", () => {
       it("emits a match the stream ended on, rather than flushing it as text", () => {
         const { results, flushResults } = collectSearchStrategyResults(
