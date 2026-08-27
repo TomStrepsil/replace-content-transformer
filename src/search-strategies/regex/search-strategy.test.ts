@@ -8,6 +8,7 @@ import {
   collectSearchStrategyResults,
   flushToString
 } from "../../../test/utilities.js";
+import type { CanonicalSegment } from "../../../test/utilities.js";
 import {
   characterBySplit,
   everyThreeWaySplit,
@@ -20,6 +21,85 @@ function getValue(result: MatchResult<RegExpExecArray>): string {
   return result.isMatch ? result.content[0] : result.content;
 }
 
+function everySplitOf(haystack: string): string[][] {
+  return [
+    ...everyTwoWaySplit(haystack),
+    ...everyThreeWaySplit(haystack),
+    characterBySplit(haystack)
+  ];
+}
+
+function matchDetailsOf(pattern: RegExp, chunks: string[]) {
+  const { results, flushResults } = collectSearchStrategyResults(
+    new RegexSearchStrategy(pattern),
+    chunks
+  );
+  return [...results, ...flushResults]
+    .filter((result) => result.isMatch)
+    .map(({ content, streamIndices }) => ({
+      captures: [...content],
+      groups: content.groups,
+      indices: content.indices && [...content.indices],
+      indexGroups: content.indices?.groups,
+      streamIndices
+    }));
+}
+
+function expectSameMatchesAtEverySplit(
+  pattern: RegExp,
+  haystack: string,
+  expectedSegments?: CanonicalSegment[]
+): void {
+  const unsplit = collectCanonicalSearchStrategyResults(
+    new RegexSearchStrategy(pattern),
+    [haystack]
+  );
+  const expected = {
+    segments: expectedSegments ?? unsplit.segments,
+    details: matchDetailsOf(pattern, [haystack]),
+    output: haystack
+  };
+
+  for (const chunks of everySplitOf(haystack)) {
+    const { segments, output } = collectCanonicalSearchStrategyResults(
+      new RegexSearchStrategy(pattern),
+      chunks
+    );
+    const details = matchDetailsOf(pattern, chunks);
+    // Compared as one object so a failure reports the offending split.
+    expect({ chunks, segments, details, output }).toEqual({
+      chunks,
+      ...expected
+    });
+  }
+}
+
+function describeChunkInvariantCases(
+  cases: {
+    name: string;
+    pattern: RegExp;
+    haystack: string;
+    expected: CanonicalSegment[];
+  }[]
+): void {
+  cases.forEach(({ name, pattern, haystack, expected }) => {
+    describe(name, () => {
+      it("matches the non-streaming result when unsplit", () => {
+        const { segments, output } = collectCanonicalSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          [haystack]
+        );
+        expect(segments).toEqual(expected);
+        expect(output).toBe(haystack);
+      });
+
+      it("matches it at every two-way, three-way and per-character split", () => {
+        expectSameMatchesAtEverySplit(pattern, haystack, expected);
+      });
+    });
+  });
+}
+
 describe("RegexSearchStrategy", () => {
   it("should validate input regex", () => {
     const someRegex = /test-regex/;
@@ -30,7 +110,7 @@ describe("RegexSearchStrategy", () => {
     );
   });
 
-  describe("complete matches in single chunk", () => {
+  describe("complete matches", () => {
     const testCases = [
       {
         name: "handles no matches in empty haystack",
@@ -242,26 +322,6 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns that match individual lines in multiline mode (with caveat that when recommended dotAll flag is used, recommended non-greedy matching also used)",
-        pattern: /^THE .+? PATTERN$/ms,
-        chunks: [
-          "Find \nTHE FIRST PATTERN\n here and \nTHE SECOND PATTERN\n there"
-        ],
-        expected: [
-          { isMatch: false, content: "Find \n" },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE FIRST PATTERN"])
-          },
-          { isMatch: false, content: "\n here and \n" },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE SECOND PATTERN"])
-          },
-          { isMatch: false, content: "\n there" }
-        ]
-      },
-      {
         name: "handles patterns with positive lookahead",
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN here"],
@@ -278,32 +338,11 @@ describe("RegexSearchStrategy", () => {
         name: "handles patterns with positive lookahead (inverse scenario)",
         pattern: /THE COMPLEX PATTERN(?= here)/,
         chunks: ["Find THE COMPLEX PATTERN not here"],
+        knownChunkDependence:
+          "a lookahead still incomplete at the buffer edge is accepted, rather than re-checked, once the rest of the stream arrives",
         expected: [
           { isMatch: false, content: "Find THE COMPLEX PATTERN not here" }
         ]
-      },
-      {
-        name: "handles patterns with word boundaries",
-        pattern: /\bPATTERN\b/,
-        chunks: ["PATTERN! NotAPATTERN."],
-        expected: [
-          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
-          { isMatch: false, content: "! NotAPATTERN." }
-        ]
-      },
-      {
-        name: "handles patterns with input boundary assertions",
-        pattern: /^PATTERN$/,
-        chunks: ["PATTERN"],
-        expected: [
-          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) }
-        ]
-      },
-      {
-        name: "handles patterns with input boundary assertions (inverse scenario)",
-        pattern: /^PATTERN$/,
-        chunks: ["the PATTERN here"],
-        expected: [{ isMatch: false, content: "the PATTERN here" }]
       },
       {
         name: "handles patterns with escaped characters",
@@ -487,106 +526,65 @@ describe("RegexSearchStrategy", () => {
         pattern: /./u,
         chunks: ["\ud83d\ude04"], // "😄"
         expected: [{ isMatch: true, content: expect.arrayContaining(["😄"]) }]
-      }
-    ];
-
-    testCases.forEach(({ name, pattern, chunks, expected }) => {
-      test.skipIf(
-        typeof Bun !== "undefined" &&
-          name.includes("complement unicodeSet character classes")
-      )(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
-          new RegexSearchStrategy(pattern),
-          chunks
-        );
-        results.push(...flushResults);
-
-        expect(results).toMatchObject(expected);
-      });
-    });
-  });
-
-  describe("no match found", () => {
-    const testCases = [
-      {
-        name: "returns content when pattern not found",
-        pattern: /OLD/,
-        chunks: ["Hello beautiful world"],
-        expected: [{ isMatch: false, content: "Hello beautiful world" }]
       },
       {
-        name: "returns empty for empty haystack",
-        pattern: /OLD/,
-        chunks: [""],
-        expected: []
-      },
-      {
-        name: "case sensitive - lowercase pattern vs uppercase haystack",
-        pattern: /old/,
-        chunks: ["OLD"],
-        expected: [{ isMatch: false, content: "OLD" }]
-      },
-      {
-        name: "case sensitive - uppercase pattern vs lowercase haystack",
-        pattern: /OLD/,
-        chunks: ["old"],
-        expected: [{ isMatch: false, content: "old" }]
-      }
-    ];
-
-    testCases.forEach(({ name, pattern, chunks, expected }) => {
-      test(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
-          new RegexSearchStrategy(pattern),
-          chunks
-        );
-        results.push(...flushResults);
-
-        expect(results).toMatchObject(expected);
-      });
-    });
-  });
-
-  describe("cross-chunk boundary matches", () => {
-    const testCases = [
-      {
-        name: "pattern split across two chunks - middle",
-        pattern: /OLD/,
-        chunks: ["Hello O", "LD world"],
+        name: "handles the d flag, mapping capture-group indices onto the stream",
+        pattern: /(?<first>THE) (PATTERN)/d,
+        chunks: ["Find THE PATTERN here"],
         expected: [
-          { isMatch: false, content: "Hello " },
-          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
-          { isMatch: false, content: " world" }
+          { isMatch: false, content: "Find " },
+          {
+            isMatch: true,
+            content: expect.objectContaining({
+              indices: expect.objectContaining({
+                [0]: [5, 16],
+                [1]: [5, 8],
+                [2]: [9, 16],
+                groups: { first: [5, 8] }
+              })
+            })
+          },
+          { isMatch: false, content: " here" }
         ]
       },
       {
-        name: "pattern split at first character",
-        pattern: /OLD/,
-        chunks: ["Hello ", "OLD world"],
+        name: "literal token",
+        pattern: /PLACEHOLDER/,
+        chunks: ["a PLACEHOLDER b"],
         expected: [
-          { isMatch: false, content: "Hello " },
-          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
-          { isMatch: false, content: " world" }
+          { isMatch: false, content: "a " },
+          { isMatch: true, content: expect.arrayContaining(["PLACEHOLDER"]) },
+          { isMatch: false, content: " b" }
         ]
       },
       {
-        name: "pattern split after first character",
-        pattern: /OLD/,
-        chunks: ["Hello O", "LD world"],
+        name: "delimited token with capture",
+        pattern: /\{\{(\w+)\}\}/,
+        chunks: ["hi {{name}} and {{other}}!"],
         expected: [
-          { isMatch: false, content: "Hello " },
-          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
-          { isMatch: false, content: " world" }
+          { isMatch: false, content: "hi " },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["{{name}}", "name"])
+          },
+          { isMatch: false, content: " and " },
+          {
+            isMatch: true,
+            content: expect.arrayContaining(["{{other}}", "other"])
+          },
+          { isMatch: false, content: "!" }
         ]
       },
       {
-        name: "pattern split after second character",
-        pattern: /OLD/,
-        chunks: ["Hello OL", "D world"],
+        name: "character class between anchoring literals",
+        pattern: /foo[A-Z]+bar/,
+        chunks: ["a fooABCbar b fooZbar c"],
         expected: [
-          { isMatch: false, content: "Hello " },
-          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
-          { isMatch: false, content: " world" }
+          { isMatch: false, content: "a " },
+          { isMatch: true, content: expect.arrayContaining(["fooABCbar"]) },
+          { isMatch: false, content: " b " },
+          { isMatch: true, content: expect.arrayContaining(["fooZbar"]) },
+          { isMatch: false, content: " c" }
         ]
       },
       {
@@ -597,16 +595,6 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, content: "Find " },
           { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
           { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "pattern split character by character",
-        pattern: /OLD/,
-        chunks: ["Hello ", "O", "L", "D", " world"],
-        expected: [
-          { isMatch: false, content: "Hello " },
-          { isMatch: true, content: expect.arrayContaining(["OLD"]) },
-          { isMatch: false, content: " world" }
         ]
       },
       {
@@ -651,94 +639,6 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
-        name: "handles patterns with wildcards in the middle, across chunks",
-        pattern: /THE .* PATTERN/,
-        chunks: ["Find THE COM", "PLEX PATTERN here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with alternation, across chunks",
-        pattern: /(FIRST|SECOND) PATTERN/,
-        chunks: ["Find FIR", "ST PATTERN and SE", "COND PATTERN here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          { isMatch: true, content: expect.arrayContaining(["FIRST PATTERN"]) },
-          { isMatch: false, content: " and " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["SECOND PATTERN"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles multiple patterns with wildcards in the middle, using non-greedy matching, across chunks",
-        pattern: /THE .*? PATTERN/,
-        chunks: [
-          "Find THE FIR",
-          "ST PATTERN he",
-          "re and THE SECOND PATTERN there"
-        ],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE FIRST PATTERN"])
-          },
-          { isMatch: false, content: " he" },
-          { isMatch: false, content: "re and " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE SECOND PATTERN"])
-          },
-          { isMatch: false, content: " there" }
-        ]
-      },
-      {
-        name: "handles patterns with character ranges and quantifiers, across chunks",
-        pattern: /THE [A-Z]{3}PLEX PATTERN/,
-        chunks: ["Find THE CO", "MPLEX PATTERN here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles wildcards at the start, across chunks",
-        pattern: /.+?PLEX PATTERN/,
-        chunks: ["Find T", "HE CO", "MPLEX PATTERN here"],
-        expected: [
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["Find THE COMPLEX PATTERN"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles wildcards at the end, across chunks, deferring while the quantifier could still grow",
-        pattern: /COMPLEX PATTERN.+/,
-        chunks: ["Find THE COMPLEX PATTE", "RN he", "re"],
-        expected: [
-          { isMatch: false, content: "Find THE " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["COMPLEX PATTERN here"])
-          }
-        ]
-      },
-      {
         name: "handles patterns that wildcard over newlines, across chunks",
         pattern: /THE .+? PATTERN/s,
         chunks: ["Find THE CO", "MP\nL", "EX PATTERN here"],
@@ -747,266 +647,6 @@ describe("RegexSearchStrategy", () => {
           {
             isMatch: true,
             content: expect.arrayContaining(["THE COMP\nLEX PATTERN"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns that match individual lines in multiline mode, across chunks (with caveat, that the dotAll flag must be used)",
-        pattern: /^THE .+ PATTERN$/ms,
-        chunks: [
-          "Find \nTHE FI",
-          "RST PATTERN\n here and \nTHE SECOND PA",
-          "TTERN\n there"
-        ],
-        expected: [
-          { isMatch: false, content: "Find \n" },
-          {
-            isMatch: true,
-            content: expect.arrayContaining([
-              "THE FIRST PATTERN\n here and \nTHE SECOND PATTERN"
-            ])
-          },
-          { isMatch: false, content: "\n there" }
-        ]
-      },
-      {
-        name: "handles patterns with positive lookahead, across chunks",
-        pattern: /THE COMPLEX PATTERN(?= here)/,
-        chunks: ["Find THE COMPLEX PATTERN", " here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE COMPLEX PATTERN"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with positive lookahead (inverse scenario), across chunks",
-        pattern: /THE COMPLEX PATTERN(?= here)/,
-        chunks: ["Find THE COMPLEX PATTERN", " not here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          { isMatch: false, content: "THE COMPLEX PATTERN not here" }
-        ]
-      },
-      {
-        name: "handles patterns with word boundaries, across chunks",
-        pattern: /\bPATTERN\b/,
-        chunks: ["PATT", "ERN! NotAP", "ATTERN."],
-        expected: [
-          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
-          { isMatch: false, content: "! NotAP" },
-          { isMatch: false, content: "ATTERN." }
-        ]
-      },
-      {
-        name: "handles patterns with input boundary assertions, across chunks",
-        pattern: /^PATTERN$/,
-        chunks: ["PAT", "TERN"],
-        expected: [
-          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) }
-        ]
-      },
-      {
-        name: "handles patterns with input boundary assertions (inverse scenario), across chunks",
-        pattern: /^PATTERN$/,
-        chunks: ["the PAT", "TERN here"],
-        expected: [
-          { isMatch: false, content: "the PAT" },
-          { isMatch: false, content: "TERN here" }
-        ]
-      },
-      {
-        name: "handles patterns with escaped characters, across chunks",
-        pattern: /THE \.COMPLEX \?PATTERN\*/,
-        chunks: ["Find THE .COMP", "LEX ?PATTERN* here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.arrayContaining(["THE .COMPLEX ?PATTERN*"])
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with character classes, across chunks",
-        pattern: /[A-Z]+/,
-        chunks: ["find PAT", "TERN here"],
-        expected: [
-          { isMatch: false, content: "find " },
-          { isMatch: true, content: expect.arrayContaining(["PATTERN"]) },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with unicode characters and emojis, across chunks",
-        pattern: /(こんにちは|👋)/,
-        chunks: ["Say こん", "にちは to everyone ", "👋"],
-        expected: [
-          { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
-          { isMatch: false, content: " to everyone " },
-          { isMatch: true, content: expect.arrayContaining(["👋"]) }
-        ]
-      },
-      {
-        name: "handles patterns with unicode character class escapes, across chunks",
-        pattern: /\p{Script=Hiragana}+/u,
-        chunks: ["Say こんに", "ちは to everyone"],
-        expected: [
-          { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
-          { isMatch: false, content: " to everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with unicodeSet character classes, across chunks",
-        pattern: /[\p{Script=Hiragana}]+/v,
-        chunks: ["Say こん", "にちは to everyone"],
-        expected: [
-          { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
-          { isMatch: false, content: " to everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with unicodeSet character classes (inverse scenario), across chunks (with caveat that multiple matches may occur)",
-        pattern: /[\p{Script=Hiragana}]+/v,
-        chunks: ["Say konn", "ichiwa to everyone"],
-        expected: [
-          { isMatch: false, content: "Say konn" },
-          { isMatch: false, content: "ichiwa to everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with unicodeSet character classes with intersections, across chunks",
-        pattern: /[\p{Script=Hiragana}&&\p{Alphabetic}]+/v,
-        chunks: ["Say こんに", "ちは to everyone"],
-        expected: [
-          { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
-          { isMatch: false, content: " to everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with complement unicodeSet character classes with intersections, across chunks",
-        pattern: /[\P{Script=Hiragana}&&\P{Alphabetic}]+/v,
-        chunks: ["Say こんに", "ちは12", "3 to everyone"],
-        expected: [
-          { isMatch: false, content: "Say" },
-          { isMatch: true, content: expect.arrayContaining([" "]) },
-          { isMatch: false, content: "こんに" },
-          { isMatch: false, content: "ちは" },
-          { isMatch: true, content: expect.arrayContaining(["123 "]) },
-          { isMatch: false, content: "to" },
-          { isMatch: true, content: expect.arrayContaining([" "]) },
-          { isMatch: false, content: "everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with unicodeSet union character classes, across chunks",
-        pattern: /[\p{Script=Hiragana}\p{Alphabetic}]+/v,
-        chunks: ["Say こん", "にちは to everyone"],
-        expected: [
-          { isMatch: true, content: expect.arrayContaining(["Say"]) },
-          { isMatch: false, content: " " },
-          { isMatch: true, content: expect.arrayContaining(["こんにちは"]) },
-          { isMatch: false, content: " " },
-          { isMatch: true, content: expect.arrayContaining(["to"]) },
-          { isMatch: false, content: " " },
-          { isMatch: true, content: expect.arrayContaining(["everyone"]) }
-        ]
-      },
-      {
-        name: "handles patterns with unicodeSet union character classes, negated, across chunks (with caveat that multiple matches may occur)",
-        pattern: /[^\p{Script=Hiragana}\p{Alphabetic}]+/v,
-        chunks: ["Say こんに", "ちは to everyone"],
-        expected: [
-          { isMatch: false, content: "Say" },
-          { isMatch: true, content: expect.arrayContaining([" "]) },
-          { isMatch: false, content: "こんに" },
-          { isMatch: false, content: "ちは" },
-          { isMatch: true, content: expect.arrayContaining([" "]) },
-          { isMatch: false, content: "to" },
-          { isMatch: true, content: expect.arrayContaining([" "]) },
-          { isMatch: false, content: "everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with unicodeSet character classes with subtraction, across chunks",
-        pattern: /[\p{Script=Hiragana}--[ちは]]+/v,
-        chunks: ["Say こん", "にちは to everyone"],
-        expected: [
-          { isMatch: false, content: "Say " },
-          { isMatch: true, content: expect.arrayContaining(["こんに"]) },
-          { isMatch: false, content: "ちは to everyone" }
-        ]
-      },
-      {
-        name: "handles patterns with capturing groups, returning them with the content (plus the whole match at index 0, to match RegExpExecArray interface), across chunks",
-        pattern: /(THE)( PATTERN)/,
-        chunks: ["Find TH", "E PAT", "TERN here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.objectContaining({
-              [0]: "THE PATTERN",
-              [1]: "THE",
-              [2]: " PATTERN"
-            })
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with non-capturing groups, across chunks",
-        pattern: /(THE)(?: PATTERN)/,
-        chunks: ["Find THE P", "ATTERN here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.objectContaining({
-              [0]: "THE PATTERN",
-              [1]: "THE"
-            })
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with named capturing groups, across chunks",
-        pattern: /(?<first>THE)(?<second> PATTERN)/,
-        chunks: ["Find TH", "E PA", "TTERN here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.objectContaining({
-              groups: { first: "THE", second: " PATTERN" }
-            })
-          },
-          { isMatch: false, content: " here" }
-        ]
-      },
-      {
-        name: "handles patterns with both named and unnamed capturing groups, cross chunks",
-        pattern: /(THE)(?<second> PATTERN)/,
-        chunks: ["Find THE", " PATTER", "N here"],
-        expected: [
-          { isMatch: false, content: "Find " },
-          {
-            isMatch: true,
-            content: expect.objectContaining({
-              [0]: "THE PATTERN",
-              [1]: "THE",
-              groups: { second: " PATTERN" }
-            })
           },
           { isMatch: false, content: " here" }
         ]
@@ -1026,11 +666,64 @@ describe("RegexSearchStrategy", () => {
       }
     ];
 
+    testCases.forEach(
+      ({ name, pattern, chunks, expected, knownChunkDependence }) => {
+        const skipOnBun =
+          typeof Bun !== "undefined" &&
+          name.includes("complement unicodeSet character classes");
+
+        describe(name, () => {
+          test.skipIf(skipOnBun)("matches", () => {
+            const { results, flushResults } = collectSearchStrategyResults(
+              new RegexSearchStrategy(pattern),
+              chunks
+            );
+            results.push(...flushResults);
+
+            expect(results).toMatchObject(expected);
+          });
+
+          test.skipIf(skipOnBun || knownChunkDependence !== undefined)(
+            "matches the same at every two-way, three-way and per-character split",
+            () => {
+              expectSameMatchesAtEverySplit(pattern, chunks.join(""));
+            }
+          );
+        });
+      }
+    );
+  });
+
+  describe("no match found", () => {
+    const testCases = [
+      {
+        name: "returns content when pattern not found",
+        pattern: /OLD/,
+        chunks: ["Hello beautiful world"],
+        expected: [{ isMatch: false, content: "Hello beautiful world" }]
+      },
+      {
+        name: "returns empty for empty haystack",
+        pattern: /OLD/,
+        chunks: [""],
+        expected: []
+      },
+      {
+        name: "case sensitive - lowercase pattern vs uppercase haystack",
+        pattern: /old/,
+        chunks: ["OLD"],
+        expected: [{ isMatch: false, content: "OLD" }]
+      },
+      {
+        name: "case sensitive - uppercase pattern vs lowercase haystack",
+        pattern: /OLD/,
+        chunks: ["old"],
+        expected: [{ isMatch: false, content: "old" }]
+      }
+    ];
+
     testCases.forEach(({ name, pattern, chunks, expected }) => {
-      test.skipIf(
-        typeof Bun !== "undefined" &&
-          name.includes("complement unicodeSet character classes")
-      )(name, () => {
+      test(name, () => {
         const { results, flushResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
@@ -1040,6 +733,162 @@ describe("RegexSearchStrategy", () => {
         expect(results).toMatchObject(expected);
       });
     });
+  });
+
+  describe("alternation", () => {
+    describeChunkInvariantCases([
+      {
+        name: "distinct alternation branches",
+        pattern: /cat|dog/,
+        haystack: "a cat and a dog",
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: "cat" },
+          { isMatch: false, text: " and a " },
+          { isMatch: true, text: "dog" }
+        ]
+      },
+      {
+        name: "alternation where one branch prefixes another",
+        pattern: /<a>|<abc>/,
+        haystack: "x<a>y<abc>z",
+        expected: [
+          { isMatch: false, text: "x" },
+          { isMatch: true, text: "<a>" },
+          { isMatch: false, text: "y" },
+          { isMatch: true, text: "<abc>" },
+          { isMatch: false, text: "z" }
+        ]
+      },
+      {
+        name: "shortest branch matching inside the longer branch",
+        pattern: /abc|b/,
+        haystack: "abc",
+        expected: [{ isMatch: true, text: "abc" }]
+      },
+      {
+        // The mirror of the case above: having buffered `ab` on the chance that
+        // `abc` completes, the strategy must release it and take the `b` match
+        // once `X` rules the longer branch out.
+        name: "longer branch ruled out, shorter branch still matched",
+        pattern: /abc|b/,
+        haystack: "abX",
+        expected: [
+          { isMatch: false, text: "a" },
+          { isMatch: true, text: "b" },
+          { isMatch: false, text: "X" }
+        ]
+      },
+      {
+        name: "template token whose own closing delimiter is a rival branch",
+        pattern: /\{\{[^{}]*\}\}|\}/,
+        haystack: "a {{b}} c }",
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: "{{b}}" },
+          { isMatch: false, text: " c " },
+          { isMatch: true, text: "}" }
+        ]
+      },
+      {
+        name: "tag pair whose own closing tag is a rival branch",
+        pattern: /<b>[^<]*<\/b>|<\/b>/,
+        haystack: "p <b>q</b> r",
+        expected: [
+          { isMatch: false, text: "p " },
+          { isMatch: true, text: "<b>q</b>" },
+          { isMatch: false, text: " r" }
+        ]
+      },
+      {
+        name: "alternation branch matching inside a longer branch",
+        pattern: /foo.?bar|o/,
+        haystack: "x fooXbar y o z",
+        expected: [
+          { isMatch: false, text: "x " },
+          { isMatch: true, text: "fooXbar" },
+          { isMatch: false, text: " y " },
+          { isMatch: true, text: "o" },
+          { isMatch: false, text: " z" }
+        ]
+      },
+      {
+        name: "quoted string containing the rival alternation branch",
+        pattern: /"[^"]*"|\}/,
+        haystack: `a "b}c" d } e`,
+        expected: [
+          { isMatch: false, text: "a " },
+          { isMatch: true, text: `"b}c"` },
+          { isMatch: false, text: " d " },
+          { isMatch: true, text: "}" },
+          { isMatch: false, text: " e" }
+        ]
+      },
+      {
+        // Both branches start at the same index and the shorter one ends well
+        // short of the chunk edge; only a partial match reaching
+        // end-of-haystack reveals that `2024-` is still viable.
+        name: "higher-priority alternation branch still viable past the accepted match",
+        pattern: /\d{4}-\d{2}|\d{4}/,
+        haystack: "born 2024-06 ok",
+        expected: [
+          { isMatch: false, text: "born " },
+          { isMatch: true, text: "2024-06" },
+          { isMatch: false, text: " ok" }
+        ]
+      },
+      {
+        name: "one branch anchored by a literal, the other eagerly quantified",
+        pattern: /a\d+z|\d+/,
+        haystack: "x a12z y 34 z",
+        expected: [
+          { isMatch: false, text: "x " },
+          { isMatch: true, text: "a12z" },
+          { isMatch: false, text: " y " },
+          { isMatch: true, text: "34" },
+          { isMatch: false, text: " z" }
+        ]
+      }
+    ]);
+  });
+
+  describe("quantifiers", () => {
+    describeChunkInvariantCases([
+      {
+        name: "quantified group whose tail is also the pattern's terminator",
+        pattern: /(ab)*b/,
+        haystack: "abb",
+        expected: [{ isMatch: true, text: "abb" }]
+      },
+      {
+        name: "eager quantifier satisfied at the boundary",
+        pattern: /[A-Z]+/,
+        haystack: "please MATCH this",
+        expected: [
+          { isMatch: false, text: "please " },
+          { isMatch: true, text: "MATCH" },
+          { isMatch: false, text: " this" }
+        ]
+      },
+      {
+        name: "trailing unbounded quantifier truncated by the boundary",
+        pattern: /foo.+/,
+        haystack: "foo bar",
+        expected: [{ isMatch: true, text: "foo bar" }]
+      },
+      {
+        // `\w?` can consume the very `b` that terminates the pattern, so
+        // ending in a literal does not pin down where the match ends.
+        name: "optional atom able to consume the pattern's own terminator",
+        pattern: /x?\w?b/,
+        haystack: "<}bba<x<",
+        expected: [
+          { isMatch: false, text: "<}" },
+          { isMatch: true, text: "bb" },
+          { isMatch: false, text: "a<x<" }
+        ]
+      }
+    ]);
   });
 
   describe("incomplete matches requiring flush", () => {
@@ -1144,380 +993,138 @@ describe("RegexSearchStrategy", () => {
     });
   });
 
-  describe("chunk-boundary independence", () => {
-    const cases = [
-      {
-        name: "literal token",
-        pattern: /PLACEHOLDER/,
-        haystack: "a PLACEHOLDER b",
-        expected: [
-          { isMatch: false, text: "a " },
-          { isMatch: true, text: "PLACEHOLDER" },
-          { isMatch: false, text: " b" }
-        ]
-      },
-      {
-        name: "delimited token with capture",
-        pattern: /\{\{(\w+)\}\}/,
-        haystack: "hi {{name}} and {{other}}!",
-        expected: [
-          { isMatch: false, text: "hi " },
-          { isMatch: true, text: "{{name}}" },
-          { isMatch: false, text: " and " },
-          { isMatch: true, text: "{{other}}" },
-          { isMatch: false, text: "!" }
-        ]
-      },
-      {
-        name: "character class between anchoring literals",
-        pattern: /foo[A-Z]+bar/,
-        haystack: "a fooABCbar b fooZbar c",
-        expected: [
-          { isMatch: false, text: "a " },
-          { isMatch: true, text: "fooABCbar" },
-          { isMatch: false, text: " b " },
-          { isMatch: true, text: "fooZbar" },
-          { isMatch: false, text: " c" }
-        ]
-      },
-      {
-        name: "distinct alternation branches",
-        pattern: /cat|dog/,
-        haystack: "a cat and a dog",
-        expected: [
-          { isMatch: false, text: "a " },
-          { isMatch: true, text: "cat" },
-          { isMatch: false, text: " and a " },
-          { isMatch: true, text: "dog" }
-        ]
-      },
-      {
-        name: "alternation where one branch prefixes another",
-        pattern: /<a>|<abc>/,
-        haystack: "x<a>y<abc>z",
-        expected: [
-          { isMatch: false, text: "x" },
-          { isMatch: true, text: "<a>" },
-          { isMatch: false, text: "y" },
-          { isMatch: true, text: "<abc>" },
-          { isMatch: false, text: "z" }
-        ]
-      },
-      {
-        name: "shortest branch matching inside the longer branch",
-        pattern: /abc|b/,
-        haystack: "abc",
-        expected: [{ isMatch: true, text: "abc" }]
-      },
-      {
-        // The mirror of the case above: having buffered `ab` on the chance that
-        // `abc` completes, the strategy must release it and take the `b` match
-        // once `X` rules the longer branch out.
-        name: "longer branch ruled out, shorter branch still matched",
-        pattern: /abc|b/,
-        haystack: "abX",
-        expected: [
-          { isMatch: false, text: "a" },
-          { isMatch: true, text: "b" },
-          { isMatch: false, text: "X" }
-        ]
-      },
-      {
-        name: "quantified group whose tail is also the pattern's terminator",
-        pattern: /(ab)*b/,
-        haystack: "abb",
-        expected: [{ isMatch: true, text: "abb" }]
-      },
-      {
-        name: "template token whose own closing delimiter is a rival branch",
-        pattern: /\{\{[^{}]*\}\}|\}/,
-        haystack: "a {{b}} c }",
-        expected: [
-          { isMatch: false, text: "a " },
-          { isMatch: true, text: "{{b}}" },
-          { isMatch: false, text: " c " },
-          { isMatch: true, text: "}" }
-        ]
-      },
-      {
-        name: "tag pair whose own closing tag is a rival branch",
-        pattern: /<b>[^<]*<\/b>|<\/b>/,
-        haystack: "p <b>q</b> r",
-        expected: [
-          { isMatch: false, text: "p " },
-          { isMatch: true, text: "<b>q</b>" },
-          { isMatch: false, text: " r" }
-        ]
-      },
-      {
-        name: "alternation branch matching inside a longer branch",
-        pattern: /foo.?bar|o/,
-        haystack: "x fooXbar y o z",
-        expected: [
-          { isMatch: false, text: "x " },
-          { isMatch: true, text: "fooXbar" },
-          { isMatch: false, text: " y " },
-          { isMatch: true, text: "o" },
-          { isMatch: false, text: " z" }
-        ]
-      },
-      {
-        name: "quoted string containing the rival alternation branch",
-        pattern: /"[^"]*"|\}/,
-        haystack: `a "b}c" d } e`,
-        expected: [
-          { isMatch: false, text: "a " },
-          { isMatch: true, text: `"b}c"` },
-          { isMatch: false, text: " d " },
-          { isMatch: true, text: "}" },
-          { isMatch: false, text: " e" }
-        ]
-      },
-      {
-        name: "backreference",
-        pattern: /(.+?) \1/,
-        haystack: "foo foo bar",
-        expected: [
-          { isMatch: true, text: "foo foo" },
-          { isMatch: false, text: " bar" }
-        ]
-      },
-      {
-        name: "matched tag pair via backreference",
-        pattern: /<([a-zA-Z][\w:-]*)>[^<]*?<\/\1>/,
-        haystack: "head <esi:include>body</esi:include> tail",
-        expected: [
-          { isMatch: false, text: "head " },
-          { isMatch: true, text: "<esi:include>body</esi:include>" },
-          { isMatch: false, text: " tail" }
-        ]
-      },
-      {
-        name: "eager quantifier satisfied at the boundary",
-        pattern: /[A-Z]+/,
-        haystack: "please MATCH this",
-        expected: [
-          { isMatch: false, text: "please " },
-          { isMatch: true, text: "MATCH" },
-          { isMatch: false, text: " this" }
-        ]
-      },
-      {
-        name: "trailing unbounded quantifier truncated by the boundary",
-        pattern: /foo.+/,
-        haystack: "foo bar",
-        expected: [{ isMatch: true, text: "foo bar" }]
-      },
-      {
-        // Both branches start at the same index and the shorter one ends well
-        // short of the chunk edge; only a partial match reaching
-        // end-of-haystack reveals that `2024-` is still viable.
-        name: "higher-priority alternation branch still viable past the accepted match",
-        pattern: /\d{4}-\d{2}|\d{4}/,
-        haystack: "born 2024-06 ok",
-        expected: [
-          { isMatch: false, text: "born " },
-          { isMatch: true, text: "2024-06" },
-          { isMatch: false, text: " ok" }
-        ]
-      },
-      {
-        name: "one branch anchored by a literal, the other eagerly quantified",
-        pattern: /a\d+z|\d+/,
-        haystack: "x a12z y 34 z",
-        expected: [
-          { isMatch: false, text: "x " },
-          { isMatch: true, text: "a12z" },
-          { isMatch: false, text: " y " },
-          { isMatch: true, text: "34" },
-          { isMatch: false, text: " z" }
-        ]
-      },
-      {
-        // `\w?` can consume the very `b` that terminates the pattern, so
-        // ending in a literal does not pin down where the match ends.
-        name: "optional atom able to consume the pattern's own terminator",
-        pattern: /x?\w?b/,
-        haystack: "<}bba<x<",
-        expected: [
-          { isMatch: false, text: "<}" },
-          { isMatch: true, text: "bb" },
-          { isMatch: false, text: "a<x<" }
-        ]
-      }
-    ];
-
-    cases.forEach(({ name, pattern, haystack, expected }) => {
-      describe(name, () => {
-        it("matches the non-streaming result when unsplit", () => {
-          const { segments, output } = collectCanonicalSearchStrategyResults(
-            new RegexSearchStrategy(pattern),
-            [haystack]
-          );
-          expect(segments).toEqual(expected);
-          expect(output).toBe(haystack);
-        });
-
-        it("matches it at every two-way, three-way and per-character split", () => {
-          const splits = [
-            ...everyTwoWaySplit(haystack),
-            ...everyThreeWaySplit(haystack),
-            characterBySplit(haystack)
-          ];
-
-          for (const chunks of splits) {
-            const { segments, output } = collectCanonicalSearchStrategyResults(
-              new RegexSearchStrategy(pattern),
-              chunks
-            );
-            // Compared as one object so a failure reports the offending split.
-            expect({ chunks, segments, output }).toEqual({
-              chunks,
-              segments: expected,
-              output: haystack
-            });
-          }
-        });
-      });
+  describe("settling at end of stream", () => {
+    it("emits a match the stream ended on, rather than flushing it as text", () => {
+      const { results, flushResults } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/abc|b/),
+        ["ab"]
+      );
+      expect(results).toEqual([]);
+      expect(flushResults).toMatchObject([
+        { isMatch: false, content: "a" },
+        { isMatch: true, content: expect.arrayContaining(["b"]) }
+      ]);
     });
 
-    describe("settling at end of stream", () => {
-      it("emits a match the stream ended on, rather than flushing it as text", () => {
-        const { results, flushResults } = collectSearchStrategyResults(
-          new RegexSearchStrategy(/abc|b/),
-          ["ab"]
-        );
-        expect(results).toEqual([]);
-        expect(flushResults).toMatchObject([
-          { isMatch: false, content: "a" },
-          { isMatch: true, content: expect.arrayContaining(["b"]) }
-        ]);
-      });
+    it("maps capture-group and `d`-flag indices of a settled match onto the stream", () => {
+      const { flushResults } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
+        ["prefix ", "{{value}}"]
+      );
 
-      it("maps capture-group and `d`-flag indices of a settled match onto the stream", () => {
-        const { flushResults } = collectSearchStrategyResults(
-          new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
-          ["prefix ", "{{value}}"]
-        );
-
-        const match = flushResults.find((result) => result.isMatch);
-        expect(match).toMatchObject({
-          isMatch: true,
-          streamIndices: [7, 16]
-        });
-        const content = (match as { content: RegExpExecArray }).content;
-        expect(content.groups?.name).toBe("value");
-        expect(content.indices?.[0]).toEqual([7, 16]);
-        expect(content.indices?.groups?.name).toEqual([9, 14]);
+      const match = flushResults.find((result) => result.isMatch);
+      expect(match).toMatchObject({
+        isMatch: true,
+        streamIndices: [7, 16]
       });
-
-      it("emits content that never became a match as one trailing non-match segment", () => {
-        const { results, flushResults } = collectSearchStrategyResults(
-          new RegexSearchStrategy(/\{\{\w+\}\}/),
-          ["a {{b}} and {{unclo"]
-        );
-        expect(results).toMatchObject([
-          { isMatch: false, content: "a " },
-          { isMatch: true, content: expect.arrayContaining(["{{b}}"]) },
-          { isMatch: false, content: " and " }
-        ]);
-        expect(flushResults).toEqual([
-          { isMatch: false, content: "{{unclo" }
-        ]);
-      });
-
-      it("yields nothing when the buffer is empty", () => {
-        const strategy = new RegexSearchStrategy(/OLD/);
-        const state = strategy.createState();
-        expect([...strategy.flush(state)]).toEqual([]);
-      });
+      const content = (match as { content: RegExpExecArray }).content;
+      expect(content.groups?.name).toBe("value");
+      expect(content.indices?.[0]).toEqual([7, 16]);
+      expect(content.indices?.groups?.name).toEqual([9, 14]);
     });
 
-    describe("the partial-match contract the scan relies on", () => {
-      it("reports a zero-length match at end-of-haystack when nothing viable remains, rather than null", () => {
-        const partial = new PartialMatchRegExp(/OLD/);
-        const match = partial.exec("zzz");
-        expect(match).not.toBeNull();
-        expect(match![0]).toBe("");
-        expect(match!.index).toBe(3);
-      });
-
-      it("reports an incomplete match only where it reaches end-of-haystack", () => {
-        const partial = new PartialMatchRegExp(/OLD/);
-        const truncated = partial.exec("xxOL")!;
-        expect(truncated[0]).toBe("OL");
-        expect(truncated.index + truncated[0].length).toBe(4);
-
-        const settled = partial.exec("xxOLDyy")!;
-        expect(settled[0]).toBe("OLD");
-        expect(settled.index + settled[0].length).toBeLessThan(7);
-      });
-
-      it("passes the remainder through if the partial regex ever reports no match at all", () => {
-        const strategy = new RegexSearchStrategy(/OLD/);
-        const state = strategy.createState();
-        vi.spyOn(PartialMatchRegExp.prototype, "exec").mockReturnValue(null);
-        try {
-          const results = [...strategy.processChunk("anything", state)];
-          expect(results).toEqual([{ isMatch: false, content: "anything" }]);
-          expect(state.buffer).toBe("");
-        } finally {
-          vi.restoreAllMocks();
-        }
-      });
+    it("emits content that never became a match as one trailing non-match segment", () => {
+      const { results, flushResults } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{\w+\}\}/),
+        ["a {{b}} and {{unclo"]
+      );
+      expect(results).toMatchObject([
+        { isMatch: false, content: "a " },
+        { isMatch: true, content: expect.arrayContaining(["{{b}}"]) },
+        { isMatch: false, content: " and " }
+      ]);
+      expect(flushResults).toEqual([{ isMatch: false, content: "{{unclo" }]);
     });
 
-    // Deferring to a still-viable longer branch has a cost at the end of the
-    // stream: no further input arrives to settle it, and buffered content is
-    // flushed verbatim — so a shorter branch that *would* have matched is emitted
-    // as literal content instead. The same trade the strategy has always made for
-    // an incomplete match at end of stream, now reachable with a complete one.
-    const endOfStreamCases = [
-      {
-        name: "shorter branch deferred to a longer one that never arrives",
-        pattern: /abc|b/,
-        chunks: ["ab"],
-        nonStreamingWouldMatch: "b",
-        expectedYields: [],
-        expectedFlush: "ab"
-      },
-      {
-        name: "deferred across a chunk boundary, stream then ends",
-        pattern: /foo.?bar|o/,
-        chunks: ["x f", "o"],
-        nonStreamingWouldMatch: "o",
-        expectedYields: [{ isMatch: false, content: "x " }],
-        expectedFlush: "fo"
-      }
-    ];
-
-    endOfStreamCases.forEach(
-      ({
-        name,
-        pattern,
-        chunks,
-        nonStreamingWouldMatch,
-        expectedYields,
-        expectedFlush
-      }) => {
-        it(`flushes a deferred match as literal content — ${name}`, () => {
-          // Establish that there really is a match to lose.
-          expect(pattern.exec(chunks.join(""))?.[0]).toBe(
-            nonStreamingWouldMatch
-          );
-
-          const { results, flush } = collectSearchStrategyResults(
-            new RegexSearchStrategy(pattern),
-            chunks
-          );
-
-          expect(results).toEqual(expectedYields);
-          expect(flush).toBe(expectedFlush);
-          expect(results.map(getValue).join("") + flush).toBe(chunks.join(""));
-        });
-      }
-    );
+    it("yields nothing when the buffer is empty", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+      expect([...strategy.flush(state)]).toEqual([]);
+    });
   });
+
+  describe("the partial-match contract the scan relies on", () => {
+    it("reports a zero-length match at end-of-haystack when nothing viable remains, rather than null", () => {
+      const partial = new PartialMatchRegExp(/OLD/);
+      const match = partial.exec("zzz");
+      expect(match).not.toBeNull();
+      expect(match![0]).toBe("");
+      expect(match!.index).toBe(3);
+    });
+
+    it("reports an incomplete match only where it reaches end-of-haystack", () => {
+      const partial = new PartialMatchRegExp(/OLD/);
+      const truncated = partial.exec("xxOL")!;
+      expect(truncated[0]).toBe("OL");
+      expect(truncated.index + truncated[0].length).toBe(4);
+
+      const settled = partial.exec("xxOLDyy")!;
+      expect(settled[0]).toBe("OLD");
+      expect(settled.index + settled[0].length).toBeLessThan(7);
+    });
+
+    it("passes the remainder through if the partial regex ever reports no match at all", () => {
+      const strategy = new RegexSearchStrategy(/OLD/);
+      const state = strategy.createState();
+      vi.spyOn(PartialMatchRegExp.prototype, "exec").mockReturnValue(null);
+      try {
+        const results = [...strategy.processChunk("anything", state)];
+        expect(results).toEqual([{ isMatch: false, content: "anything" }]);
+        expect(state.buffer).toBe("");
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+  });
+
+  // Deferring to a still-viable longer branch has a cost at the end of the
+  // stream: no further input arrives to settle it, and buffered content is
+  // flushed verbatim — so a shorter branch that *would* have matched is emitted
+  // as literal content instead. The same trade the strategy has always made for
+  // an incomplete match at end of stream, now reachable with a complete one.
+  const endOfStreamCases = [
+    {
+      name: "shorter branch deferred to a longer one that never arrives",
+      pattern: /abc|b/,
+      chunks: ["ab"],
+      nonStreamingWouldMatch: "b",
+      expectedYields: [],
+      expectedFlush: "ab"
+    },
+    {
+      name: "deferred across a chunk boundary, stream then ends",
+      pattern: /foo.?bar|o/,
+      chunks: ["x f", "o"],
+      nonStreamingWouldMatch: "o",
+      expectedYields: [{ isMatch: false, content: "x " }],
+      expectedFlush: "fo"
+    }
+  ];
+
+  endOfStreamCases.forEach(
+    ({
+      name,
+      pattern,
+      chunks,
+      nonStreamingWouldMatch,
+      expectedYields,
+      expectedFlush
+    }) => {
+      it(`flushes a deferred match as literal content — ${name}`, () => {
+        // Establish that there really is a match to lose.
+        expect(pattern.exec(chunks.join(""))?.[0]).toBe(nonStreamingWouldMatch);
+
+        const { results, flush } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          chunks
+        );
+
+        expect(results).toEqual(expectedYields);
+        expect(flush).toBe(expectedFlush);
+        expect(results.map(getValue).join("") + flush).toBe(chunks.join(""));
+      });
+    }
+  );
 
   describe("cancellation scenarios", () => {
     it("has no remainder when cancelling with no matches", () => {
@@ -1973,6 +1580,13 @@ describe("RegexSearchStrategy", () => {
         ]);
         expect(flush).toBe(" bar");
       });
+
+      it("matches the same at every two-way, three-way and per-character split", () => {
+        expectSameMatchesAtEverySplit(pattern, "foo foo bar", [
+          { isMatch: true, text: "foo foo" },
+          { isMatch: false, text: " bar" }
+        ]);
+      });
     });
 
     describe("named backreference", () => {
@@ -2057,6 +1671,18 @@ describe("RegexSearchStrategy", () => {
         });
         expect(flush).toBe("");
       });
+
+      it("matches the same at every two-way, three-way and per-character split", () => {
+        expectSameMatchesAtEverySplit(
+          pattern,
+          "head <esi:include>body</esi:include> tail",
+          [
+            { isMatch: false, text: "head " },
+            { isMatch: true, text: "<esi:include>body</esi:include>" },
+            { isMatch: false, text: " tail" }
+          ]
+        );
+      });
     });
   });
 
@@ -2065,7 +1691,8 @@ describe("RegexSearchStrategy", () => {
       results: MatchResult<RegExpExecArray>[],
       flush: string
     ): string =>
-      results.map((r) => (r.isMatch ? r.content[0] : r.content)).join("") + flush;
+      results.map((r) => (r.isMatch ? r.content[0] : r.content)).join("") +
+      flush;
 
     const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
       results.filter((r) => r.isMatch).map((r) => r.content[0]);
@@ -2079,8 +1706,7 @@ describe("RegexSearchStrategy", () => {
       ["star quantifier", /a*/],
       ["counted from zero", /a{0,2}/],
       ["empty alternation branch", /x|/],
-      ["positive lookahead", /(?=a)/],
-      ["negative lookahead", /(?!z)/]
+      ["positive lookahead", /(?=a)/]
     ];
 
     describe.each(zeroLengthPatterns)("%s: %s", (_name, pattern) => {
@@ -2088,7 +1714,9 @@ describe("RegexSearchStrategy", () => {
 
       it("terminates instead of looping forever, bounded so a regression fails the test rather than exhausting the heap and killing the worker", () => {
         expect(() =>
-          collectSearchStrategyResults(new RegexSearchStrategy(pattern), [input])
+          collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
+            input
+          ])
         ).not.toThrow();
       });
 
@@ -2105,16 +1733,19 @@ describe("RegexSearchStrategy", () => {
 
       it("never yields an empty match, so replacement functions are never invoked with one", () => {
         for (let i = 1; i < input.length; i++) {
-          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
-            input.slice(0, i),
-            input.slice(i)
-          ]);
+          const { results } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            [input.slice(0, i), input.slice(i)]
+          );
           expect(matchesOf(results)).not.toContain("");
         }
       });
 
       it("is lossless however the input is split", () => {
-        const whole = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [input]);
+        const whole = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern),
+          [input]
+        );
         expect(reassemble(whole.results, whole.flush)).toBe(input);
 
         for (let i = 1; i < input.length; i++) {
@@ -2163,15 +1794,11 @@ describe("RegexSearchStrategy", () => {
       );
 
       it("never matches at all when the pattern can only ever match empty, failing silently by design", () => {
-        for (const pattern of [
-          emptyPattern,
-          /(?:)/,
-          /(?=a)/,
-          /(?!z)/
-        ]) {
-          const { results } = collectSearchStrategyResults(new RegexSearchStrategy(pattern), [
-            "abc"
-          ]);
+        for (const pattern of [emptyPattern, /(?:)/, /(?=a)/]) {
+          const { results } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            ["abc"]
+          );
           expect(matchesOf(results)).toEqual([]);
         }
       });
@@ -2253,9 +1880,10 @@ describe("RegexSearchStrategy", () => {
       const input = "\u{1F600}";
       expect(input).toHaveLength(2);
 
-      const { results, flush } = collectSearchStrategyResults(new RegexSearchStrategy(/a?/), [
-        input
-      ]);
+      const { results, flush } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/a?/),
+        [input]
+      );
       expect(matchesOf(results)).toEqual([]);
       expect(reassemble(results, flush)).toBe(input);
     });
@@ -2269,5 +1897,4 @@ describe("RegexSearchStrategy", () => {
       expect(reassemble(results, flush)).toBe("a {{name}} b");
     });
   });
-
 });

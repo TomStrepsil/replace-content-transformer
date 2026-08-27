@@ -81,6 +81,21 @@ Buffered IndexOf Anchored (Async)     24.19 ns/iter  23.88 ns    █
 
 [^1]: N.B. only `regex` and `looped-indexOf-anchored` strategies are exported, with full required functionality.
 
+### Regex Content Shape Benchmarks
+
+What the regex search strategy costs across content shapes, grouped by what each forces at a chunk boundary — settling, deferring, buffering to end of stream, or no match at all. See [separate documentation](./regex-shapes/README.md).
+
+```bash
+npm run bench:regex-shapes           # timing run (mitata)
+npm run bench:regex-shapes:report    # buffering + fidelity, no timing
+```
+
+#### What's Measured
+
+The [algorithm benchmarks](#algorithm-benchmarks) above use anchor-shaped content throughout, which is the one shape that can always settle the moment a match completes. This suite covers the rest: eager quantifiers, alternation branches that could still grow, backreferences, `d`-flag indices, surrogate pairs across chunk edges, nullable patterns, and content with no terminator at all — plus a growth curve showing that the last of those is quadratic in stream length rather than a constant factor.
+
+A deterministic report (`--report`) accompanies the timing run: peak buffer per shape, matches settled at a boundary versus at `flush`, and agreement with a non-streaming reference over the same input.
+
 ### Runtime Benchmarks
 
 Compare performance across different JavaScript runtimes (Node.js, Bun, Deno):

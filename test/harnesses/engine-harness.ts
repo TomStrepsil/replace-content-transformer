@@ -61,9 +61,8 @@ export function generatorHarnessTransformer(processor: {
       for (const out of processor.processChunk(chunk)) controller.enqueue(out);
     },
     flush(controller: EngineSink) {
-      for (const result of processor.flush()) {
-        const flushed = result.isMatch ? result.content : result.content;
-        if (flushed) controller.enqueue(flushed);
+      for (const { content } of processor.flush()) {
+        if (content) controller.enqueue(content);
       }
     }
   };

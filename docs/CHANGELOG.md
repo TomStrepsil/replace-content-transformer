@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed chunking-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)). Three mechanisms — a match accepted at a position later than a viable partial began, a match ending exactly at the boundary that more input would extend, and a match ending *before* the boundary while a higher-priority alternation branch was still viable — turn out to be one question, *is anything starting here still growing?*, which the partial-match regex already answers. The scan is now driven by the partial regex alone, and the original pattern is not consulted until `flush`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
 - Surrogate pairs split across chunks now rejoin into a single match, rather than yielding one match per lone surrogate. Previously documented as a limitation
+- Removed tests for regex search strategy that should have been removed with [#53](https://github.com/TomStrepsil/replace-content-transformer/pull/53)
 
 ### Added
 
