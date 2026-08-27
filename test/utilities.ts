@@ -185,7 +185,7 @@ async function settleMicrotasks(times = 2): Promise<void> {
 /**
  * A `flush()` implementation for mocked strategies: yields each non-empty text
  * as one non-match result, matching the generator signature `SearchStrategy`
- * now requires.
+ * requires.
  */
 function flushesText<TMatch = string>(...contents: string[]) {
   return function* (): Generator<MatchResult<TMatch>, void, undefined> {
