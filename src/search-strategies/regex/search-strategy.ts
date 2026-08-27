@@ -13,6 +13,10 @@ function updateIndices(indices: RegExpIndicesArray, offset: number) {
   }
 }
 
+function nonMatch(content: string): MatchResult<RegExpExecArray> {
+  return { isMatch: false, content };
+}
+
 function toMatchResult(
   match: RegExpExecArray,
   startIndex: number
@@ -80,6 +84,17 @@ export class RegexSearchStrategy
     );
   }
 
+  private settledMatch(
+    candidate: RegExpExecArray | null,
+    haystack: string
+  ): RegExpExecArray | null {
+    if (candidate === null) return null;
+    const matchLength = candidate[0].length;
+    if (candidate.index + matchLength === haystack.length) return null;
+    if (!this.lookaheadMayBeTruncated || matchLength === 0) return candidate;
+    return this.isCompleteMatch(candidate, haystack) ? candidate : null;
+  }
+
   *processChunk(
     haystack: string,
     state: StringBufferState
@@ -93,61 +108,35 @@ export class RegexSearchStrategy
       while (position < length) {
         const remainingHaystack = haystack.substring(position);
         const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
-        const matchLength = partialMatch === null ? 0 : partialMatch[0].length;
-        const endsAtEndOfHaystack =
-          partialMatch !== null &&
-          partialMatch.index + matchLength === remainingHaystack.length;
+        const matchStart = partialMatch?.index ?? remainingHaystack.length;
+        const settledMatch = this.settledMatch(partialMatch, remainingHaystack);
 
-        const lookaheadOutrunsTheMatch =
-          this.lookaheadMayBeTruncated &&
-          partialMatch !== null &&
-          !endsAtEndOfHaystack &&
-          matchLength > 0 &&
-          !this.isCompleteMatch(partialMatch, remainingHaystack);
-
-        const chunkIsSpent =
-          partialMatch === null ||
-          endsAtEndOfHaystack ||
-          lookaheadOutrunsTheMatch;
-        if (chunkIsSpent) {
-          const couldStillBeGrowing = partialMatch !== null && matchLength > 0;
-          const bufferFrom = couldStillBeGrowing
-            ? partialMatch.index
-            : remainingHaystack.length;
+        if (settledMatch === null) {
           position = length;
-          state.buffer = remainingHaystack.slice(bufferFrom);
-          if (bufferFrom > 0) {
-            yield {
-              isMatch: false,
-              content: remainingHaystack.slice(0, bufferFrom)
-            };
-          }
+          state.buffer = remainingHaystack.slice(matchStart);
+          if (matchStart > 0)
+            yield nonMatch(remainingHaystack.slice(0, matchStart));
           return;
         }
 
+        state.buffer = "";
+        const matchLength = settledMatch[0].length;
+
         const cannotAdvanceTheCursor = matchLength === 0;
         if (cannotAdvanceTheCursor) {
-          state.buffer = "";
-          const resumeAfterSkippingZeroLengthMatch = Math.min(
-            position + partialMatch.index + 1,
+          const resumeAfterZeroLengthMatch = Math.min(
+            position + matchStart + 1,
             length
           );
-          const skipped = haystack.slice(
-            position,
-            resumeAfterSkippingZeroLengthMatch
-          );
-          position = resumeAfterSkippingZeroLengthMatch;
-          yield { isMatch: false, content: skipped };
+          const skipped = haystack.slice(position, resumeAfterZeroLengthMatch);
+          position = resumeAfterZeroLengthMatch;
+          yield nonMatch(skipped);
           continue;
         }
 
-        const settledMatch = partialMatch;
-        state.buffer = "";
-        if (settledMatch.index) {
-          const matchStart = position + settledMatch.index;
-          const nonMatch = haystack.slice(position, matchStart);
-          position = matchStart;
-          yield { isMatch: false, content: nonMatch };
+        if (matchStart > 0) {
+          position += matchStart;
+          yield nonMatch(remainingHaystack.slice(0, matchStart));
         }
 
         const startIndex = baseOffset + position;
@@ -177,9 +166,8 @@ export class RegexSearchStrategy
       const finalMatch = this.completeMatchRegex.exec(remaining);
       if (!finalMatch?.[0]) break;
 
-      if (finalMatch.index) {
-        yield { isMatch: false, content: remaining.slice(0, finalMatch.index) };
-      }
+      if (finalMatch.index)
+        yield nonMatch(remaining.slice(0, finalMatch.index));
 
       const matchStart = position + finalMatch.index;
       position = matchStart + finalMatch[0].length;
@@ -187,9 +175,7 @@ export class RegexSearchStrategy
       yield toMatchResult(finalMatch, baseOffset + matchStart);
     }
 
-    if (position < buffer.length) {
-      yield { isMatch: false, content: buffer.slice(position) };
-    }
+    if (position < buffer.length) yield nonMatch(buffer.slice(position));
   }
 
   override matchToString(match: RegExpExecArray): string {
