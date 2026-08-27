@@ -13,6 +13,7 @@ import {
  * @param needle - The pattern to search for. Can be a string, array of strings, or RegExp.
  * @returns A search strategy instance configured for the given pattern type.
  * @throws If a string needle is empty, or a string array is empty or contains an empty string.
+ * @throws If a RegExp needle uses a construct or flag the streaming scan cannot support — see {@link RegexSearchStrategy}.
  * 
  * @example
  * ```typescript

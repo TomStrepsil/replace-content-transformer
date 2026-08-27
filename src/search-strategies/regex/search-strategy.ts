@@ -38,6 +38,11 @@ function toMatchResult(
  * It correctly handles matches that span chunk boundaries by maintaining a buffer and
  * using partial match detection to avoid splitting incomplete patterns.
  *
+ * @throws If `needle` uses a construct whose truth a streaming scan cannot decide
+ * at a chunk boundary — negative lookaheads, lookbehinds, word boundaries, or the
+ * `^`/`$` anchors — or the `g`, `y` or `m` flags. See
+ * [Limitations](./README.md#limitations).
+ *
  * @example Basic regex search
  * ```typescript
  * import { searchStrategyFactory, FunctionReplacementProcessor } from 'replace-content-transformer';

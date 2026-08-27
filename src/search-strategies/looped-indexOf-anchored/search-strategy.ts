@@ -54,6 +54,8 @@ const validateNeedles = (needles: string[]): void => {
  * - Avoids unnecessary buffering when no partial matches exist
  * - Minimal overhead for partial match detection
  * - Optimal for streams with sparse or no matches
+ *
+ * @throws If `needles` is empty, or any needle is an empty string.
  */
 export class LoopedIndexOfAnchoredSearchStrategy
   extends StringBufferStrategyBase
