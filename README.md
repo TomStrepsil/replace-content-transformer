@@ -301,7 +301,7 @@ const transformerWithGenerator = new AsyncReplaceContentTransformer(
 
 For I/O-bound replacements (fragment fetches, KV lookups, etc.) the `AsyncSerialReplacementTransformEngine` above processes matches **serially** — the next match isn't even looked for until the current replacement has fully streamed to the output. That means later matches wait idle while earlier replacements are still in flight, even if they could be running concurrently.
 
-`AsyncLookaheadTransformEngine` scans ahead and **initiates** later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
+`AsyncLookaheadTransformEngine` scans ahead and initiates later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
 
 ```typescript
 import {
