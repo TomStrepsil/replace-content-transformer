@@ -4,8 +4,9 @@ import jscodeshift from "jscodeshift";
 const tsx = jscodeshift.withParser("tsx");
 import transform from "./flush-implementation-to-generator.js";
 
-function runTransform(source, reports = []) {
-  return transform(
+function runTransform(source) {
+  const reports = [];
+  const output = transform(
     { path: "fixture.ts", source },
     {
       jscodeshift: tsx,
@@ -15,165 +16,92 @@ function runTransform(source, reports = []) {
     },
     {}
   );
+  return { output, report: reports.join("\n") };
 }
 
-describe("flush-implementation-to-generator codemod", () => {
-  it("rewrites the mechanical buffer-returning implementation", () => {
-    const output = runTransform(
-      [
-        "class S extends StringBufferStrategyBase {",
-        "  flush(state: StringBufferState): string {",
+const strategy = (...body) =>
+  ["class S implements SearchStrategy<State, string> {", ...body, "}", ""].join(
+    "\n"
+  );
+
+describe("flush-implementation report", () => {
+  it("never edits the file", () => {
+    const { output } = runTransform(
+      strategy("  flush(state: State): string {", "    return state.buffer;", "  }")
+    );
+
+    expect(output).toBeNull();
+  });
+
+  it("reports the signature to write", () => {
+    const { report } = runTransform(
+      strategy(
+        "  flush(state: State): string {",
         "    const flushed = state.buffer;",
-        '    state.buffer = "";',
         "    return flushed;",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
+        "  }"
+      )
     );
 
-    expect(output).toContain("*flush(");
-    expect(output).toContain(
-      "Generator<MatchResult<string>, void, undefined>"
+    expect(report).toContain("fixture.ts:2");
+    expect(report).toContain(
+      "becomes *flush(state: State): Generator<MatchResult<string>, void, undefined>"
     );
-    expect(output).toContain("if (flushed)");
-    expect(output).toContain('isMatch: false');
-    expect(output).toContain("content: flushed");
-    expect(output).not.toContain("return flushed");
+    expect(report).toContain(
+      "`return flushed` becomes `if (flushed) yield { isMatch: false, content: flushed }`"
+    );
   });
 
-  it("turns delegation to another flush into yield*", () => {
-    const output = runTransform(
-      [
-        "class S extends StringBufferStrategyBase {",
+  it("reports delegation as yield*", () => {
+    const { report } = runTransform(
+      strategy(
         "  flush(state: State): string {",
-        "    state.needleIndex = 0;",
-        "    return super.flush(state);",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
+        "    return this.inner.flush(state);",
+        "  }"
+      )
     );
 
-    expect(output).toContain("yield* super.flush(state)");
-    expect(output).not.toContain("return super.flush");
+    expect(report).toContain("becomes `yield* this.inner.flush(state)`");
   });
 
-  it("leaves a subclass that inherits flush untouched", () => {
-    const output = runTransform(
-      ["class S extends StringBufferStrategyBase {", "  createState() {", "    return {};", "  }", "}", ""].join("\n")
-    );
-
-    expect(output).toBeNull();
-  });
-
-  it("leaves an already-migrated generator untouched", () => {
-    const output = runTransform(
-      [
-        "class S extends StringBufferStrategyBase {",
-        "  *flush(state: State): Generator<MatchResult, void, undefined> {",
-        "    yield* super.flush(state);",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
-    );
-
-    expect(output).toBeNull();
-  });
-
-  it("reports rather than mangles an implementation that composes its result", () => {
-    const reports = [];
-    const output = runTransform(
-      [
-        "class S extends StringBufferStrategyBase {",
+  it("reports a composed result as needing each part yielded", () => {
+    const { report } = runTransform(
+      strategy(
         "  flush(state: State): string {",
-        "    const flushed = state.balancedBuffer;",
-        "    return flushed + this.inner.flush(state);",
-        "  }",
-        "}",
-        ""
-      ].join("\n"),
-      reports
+        "    return state.buffer + this.inner.flush(state);",
+        "  }"
+      )
     );
 
-    expect(output).toBeNull();
-    expect(reports).toHaveLength(1);
-    expect(reports[0]).toContain("composes its result");
+    expect(report).toContain("composes its result; yield each part in turn");
   });
 
-  it("reports rather than mangles a non-string return type", () => {
-    const reports = [];
-    const output = runTransform(
-      [
-        "class S extends StringBufferStrategyBase {",
-        "  flush(state: State): string[] {",
-        "    return [state.buffer];",
-        "  }",
-        "}",
-        ""
-      ].join("\n"),
-      reports
-    );
-
-    expect(output).toBeNull();
-    expect(reports[0]).toContain("non-string return type");
-  });
-  it("leaves a flush() that is not a search strategy's alone", () => {
-    const reports = [];
-    const output = runTransform(
-      [
-        "class Cache {",
-        "  flush(): string {",
-        "    return this.buffered;",
-        "  }",
-        "}",
-        ""
-      ].join("\n"),
-      reports
-    );
-
-    expect(output).toBeNull();
-    expect(reports.join("\n")).toContain("not identifiably a SearchStrategy");
-  });
-
-  it("leaves returns inside nested functions alone", () => {
-    const output = runTransform(
-      [
-        "class S implements SearchStrategy<State, string> {",
-        "  flush(state: State): string {",
-        "    const parts = state.items.map(function (item) {",
-        "      return item.text;",
-        "    });",
-        "    return parts.join(\"\");",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
-    );
-
-    expect(output).toContain("return item.text");
-    expect(output).toContain("yield");
-  });
-
-  it("terminates the generator where a return was not the last statement", () => {
-    const output = runTransform(
-      [
-        "class S implements SearchStrategy<State, string> {",
+  it("notes the terminator a return outside tail position needs", () => {
+    const { report } = runTransform(
+      strategy(
         "  flush(state: State): string {",
         "    if (state.cached) return state.cached;",
         "    return state.buffer;",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
+        "  }"
+      )
     );
 
-    expect(output).toMatch(/yield[\s\S]*?return;/);
+    expect(report).toContain("then `return;` to end the generator");
+    expect(report.match(/then `return;`/g)).toHaveLength(1);
+  });
+
+  it("binds a non-identifier return before guarding it", () => {
+    const { report } = runTransform(
+      strategy("  flush(state: State): string {", "    return state.buffer;", "  }")
+    );
+
+    expect(report).toContain(
+      "const flushed = state.buffer; if (flushed) yield { isMatch: false, content: flushed };"
+    );
   });
 
   it("takes the match type from the implemented interface", () => {
-    const output = runTransform(
+    const { report } = runTransform(
       [
         "class S implements SearchStrategy<State, RegExpExecArray> {",
         "  flush(state: State): string {",
@@ -184,25 +112,112 @@ describe("flush-implementation-to-generator codemod", () => {
       ].join("\n")
     );
 
-    expect(output).toContain(
-      "Generator<MatchResult<RegExpExecArray>, void, undefined>"
-    );
+    expect(report).toContain("Generator<MatchResult<RegExpExecArray>, void, undefined>");
   });
 
-  it("reports when MatchResult is not already imported", () => {
-    const reports = [];
-    runTransform(
+  it("defaults the match type to string when the interface names only its state", () => {
+    const { report } = runTransform(
       [
+        "class S implements SearchStrategy<State> {",
+        "  flush(state: State): string {",
+        "    return state.buffer;",
+        "  }",
+        "}",
+        ""
+      ].join("\n")
+    );
+
+    expect(report).toContain("Generator<MatchResult<string>, void, undefined>");
+  });
+
+  it("takes the sole type argument of a base class as the match type", () => {
+    const { report } = runTransform(
+      [
+        "class S extends StringBufferStrategyBase<RegExpExecArray> {",
+        "  flush(state: State): string {",
+        "    return state.buffer;",
+        "  }",
+        "}",
+        ""
+      ].join("\n")
+    );
+
+    expect(report).toContain("Generator<MatchResult<RegExpExecArray>, void, undefined>");
+  });
+
+  it("asks for the MatchResult import the new signature needs", () => {
+    const { report } = runTransform(
+      strategy("  flush(state: State): string {", "    return state.buffer;", "  }")
+    );
+
+    expect(report).toContain("add a type import for MatchResult");
+  });
+
+  it("stays quiet about an import that is already there", () => {
+    const { report } = runTransform(
+      [
+        'import type { MatchResult } from "replace-content-transformer";',
         "class S implements SearchStrategy<State, string> {",
         "  flush(state: State): string {",
         "    return state.buffer;",
         "  }",
         "}",
         ""
-      ].join("\n"),
-      reports
+      ].join("\n")
     );
 
-    expect(reports.join("\n")).toContain("MatchResult");
+    expect(report).not.toContain("add a type import");
+  });
+
+  it("says nothing about a flush that is not a search strategy's", () => {
+    const { report } = runTransform(
+      ["class Cache {", "  flush(): string {", "    return this.buffered;", "  }", "}", ""].join("\n")
+    );
+
+    expect(report).toBe("");
+  });
+
+  it("says nothing about an already-migrated generator", () => {
+    const { report } = runTransform(
+      strategy(
+        "  *flush(state: State): Generator<MatchResult<string>, void, undefined> {",
+        "    yield { isMatch: false, content: state.buffer };",
+        "  }"
+      )
+    );
+
+    expect(report).toBe("");
+  });
+
+  it("says nothing about a subclass that inherits flush", () => {
+    const { report } = runTransform(
+      strategy("  createState() {", "    return {};", "  }")
+    );
+
+    expect(report).toBe("");
+  });
+
+  it("ignores returns inside nested functions", () => {
+    const { report } = runTransform(
+      strategy(
+        "  flush(state: State): string {",
+        "    const parts = state.items.map(function (item) {",
+        "      return item.text;",
+        "    });",
+        '    return parts.join("");',
+        "  }"
+      )
+    );
+
+    expect(report).not.toContain("item.text");
+    expect(report).toContain('parts.join("")');
+  });
+
+  it("reports a non-string return type as possibly already migrated", () => {
+    const { report } = runTransform(
+      strategy("  flush(state: State): number {", "    return 1;", "  }")
+    );
+
+    expect(report).toContain("check whether it is already migrated");
   });
 });

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`. Anything buffered at end of stream used to be emitted verbatim, which meant a strategy could never defer a decision at a chunk boundary — deferral is only correct if the deferred content can still become a match once the stream ends. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; everyone else has [two codemods](../codemods/transforms/v3-v4/README.md)
+- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`. Anything buffered at end of stream used to be emitted verbatim, which meant a strategy could never defer a decision at a chunk boundary — deferral is only correct if the deferred content can still become a match once the stream ends. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; everyone else has a [migration report](../codemods/transforms/v3-v4/README.md)
 - **BREAKING:** matches that were previously chunk-dependent no longer are, so tests asserting over chunked output will change. A match that runs to the end of a chunk is now deferred until the next chunk settles it, or until `flush` does at end of stream — the same matches, arriving later
 - Unbounded quantifiers are no longer a *correctness* caveat, only a buffering one. `/[A-Z]+/` over `"please MAT"` + `"CH this"` yields one `MATCH`, not `MAT` and `CH`. What remains is cost: a pattern that never stops growing (`/\S+/` over unbroken text) buffers to end of stream, and since the buffer is re-scanned from position 0 each chunk that cost is quadratic in stream length. A terminator the body cannot consume (`/\{\{[^{}]*\}\}/`) bounds the buffer to one pending match rather than emptying it, and content with no matches at all gets *faster*, since the redundant second scan is gone. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed an unreachable branch in `AsyncLookaheadTransformEngine`'s constructor: its scan signal is always defined, since the abandon signal is composed unconditionally. Internal only, no behaviour change
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Chunk-boundary tests driving the regex search strategy over *every* two-way, three-way and per-character split of each curated pattern, asserting a match sequence identical to the non-streaming result and lossless output. The patterns that used to be split-dependent are in that table, so the fix is verified rather than assumed
 - Tests for engine paths that had none: cancelling an async-serial replacement mid-flight (between results, from inside the replacement, and mid-iterable), and settling a deferred match when the stream is aborted
-- `codemods/transforms/v3-v4` — `flush-implementation-to-generator` and `flush-call-site-to-drain`, with fixtures and a [run order](../codemods/transforms/v3-v4/README.md)
+- `codemods/transforms/v3-v4` — a [migration report](../codemods/transforms/v3-v4/README.md) for `flush` implementations and call sites: it locates each one and prints the exact replacement, without editing any file
 
 ## [3.0.2] - 2026-08-27
 

@@ -223,7 +223,7 @@ Output: "a" (non-match), then "b" (match)
 Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
 
 > [!NOTE]
-> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`. Anyone implementing `SearchStrategy`, or driving a strategy directly, has to handle that — see the [v3 → v4 codemods](../../../codemods/transforms/v3-v4/README.md).
+> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`. Anyone implementing `SearchStrategy`, or driving a strategy directly, has to handle that — see the [v3 → v4 migration report](../../../codemods/transforms/v3-v4/README.md).
 
 ## Partial Match Transformation
 

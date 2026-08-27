@@ -12,82 +12,59 @@ flush(state: TState): Generator<MatchResult<TMatch>, void, undefined>;
 
 This is what lets a strategy defer a decision at a chunk boundary and still report a real match once the stream ends — the fix for [#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54).
 
-Two transforms, because the two sides need opposite treatment. Run in order:
+## These report; they do not edit
 
-1. `codemod:flush-implementation` — for code that **implements** `SearchStrategy`
-2. `codemod:flush-call-site` — for code that **drives** a strategy directly
+Both tools **find and explain**, and leave every file untouched. Run them in either order, on anything:
 
 ```bash
-npm run codemod:flush-implementation -w codemods -- path/to/src
-npm run codemod:flush-call-site -w codemods -- path/to/src
+npm run report:flush-implementations -w codemods -- path/to/src
+npm run report:flush-call-sites -w codemods -- path/to/src
 ```
 
-## 1. `flush-implementation-to-generator`
+Rewriting this migration mechanically turns out to be where the risk is, not where the work is. A `flush(): string` might belong to a cache; a `return` inside a nested callback is not the method's own; a `return` that was not in tail position still has to end the generator; an empty buffer must not yield an empty result; a drain loop must not absorb a statement that never read the tail, shadow a binding, or delete a sibling declarator. Each of those is a silent edit to someone's source if the analysis is wrong by one case.
 
-Marks the method a generator, rewrites the return type, and turns each `return` into a guarded `yield`:
+The analysis itself is worth keeping — where the sites are, what the new signature is, what each `return` becomes. That is what these print.
 
-```ts
-// before
-flush(state: StringBufferState): string {
-  const flushed = state.buffer;
-  state.buffer = "";
-  return flushed;
-}
+## 1. Implementations
 
-// after
-*flush(state: StringBufferState): Generator<MatchResult<string>, void, undefined> {
-  const flushed = state.buffer;
-  state.buffer = "";
-  if (flushed) yield { isMatch: false, content: flushed };
-}
+```
+src/token-strategy.ts:4: flush(state: TokenState): string
+    becomes *flush(state: TokenState): Generator<MatchResult<RegExpExecArray>, void, undefined>
+    line 5: `return state.cached` becomes `const flushed = state.cached; if (flushed) yield { isMatch: false, content: flushed };`, then `return;` to end the generator
+    line 8: `return flushed` becomes `if (flushed) yield { isMatch: false, content: flushed }`
+src/token-strategy.ts: add a type import for MatchResult
 ```
 
-Delegation becomes `yield*`:
+What it works out for you:
 
-```ts
-return super.flush(state);   // -> yield* super.flush(state);
+- **The match type, from your class.** `implements SearchStrategy<State, RegExpExecArray>` gives `MatchResult<RegExpExecArray>`. The position differs by clause: `SearchStrategy<TState, TMatch>` names the match type second, so `implements SearchStrategy<State>` leaves it at the interface's `string` default, while `StringBufferStrategyBase<TMatch>` names it first.
+- **Which returns are yours.** A `return` inside a `map` or `forEach` callback belongs to that function and is not listed.
+- **Which returns need a terminator.** Only a `return` outside tail position has to be followed by `return;`.
+- **Where the guard goes.** v3 returned `""` for an empty buffer and consumers skipped it, so the `if` is not decoration. Anything but a plain binding is bound first, so the guard cannot evaluate the expression twice.
+- **Delegation.** `return this.inner.flush(state)` becomes `yield* this.inner.flush(state)`.
+
+Strategies that inherit `flush` from `StringBufferStrategyBase` need no change, and are not listed.
+
+## 2. Call sites
+
+```
+src/engine.ts:1: this.searchStrategy.flush(this.state) now yields results rather than a string. To keep the current bytes:
+    for (const result of this.searchStrategy.flush(this.state)) {
+      const tail = result.isMatch
+        ? this.searchStrategy.matchToString(result.content)
+        : result.content;
+      // …the statements that used `tail`, unchanged
+    }
+    A match settling here is the point of the change — decide whether to replace it.
 ```
 
-Strategies extending `StringBufferStrategyBase` **without** overriding `flush` need no change — the base class default covers them, and the transform leaves them alone.
+The loop is written for the names actually in use, and is deliberately the **behaviour-preserving** migration: every result stringified, the same bytes out. What a replacement should do with a match that settles at end of stream is a decision only the consumer can make, so it is named rather than taken.
 
-## 2. `flush-call-site-to-drain`
+## What they stay quiet about
 
-The consumer now has to decide what a match at end of stream means, and a codemod cannot know. So it rewrites to **exactly the old behaviour** — every result stringified — and marks the spot:
+`flush()` is an ordinary name on cache, logger, stream and database APIs. Neither tool mentions one:
 
-```ts
-// before
-const tail = strategy.flush(state);
-if (tail) controller.enqueue(tail);
+- an implementation qualifies by its class `implements SearchStrategy<…>` or `extends …StrategyBase<…>`
+- a call site qualifies by its receiver being named for a strategy (`strategy`, `this.searchStrategy`)
 
-// after
-// TODO(v4): flush() now yields matches; apply your replacement here if wanted.
-for (const result of strategy.flush(state)) {
-  const tail = result.isMatch
-    ? strategy.matchToString(result.content)
-    : result.content;
-  if (tail) controller.enqueue(tail);
-}
-```
-
-Behaviour-preserving by construction: the same bytes come out, and the *opportunity* to handle matches is flagged rather than taken silently. Anyone who wants end-of-stream replacements — the point of the change — opts in deliberately.
-
-## What they will not attempt
-
-Reported as skipped paths rather than transformed, so nothing is silently mangled:
-
-- **anything not identifiably a `SearchStrategy`.** `flush(): string` is an ordinary name on cache, logger, stream and database APIs, and neither codemod will touch one. An implementation qualifies by its class `implements SearchStrategy<…>` or `extends …StrategyBase<…>`; a call site qualifies by its receiver being named for a strategy (`strategy`, `this.searchStrategy`). A strategy that satisfies the interface structurally, without saying so, is reported rather than rewritten
-- `flush` implementations that compose the result from several sources (`return flushed + this.inner.flush(state)`), or whose return type is not `string`
-- call sites where the result flows somewhere structural: returned, awaited, concatenated, stored on a field, or passed straight as an argument
-- call sites where the tail is not read by the statements immediately following, or is read again after an unrelated one — moving a statement into the drain loop would run it once per result
-- call sites whose declaration declares more than one variable (`const tail = strategy.flush(state), metric = createMetric();`) — the rewrite replaces the whole declaration, and a sibling declarator would go with it
-- dynamic dispatch (`strategy[name](state)`)
-- type-only declarations of the interface (`flush: (state: S) => string`), since the correct replacement type depends on your `TMatch`
-
-Each skip prints a file and line to migrate by hand.
-
-## What they get right that is easy to get wrong
-
-- **The match type is taken from your class, not assumed.** `implements SearchStrategy<State, RegExpExecArray>` produces `Generator<MatchResult<RegExpExecArray>, void, undefined>`, not `MatchResult<string>`. Where the rewritten signature needs a `MatchResult` import you do not already have, that is reported.
-- **A `return` that was not in tail position still ends the generator.** `if (cached) return cached; return state.buffer;` becomes a `yield` followed by `return;`, rather than a generator that yields both.
-- **`return`s inside nested callbacks are left alone.** Only the `flush` method's own returns are rewritten; a `return` inside a `map` or `forEach` argument belongs to that function.
-- **The drain loop variable cannot shadow.** Where `result` is already bound in scope, the loop uses `result2`, and so on.
+A strategy that satisfies the interface structurally, without saying so, will not be found — search for `flush` by hand if you have one. Already-migrated code (a generator `flush`, a `for…of` over `flush()`) is silent too, so a second run after migrating should print nothing.

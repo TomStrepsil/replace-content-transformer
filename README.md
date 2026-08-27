@@ -507,7 +507,7 @@ The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchSt
 The `flush` is called by the engine once no further input can arrive, to settle anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. Strategies with nothing to settle yield their buffer as a single non-match result. This also re-sets the provided state parameter for re-use.
 
 > [!IMPORTANT]
-> `flush` returned a `string` in v3. See the [v3 → v4 codemods](./codemods/transforms/v3-v4/README.md) for migrating implementations and call sites.
+> `flush` returned a `string` in v3. See the [v3 → v4 migration report](./codemods/transforms/v3-v4/README.md), which locates every implementation and call site and prints what to write.
 
 > [!NOTE]
 > The `streamIndices` property contains absolute character offsets into the stream passed to the engine as `[startIndex, endIndex]`, thus not chunk-relative.

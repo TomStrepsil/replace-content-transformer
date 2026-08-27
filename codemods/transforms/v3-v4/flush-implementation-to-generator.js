@@ -1,34 +1,47 @@
 /**
- * Codemod: SearchStrategy.flush implementation -> generator
+ * Report: SearchStrategy.flush implementations to migrate for v4
  *
- * Rewrites:
+ * v3 returned a string:
+ *
  *   flush(state: StringBufferState): string {
  *     const flushed = state.buffer;
  *     state.buffer = "";
  *     return flushed;
  *   }
  *
- * To:
+ * v4 yields results:
+ *
  *   *flush(state: StringBufferState): Generator<MatchResult<string>, void, undefined> {
  *     const flushed = state.buffer;
  *     state.buffer = "";
  *     if (flushed) yield { isMatch: false, content: flushed };
  *   }
  *
+ * This **reports** every implementation that needs that change, with the exact
+ * signature to write and what each `return` becomes. It never edits a file.
+ *
+ * Rewriting it mechanically is the part that goes wrong: `flush(): string` is
+ * an ordinary name on cache and stream APIs, a `return` inside a nested callback
+ * is not the method's own, a `return` that was not in tail position still has to
+ * end the generator, and an empty buffer must not yield an empty result. Getting
+ * any of those wrong edits a consumer's source silently. Reporting carries the
+ * same analysis with none of that risk.
+ *
  * Strategies that inherit `flush` from StringBufferStrategyBase are left alone —
  * the base class default covers them.
- *
- * Skipped and reported, never guessed at:
- *   - a class that is not identifiably a SearchStrategy, since `flush(): string`
- *     is an ordinary name for cache, logger and stream APIs this change does not
- *     touch
- *   - a flush whose returned value is not a single expression per return statement
- *   - a flush that returns the result of another method call (composition)
  */
 
 const FLUSH = "flush";
 const STRATEGY_NAME = /SearchStrategy|StrategyBase/;
 const MATCH_RESULT = "MatchResult";
+
+const FUNCTION_TYPES = new Set([
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "ArrowFunctionExpression",
+  "ClassMethod",
+  "ObjectMethod"
+]);
 
 function isFlushMethod(node) {
   return (
@@ -65,34 +78,44 @@ function typeNameOf(node) {
 
 /**
  * The `implements SearchStrategy<...>` or `extends …StrategyBase<...>` clause
- * that identifies the class as something this migration applies to.
+ * that identifies the class as one this migration applies to.
+ *
+ * Which one it is decides where the match type sits, so the kind is carried
+ * rather than just the type arguments.
  */
 function strategyClause(classNode) {
   if (!classNode) return null;
-  const implemented = classNode.implements ?? classNode.superTypeParameters ?? [];
+  const implemented = classNode.implements ?? [];
   for (const clause of Array.isArray(implemented) ? implemented : []) {
-    if (STRATEGY_NAME.test(typeNameOf(clause) ?? "")) return clause;
+    if (STRATEGY_NAME.test(typeNameOf(clause) ?? "")) {
+      return { isInterface: true, node: clause };
+    }
   }
   if (STRATEGY_NAME.test(typeNameOf(classNode.superClass) ?? "")) {
     return {
-      typeParameters:
-        classNode.superTypeParameters ?? classNode.superClass?.typeParameters
+      isInterface: false,
+      node: {
+        typeParameters:
+          classNode.superTypeParameters ?? classNode.superClass?.typeParameters
+      }
     };
   }
   return null;
 }
 
 /**
- * `SearchStrategy<TState, TMatch>` names the match type second;
- * `StringBufferStrategyBase<TMatch>` names it first. Absent either, `string` is
- * the interface's own default.
+ * `SearchStrategy<TState, TMatch>` names the match type second, so a clause
+ * naming only its state leaves `TMatch` at the interface's own `string` default.
+ * `StringBufferStrategyBase<TMatch>` names it first.
  */
-function matchTypeFrom(clause) {
+function matchTypeName(clause, j) {
   const parameters =
-    clause?.typeParameters?.params ?? clause?.typeArguments?.params ?? [];
-  if (parameters.length >= 2) return parameters[1];
-  if (parameters.length === 1) return parameters[0];
-  return null;
+    clause?.node?.typeParameters?.params ??
+    clause?.node?.typeArguments?.params ??
+    [];
+  const type = clause?.isInterface ? parameters[1] : parameters[0];
+  if (!type) return "string";
+  return j(type).toSource();
 }
 
 function returnsString(fn) {
@@ -113,14 +136,6 @@ function isDelegatingCall(argument) {
   );
 }
 
-const FUNCTION_TYPES = new Set([
-  "FunctionDeclaration",
-  "FunctionExpression",
-  "ArrowFunctionExpression",
-  "ClassMethod",
-  "ObjectMethod"
-]);
-
 /** The function a `return` belongs to — nested callbacks own their own. */
 function owningFunction(returnPath) {
   for (let current = returnPath.parent; current; current = current.parent) {
@@ -131,9 +146,11 @@ function owningFunction(returnPath) {
 
 function isFinalStatement(fn, node) {
   const statements = fn.body?.body;
-  return (
-    Array.isArray(statements) && statements[statements.length - 1] === node
-  );
+  return Array.isArray(statements) && statements[statements.length - 1] === node;
+}
+
+function parameterList(fn, j) {
+  return fn.params.map((parameter) => j(parameter).toSource()).join(", ");
 }
 
 function importsMatchResult(root, j) {
@@ -148,9 +165,8 @@ function importsMatchResult(root, j) {
 export default function transform(fileInfo, api) {
   const j = api.jscodeshift;
   const root = j(fileInfo.source);
-  const skipped = [];
-  let changed = false;
-  let needsMatchResultImport = false;
+  const findings = [];
+  let signatureNeedsMatchResult = false;
 
   root
     .find(j.Node)
@@ -158,106 +174,78 @@ export default function transform(fileInfo, api) {
     .forEach((path) => {
       const method = path.node;
       const fn = functionOf(method);
-
       if (fn.generator) return;
 
+      // `flush(): string` is an ordinary name on cache, logger and stream APIs.
+      // Saying nothing about those is the point; a report full of false hits is
+      // one nobody reads.
       const clause = strategyClause(enclosingClass(path));
-      if (clause === null) {
-        skipped.push(
-          `${fileInfo.path}:${method.loc?.start.line ?? "?"}: flush() is on a class that is not identifiably a SearchStrategy; migrate it by hand if it is one`
+      if (clause === null) return;
+
+      const at = `${fileInfo.path}:${method.loc?.start.line ?? "?"}`;
+
+      if (!returnsString(fn)) {
+        findings.push(
+          `${at}: flush() does not return a string; check whether it is already migrated`
         );
         return;
       }
 
-      if (!returnsString(fn)) {
-        skipped.push(
-          `${fileInfo.path}: flush() has a non-string return type; migrate it by hand`
-        );
-        return;
-      }
+      const matchType = matchTypeName(clause, j);
+      signatureNeedsMatchResult = true;
+      findings.push(
+        `${at}: flush(${parameterList(fn, j)}): string\n` +
+          `    becomes *flush(${parameterList(fn, j)}): Generator<${MATCH_RESULT}<${matchType}>, void, undefined>`
+      );
 
       const returns = j(path)
         .find(j.ReturnStatement)
         .filter((returnPath) => owningFunction(returnPath) === fn);
 
-      let unsupported = false;
-      returns.forEach((returnPath) => {
-        if (returnPath.node.argument?.type === "BinaryExpression") {
-          unsupported = true;
-        }
-      });
-
-      if (unsupported) {
-        skipped.push(
-          `${fileInfo.path}: flush() composes its result from several sources; migrate it by hand`
-        );
-        return;
-      }
-
       returns.forEach((returnPath) => {
         const argument = returnPath.node.argument;
         if (!argument) return;
 
-        const emit = isDelegatingCall(argument)
-          ? j.expressionStatement(j.yieldExpression(argument, true))
-          : j.expressionStatement(
-              j.yieldExpression(
-                j.objectExpression([
-                  j.property(
-                    "init",
-                    j.identifier("isMatch"),
-                    j.booleanLiteral(false)
-                  ),
-                  j.property("init", j.identifier("content"), argument)
-                ]),
-                false
-              )
-            );
+        const line = returnPath.node.loc?.start.line ?? "?";
+        const source = j(argument).toSource();
+        const terminator = isFinalStatement(fn, returnPath.node)
+          ? ""
+          : ", then `return;` to end the generator";
 
-        const guarded =
-          !isDelegatingCall(argument) && argument.type === "Identifier"
-            ? j.ifStatement(argument, emit)
-            : emit;
+        if (isDelegatingCall(argument)) {
+          findings.push(
+            `    line ${line}: \`return ${source}\` becomes \`yield* ${source}\`${terminator}`
+          );
+          return;
+        }
 
-        // A `return` mid-body still has to end the generator; one in tail
-        // position needs nothing, and reads better without it.
-        j(returnPath).replaceWith(
-          isFinalStatement(fn, returnPath.node)
-            ? guarded
-            : j.blockStatement([guarded, j.returnStatement(null)])
+        if (argument.type === "BinaryExpression") {
+          findings.push(
+            `    line ${line}: \`return ${source}\` composes its result; yield each part in turn${terminator}`
+          );
+          return;
+        }
+
+        // The guard is what keeps an empty buffer from yielding an empty
+        // result, which v3 consumers never saw; anything but a plain binding is
+        // bound first so the guard cannot evaluate it twice.
+        findings.push(
+          argument.type === "Identifier"
+            ? `    line ${line}: \`return ${source}\` becomes \`if (${source}) yield { isMatch: false, content: ${source} }\`${terminator}`
+            : `    line ${line}: \`return ${source}\` becomes \`const flushed = ${source}; if (flushed) yield { isMatch: false, content: flushed };\`${terminator}`
         );
       });
-
-      fn.generator = true;
-      if (fn.returnType) {
-        const matchType = matchTypeFrom(clause) ?? j.tsStringKeyword();
-        fn.returnType = j.tsTypeAnnotation(
-          j.tsTypeReference(
-            j.identifier("Generator"),
-            j.tsTypeParameterInstantiation([
-              j.tsTypeReference(
-                j.identifier(MATCH_RESULT),
-                j.tsTypeParameterInstantiation([matchType])
-              ),
-              j.tsVoidKeyword(),
-              j.tsUndefinedKeyword()
-            ])
-          )
-        );
-        needsMatchResultImport = true;
-      }
-      changed = true;
     });
 
-  if (needsMatchResultImport && !importsMatchResult(root, j)) {
-    skipped.push(
-      `${fileInfo.path}: the rewritten signature references ${MATCH_RESULT}; add a type import for it`
+  if (signatureNeedsMatchResult && !importsMatchResult(root, j)) {
+    findings.push(
+      `${fileInfo.path}: add a type import for ${MATCH_RESULT}`
     );
   }
 
-  for (const message of skipped) {
-    api.report(message);
+  for (const finding of findings) {
+    api.report(finding);
   }
 
-  return changed ? root.toSource({ quote: "double" }) : null;
+  return null;
 }

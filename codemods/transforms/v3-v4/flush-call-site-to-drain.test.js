@@ -4,8 +4,9 @@ import jscodeshift from "jscodeshift";
 const tsx = jscodeshift.withParser("tsx");
 import transform from "./flush-call-site-to-drain.js";
 
-function runTransform(source, reports = []) {
-  return transform(
+function runTransform(source) {
+  const reports = [];
+  const output = transform(
     { path: "fixture.ts", source },
     {
       jscodeshift: tsx,
@@ -15,153 +16,99 @@ function runTransform(source, reports = []) {
     },
     {}
   );
+  return { output, report: reports.join("\n") };
 }
 
-describe("flush-call-site-to-drain codemod", () => {
-  it("wraps the simple declaration-and-use pair in a drain loop", () => {
-    const output = runTransform(
-      [
-        "function end() {",
-        "  const tail = strategy.flush(state);",
-        "  if (tail) sink.enqueue(tail);",
-        "}",
-        ""
-      ].join("\n")
-    );
-
-    expect(output).toContain("for (const result of strategy.flush(state))");
-    expect(output).toContain("result.isMatch");
-    expect(output).toContain("strategy.matchToString(result.content)");
-    expect(output).toContain("if (tail) sink.enqueue(tail)");
-    expect(output).toContain("TODO(v4)");
-  });
-
-  it("preserves the original bytes by stringifying every result", () => {
-    const output = runTransform(
-      [
-        "function end() {",
-        "  const tail = this._searchStrategy.flush(this._state);",
-        "  if (tail) this._sink.enqueue(tail);",
-        "}",
-        ""
-      ].join("\n")
-    );
-
-    expect(output).toContain(
-      "this._searchStrategy.matchToString(result.content)"
-    );
-    expect(output).toContain("result.content");
-  });
-
-  it("rewrites a call site inside try/finally", () => {
-    const output = runTransform(
-      [
-        "function end() {",
-        "  try {",
-        "    const tail = strategy.flush(state);",
-        "    sink.enqueue(tail);",
-        "  } finally {",
-        "    done();",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
-    );
-
-    expect(output).toContain("for (const result of strategy.flush(state))");
-    expect(output).toContain("done()");
-  });
-
-  it("leaves an already-migrated drain loop untouched", () => {
-    const output = runTransform(
-      [
-        "function end() {",
-        "  for (const result of strategy.flush(state)) {",
-        "    sink.enqueue(result.content);",
-        "  }",
-        "}",
-        ""
-      ].join("\n")
+describe("flush-call-site report", () => {
+  it("never edits the file", () => {
+    const { output } = runTransform(
+      ["const tail = strategy.flush(state);", "if (tail) enqueue(tail);", ""].join("\n")
     );
 
     expect(output).toBeNull();
   });
 
-  it("reports rather than mangles a result that is returned", () => {
-    const reports = [];
-    const output = runTransform(
-      ["function end() {", "  return strategy.flush(state) + tail;", "}", ""].join("\n"),
-      reports
+  it("writes the drain loop out for the names in use", () => {
+    const { report } = runTransform(
+      ["const tail = strategy.flush(state);", "if (tail) enqueue(tail);", ""].join("\n")
     );
 
-    expect(output).toBeNull();
-    expect(reports[0]).toContain("flows somewhere this codemod will not rewrite");
+    expect(report).toContain("fixture.ts:1");
+    expect(report).toContain("for (const result of strategy.flush(state)) {");
+    expect(report).toContain("const tail = result.isMatch");
+    expect(report).toContain("? strategy.matchToString(result.content)");
+    expect(report).toContain("the statements that used `tail`, unchanged");
   });
 
-  it("reports rather than mangles a result passed straight as an argument", () => {
-    const reports = [];
-    const output = runTransform(
-      ["function end() {", "  sink.enqueue(strategy.flush(state));", "}", ""].join("\n"),
-      reports
+  it("names the decision the loop does not make", () => {
+    const { report } = runTransform(
+      ["const tail = strategy.flush(state);", "if (tail) enqueue(tail);", ""].join("\n")
     );
 
-    expect(output).toBeNull();
-    expect(reports[0]).toContain("flows somewhere this codemod will not rewrite");
+    expect(report).toContain("A match settling here is the point of the change");
   });
-  it("leaves a flush() that is not a search strategy's alone", () => {
-    const reports = [];
-    const output = runTransform(
+
+  it("uses the receiver as written", () => {
+    const { report } = runTransform(
       [
-        "const tail = writer.flush();",
-        "if (tail) out(tail);",
-        ""
-      ].join("\n"),
-      reports
-    );
-
-    expect(output).toBeNull();
-    expect(reports.join("\n")).toContain("not identifiably a SearchStrategy");
-  });
-
-  it("does not absorb a following statement that ignores the tail", () => {
-    const output = runTransform(
-      [
-        "const tail = strategy.flush(state);",
-        "logOnce();",
+        "const tail = this.searchStrategy.flush(this.state);",
         "if (tail) enqueue(tail);",
         ""
       ].join("\n")
     );
 
-    expect(output).toBeNull();
+    expect(report).toContain(
+      "for (const result of this.searchStrategy.flush(this.state)) {"
+    );
+    expect(report).toContain("? this.searchStrategy.matchToString(result.content)");
   });
 
-  it("does not shadow a binding the consumed statements rely on", () => {
-    const output = runTransform(
-      [
-        "const result = prefix;",
-        "const tail = strategy.flush(state);",
-        "if (tail) enqueue(result + tail);",
-        ""
-      ].join("\n")
+  it("reports a result that is returned as needing a hand migration", () => {
+    const { report } = runTransform(
+      ["function f() {", "  return strategy.flush(state);", "}", ""].join("\n")
     );
 
-    expect(output).toContain("const result = prefix;");
-    expect(output).toMatch(/for \(const (result\d+|[a-z]+Result) of/);
-    expect(output).toContain("enqueue(result + tail)");
+    expect(report).toContain("needs rethinking by hand");
   });
-  it("does not delete sibling declarators sharing the declaration", () => {
-    const reports = [];
-    const output = runTransform(
+
+  it("reports a result passed straight as an argument", () => {
+    const { report } = runTransform(
+      ["enqueue(strategy.flush(state));", ""].join("\n")
+    );
+
+    expect(report).toContain("needs rethinking by hand");
+  });
+
+  it("reports a declaration that declares more than one variable", () => {
+    const { report } = runTransform(
       [
         "const tail = strategy.flush(state), metric = createMetric();",
         "if (tail) enqueue(tail);",
         ""
-      ].join("\n"),
-      reports
+      ].join("\n")
     );
 
-    expect(output).toBeNull();
-    expect(reports.join("\n")).toContain("declares more than one variable");
+    expect(report).toContain("fixture.ts:1");
+  });
+
+  it("says nothing about an already-migrated drain loop", () => {
+    const { report } = runTransform(
+      [
+        "for (const result of strategy.flush(state)) {",
+        "  enqueue(result.content);",
+        "}",
+        ""
+      ].join("\n")
+    );
+
+    expect(report).toBe("");
+  });
+
+  it("says nothing about a flush that is not a search strategy's", () => {
+    const { report } = runTransform(
+      ["const tail = writer.flush();", "if (tail) out(tail);", ""].join("\n")
+    );
+
+    expect(report).toBe("");
   });
 });
