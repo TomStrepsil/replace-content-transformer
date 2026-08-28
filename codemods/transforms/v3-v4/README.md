@@ -37,7 +37,7 @@ src/token-strategy.ts: add a type import for MatchResult
 
 What it works out for you:
 
-- **The match type, from your class.** `implements SearchStrategy<State, RegExpExecArray>` gives `MatchResult<RegExpExecArray>`. The position differs by clause: `SearchStrategy<TState, TMatch>` names the match type second, so `implements SearchStrategy<State>` leaves it at the interface's `string` default, while `StringBufferStrategyBase<TMatch>` names it first.
+- **The match type, from your class.** `implements SearchStrategy<State, RegExpExecArray>` gives `MatchResult<RegExpExecArray>`. The position differs by clause: `SearchStrategy<TState, TMatch>` names the match type second, so `implements SearchStrategy<State>` leaves it at the interface's `string` default, while `StringBufferStrategyBase<TMatch>` names it first. A class extending a *concrete* strategy (`extends RegexSearchStrategy`) inherits a match type this file cannot see, so the report says so instead of guessing `string`.
 - **Which returns are yours.** A `return` inside a `map` or `forEach` callback belongs to that function and is not listed.
 - **Which returns need a terminator.** Only a `return` outside tail position has to be followed by `return;`.
 - **Where the guard goes.** v3 returned `""` for an empty buffer and consumers skipped it, so the `if` is not decoration. Anything but a plain binding is bound first, so the guard cannot evaluate the expression twice.

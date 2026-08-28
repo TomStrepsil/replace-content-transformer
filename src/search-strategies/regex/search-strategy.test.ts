@@ -1024,6 +1024,21 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, text: "x" },
           { isMatch: true, text: "foob" }
         ]
+      },
+      {
+        name: "a zero-length branch the truncated lookahead makes viable",
+        pattern: /(?=ab)|aX/,
+        haystack: "aX",
+        expected: [{ isMatch: true, text: "aX" }]
+      },
+      {
+        name: "a capture inside the lookahead that more input would extend",
+        pattern: /a(?=(b+))/,
+        haystack: "abbX",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "bbX" }
+        ]
       }
     ]);
   });

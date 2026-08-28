@@ -33,6 +33,7 @@
 
 const FLUSH = "flush";
 const STRATEGY_NAME = /SearchStrategy|StrategyBase/;
+const GENERIC_BASE = /StrategyBase$/;
 const MATCH_RESULT = "MatchResult";
 
 const FUNCTION_TYPES = new Set([
@@ -91,7 +92,8 @@ function strategyClause(classNode) {
       return { isInterface: true, node: clause };
     }
   }
-  if (STRATEGY_NAME.test(typeNameOf(classNode.superClass) ?? "")) {
+  const superName = typeNameOf(classNode.superClass) ?? "";
+  if (GENERIC_BASE.test(superName)) {
     return {
       isInterface: false,
       node: {
@@ -99,6 +101,11 @@ function strategyClause(classNode) {
           classNode.superTypeParameters ?? classNode.superClass?.typeParameters
       }
     };
+  }
+  // A concrete strategy (`extends RegexSearchStrategy`) fixes its own match
+  // type, which is not readable from this file — say so rather than guess.
+  if (STRATEGY_NAME.test(superName)) {
+    return { isInterface: false, inheritedFrom: superName };
   }
   return null;
 }
@@ -109,6 +116,7 @@ function strategyClause(classNode) {
  * `StringBufferStrategyBase<TMatch>` names it first.
  */
 function matchTypeName(clause, j) {
+  if (clause?.inheritedFrom) return null;
   const parameters =
     clause?.node?.typeParameters?.params ??
     clause?.node?.typeArguments?.params ??
@@ -195,7 +203,10 @@ export default function transform(fileInfo, api) {
       signatureNeedsMatchResult = true;
       findings.push(
         `${at}: flush(${parameterList(fn, j)}): string\n` +
-          `    becomes *flush(${parameterList(fn, j)}): Generator<${MATCH_RESULT}<${matchType}>, void, undefined>`
+          `    becomes *flush(${parameterList(fn, j)}): Generator<${MATCH_RESULT}<${matchType ?? "TMatch"}>, void, undefined>` +
+          (matchType === null
+            ? `\n    TMatch is inherited from ${clause.inheritedFrom}; use that class's match type`
+            : "")
       );
 
       const returns = j(path)

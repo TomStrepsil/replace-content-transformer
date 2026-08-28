@@ -220,4 +220,20 @@ describe("flush-implementation report", () => {
 
     expect(report).toContain("check whether it is already migrated");
   });
+  it("does not guess the match type of a class extending a concrete strategy", () => {
+    const { report } = runTransform(
+      [
+        "class Custom extends RegexSearchStrategy {",
+        "  flush(state: State): string {",
+        "    return state.buffer;",
+        "  }",
+        "}",
+        ""
+      ].join("\n")
+    );
+
+    expect(report).toContain("fixture.ts:2");
+    expect(report).not.toContain("MatchResult<string>");
+    expect(report).toContain("inherited from RegexSearchStrategy");
+  });
 });

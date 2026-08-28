@@ -23,6 +23,21 @@ function sameCaptures(
   );
 }
 
+/**
+ * A capture inside a lookahead runs past the match's own end, so it can reach
+ * the edge of the haystack while the match does not. Agreeing with the original
+ * pattern *here* proves nothing in that case: more input would extend the
+ * capture, and the match would be reported with different capture data.
+ */
+function readsToEndOfHaystack(
+  match: RegExpExecArray,
+  haystackLength: number
+): boolean {
+  return (
+    match.indices?.some((entry) => entry?.[1] === haystackLength) ?? false
+  );
+}
+
 function nonMatch(content: string): MatchResult<RegExpExecArray> {
   return { isMatch: false, content };
 }
@@ -75,6 +90,7 @@ export class RegexSearchStrategy
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: RegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
+  private readonly reportsIndices: boolean;
 
   constructor(needle: RegExp) {
     super();
@@ -82,8 +98,12 @@ export class RegexSearchStrategy
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
+    this.reportsIndices = needle.flags.includes("d");
     this.lookaheadConfirmationRegex = partialMatchRegex.features.has("lookahead")
-      ? new RegExp(needle.source, needle.flags + "y")
+      ? new RegExp(
+          needle.source,
+          `${needle.flags.replace("d", "")}yd`
+        )
       : null;
   }
 
@@ -96,12 +116,16 @@ export class RegexSearchStrategy
     if (candidate.index + matchLength === haystack.length) return null;
 
     const confirmation = this.lookaheadConfirmationRegex;
-    if (confirmation === null || matchLength === 0) return candidate;
+    if (confirmation === null) return candidate;
 
     confirmation.lastIndex = candidate.index;
     const completeMatch = confirmation.exec(haystack);
     if (completeMatch === null) return null;
-    return sameCaptures(candidate, completeMatch) ? completeMatch : null;
+    if (!sameCaptures(candidate, completeMatch)) return null;
+    if (readsToEndOfHaystack(completeMatch, haystack.length)) return null;
+
+    if (!this.reportsIndices) delete completeMatch.indices;
+    return completeMatch;
   }
 
   *processChunk(
