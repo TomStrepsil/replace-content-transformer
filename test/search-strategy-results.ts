@@ -19,11 +19,16 @@ function resultToString<TMatch>(
  */
 function flushToString<TState, TMatch>(
   strategy: Pick<SearchStrategy<TState, TMatch>, "flush" | "matchToString">,
-  state: TState
+  state: TState,
+  maxResults = 10_000
 ): string {
   let flushed = "";
+  let yields = 0;
   for (const result of strategy.flush(state)) {
     flushed += resultToString(strategy, result);
+    if (++yields > maxResults) {
+      throw new Error(`flush did not advance: exceeded ${maxResults} results`);
+    }
   }
   return flushed;
 }
