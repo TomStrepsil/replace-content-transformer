@@ -1,7 +1,9 @@
 import { describe, test, expect } from "vitest";
+import { flushToString } from "../../../../test/utilities.js";
 import { AnchorSequenceSearchStrategy } from "./search-strategy.js";
 import { IndexOfKnuthMorrisPrattSearchStrategy } from "../indexOf-knuth-morris-pratt/index.js";
-import type { MatchResult } from "../../types.js";
+import { RegexSearchStrategy } from "../../regex/index.js";
+import type { MatchResult, SearchStrategy } from "../../types.js";
 
 describe("AnchorSequenceSearchStrategy", () => {
   describe("findMatch - single call scenarios", () => {
@@ -93,7 +95,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           for (const result of strategy.processChunk(haystack, state)) {
             output.push(result);
           }
-          expect(strategy.flush(state)).toBe(expectedFlush);
+          expect(flushToString(strategy, state)).toBe(expectedFlush);
           expect(output).toEqual(expectedResults);
         });
       }
@@ -223,7 +225,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           });
 
           expect(allResults).toEqual(expectedResults);
-          expect(strategy.flush(state)).toBe(expectedFlush);
+          expect(flushToString(strategy, state)).toBe(expectedFlush);
         });
       }
     );
@@ -342,7 +344,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           });
 
           expect(allResults).toEqual(expectedResults);
-          expect(strategy.flush(state)).toBe(expectedFlush);
+          expect(flushToString(strategy, state)).toBe(expectedFlush);
         });
       }
     );
@@ -367,13 +369,272 @@ describe("AnchorSequenceSearchStrategy", () => {
           break;
         }
       }
-      const flushed = strategy.flush(state);
+      const flushed = flushToString(strategy, state);
 
       expect(results).toEqual([
         { isMatch: false, content: "First " },
         { isMatch: true, content: "{{OLD}}", streamIndices: [6, 13] }
       ]);
       expect(flushed).toEqual(" and second {{OLD}}");
+    });
+  });
+
+  describe("a sub-strategy whose match is not a string", () => {
+    // The sequence is generic over TMatch, so a sub-strategy's match may be any
+    // shape it likes. `matchToString` is the only contract for rendering one;
+    // anything else turns an object match into "[object Object]".
+    type TokenMatch = { token: string };
+
+    const tokenAnchor = (
+      token: string,
+      defer: boolean
+    ): SearchStrategy<{ buffer: string }, TokenMatch> => ({
+      createState: () => ({ buffer: "" }),
+      *processChunk(haystack, state) {
+        if (defer) {
+          state.buffer += haystack;
+          return;
+        }
+        const scanned = state.buffer + haystack;
+        state.buffer = "";
+        const index = scanned.indexOf(token);
+        if (index === -1) {
+          yield { isMatch: false, content: scanned };
+          return;
+        }
+        if (index > 0) yield { isMatch: false, content: scanned.slice(0, index) };
+        state.buffer = scanned.slice(index + token.length);
+        yield {
+          isMatch: true,
+          content: { token },
+          streamIndices: [index, index + token.length]
+        };
+      },
+      *flush(state) {
+        const held = state.buffer;
+        state.buffer = "";
+        const index = held.indexOf(token);
+        if (index === -1) {
+          if (held) yield { isMatch: false, content: held };
+          return;
+        }
+        if (index > 0) yield { isMatch: false, content: held.slice(0, index) };
+        yield {
+          isMatch: true,
+          content: { token },
+          streamIndices: [index, index + token.length]
+        };
+        const rest = held.slice(index + token.length);
+        if (rest) yield { isMatch: false, content: rest };
+      },
+      matchToString: (match) => match.token
+    });
+
+    const render = (
+      strategy: AnchorSequenceSearchStrategy<{ buffer: string }, TokenMatch>,
+      results: MatchResult[]
+    ) =>
+      results
+        .map((result) =>
+          result.isMatch ? strategy.matchToString(result.content) : result.content
+        )
+        .join("");
+
+    test("renders a match settled during processChunk through matchToString", () => {
+      const strategy = new AnchorSequenceSearchStrategy([
+        tokenAnchor("{{", false),
+        tokenAnchor("}}", false)
+      ]);
+      const state = strategy.createState();
+      const input = "a {{name}} b";
+
+      const emitted = [
+        ...strategy.processChunk(input, state),
+        ...strategy.flush(state)
+      ];
+
+      expect(render(strategy, emitted)).toBe(input);
+      expect(emitted.filter((result) => result.isMatch)).toMatchObject([
+        { content: "{{name}}" }
+      ]);
+    });
+
+    test("renders a match settled during flush through matchToString", () => {
+      const strategy = new AnchorSequenceSearchStrategy([
+        tokenAnchor("{{", true),
+        tokenAnchor("}}", true)
+      ]);
+      const state = strategy.createState();
+      const input = "a {{name}} b";
+
+      const emitted = [
+        ...strategy.processChunk(input, state),
+        ...strategy.flush(state)
+      ];
+
+      expect(render(strategy, emitted)).toBe(input);
+      expect(emitted.filter((result) => result.isMatch)).toMatchObject([
+        { content: "{{name}}" }
+      ]);
+    });
+  });
+
+  describe("reusing state after flush", () => {
+    // `flush` is documented as re-setting the state for re-use, which the other
+    // strategies honour: `LoopedIndexOfAnchoredSearchStrategy` resets its needle
+    // index, `BalancedPairSearchStrategy` its nesting level. A sequence left
+    // mid-way through its anchors has the same obligation — otherwise the next
+    // stream opens looking for a closing anchor it never saw opened.
+    const sequence = () =>
+      new AnchorSequenceSearchStrategy(
+        ["{{", "}}"].map(
+          (delimiter) => new IndexOfKnuthMorrisPrattSearchStrategy(delimiter)
+        )
+      );
+
+    test("starts the next stream at the first anchor after ending mid-sequence", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      expect([...strategy.processChunk("Start {{incomplete", state)]).toEqual([
+        { isMatch: false, content: "Start " }
+      ]);
+      expect(flushToString(strategy, state)).toBe("{{incomplete");
+
+      expect([...strategy.processChunk("Hello {{name}} world", state)]).toEqual([
+        { isMatch: false, content: "Hello " },
+        { isMatch: true, content: "{{name}}", streamIndices: [6, 14] },
+        { isMatch: false, content: " world" }
+      ]);
+    });
+
+    test("leaves state equivalent to a freshly created one", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk("Start {{incomplete", state),
+        ...strategy.flush(state)
+      ];
+
+      expect(emitted).toEqual([
+        { isMatch: false, content: "Start " },
+        { isMatch: false, content: "{{incomplete" }
+      ]);
+      expect(state).toEqual(strategy.createState());
+    });
+
+    test("leaves state equivalent to a freshly created one after a complete match", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk("Hello {{name}} world", state),
+        ...strategy.flush(state)
+      ];
+
+      expect(emitted).toEqual([
+        { isMatch: false, content: "Hello " },
+        { isMatch: true, content: "{{name}}", streamIndices: [6, 14] },
+        { isMatch: false, content: " world" }
+      ]);
+      expect(state).toEqual(strategy.createState());
+    });
+  });
+
+  describe("settling a sub-strategy at end of stream", () => {
+    // A sub-strategy that defers can be holding a real match when the stream
+    // ends, and settling it may leave a tail that belongs to the next anchor.
+    // `/abc|a/` buffers "ab" (a viable prefix of the longer branch) rather than
+    // matching during processChunk, then settles at flush to the match "a" plus
+    // the leftover "b".
+    const sequence = () =>
+      new AnchorSequenceSearchStrategy([
+        new RegexSearchStrategy(/abc|a/),
+        new RegexSearchStrategy(/Z/)
+      ]);
+
+    test("carries the text after a settled sub-match into the next anchor", () => {
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      const processed = [...strategy.processChunk("xxab", state)];
+      expect(processed).toEqual([{ isMatch: false, content: "xx" }]);
+
+      const flushed = [...strategy.flush(state)];
+      expect(flushed).toEqual([{ isMatch: false, content: "ab" }]);
+    });
+
+    test("stays lossless when a sub-strategy settles at end of stream", () => {
+      const input = "xxab";
+      const strategy = sequence();
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk(input, state),
+        ...strategy.flush(state)
+      ].map((result) =>
+        result.isMatch ? strategy.matchToString(result.content) : result.content
+      );
+
+      expect(emitted.join("")).toBe(input);
+    });
+
+    test("drops an empty settled result rather than yielding an empty non-match", () => {
+      // No shipped strategy yields empty content, so this needs a stub. The
+      // guard is what keeps that contract from leaking out of the sequence.
+      const emptyYieldingSubStrategy: SearchStrategy<object, string> = {
+        createState: () => ({}),
+        *processChunk() {},
+        *flush() {
+          yield { isMatch: false, content: "" };
+        },
+        matchToString: (match) => match
+      };
+
+      const strategy = new AnchorSequenceSearchStrategy([
+        emptyYieldingSubStrategy
+      ]);
+      const state = strategy.createState();
+
+      expect([...strategy.flush(state)]).toEqual([]);
+    });
+
+    test("carries a second settled sub-match on as text for the next anchor", () => {
+      // `/a.c|a/` buffers "aa", which settles into two matches. Only the first
+      // completes this anchor; the rest is text the next anchor must re-scan.
+      const strategy = new AnchorSequenceSearchStrategy([
+        new RegexSearchStrategy(/a.c|a/),
+        new RegexSearchStrategy(/Z/)
+      ]);
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk("xxaa", state),
+        ...strategy.flush(state)
+      ].map((result) =>
+        result.isMatch ? strategy.matchToString(result.content) : result.content
+      );
+
+      expect(emitted.join("")).toBe("xxaa");
+    });
+
+    test("completes the sequence when the tail satisfies the next anchor", () => {
+      const strategy = new AnchorSequenceSearchStrategy([
+        new RegexSearchStrategy(/abc|a/),
+        new RegexSearchStrategy(/b/)
+      ]);
+      const state = strategy.createState();
+
+      const emitted = [
+        ...strategy.processChunk("xxab", state),
+        ...strategy.flush(state)
+      ];
+
+      expect(emitted).toEqual([
+        { isMatch: false, content: "xx" },
+        { isMatch: true, content: "ab", streamIndices: [2, 4] }
+      ]);
     });
   });
 });

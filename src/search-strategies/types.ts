@@ -50,12 +50,17 @@ export interface SearchStrategy<TState, TMatch = string> {
   ): Generator<MatchResult<TMatch>, void, undefined>;
 
   /**
-   * Flush any partial match content buffered in state.
+   * Settle whatever remains buffered in state, now that no further input can arrive.
+   *
+   * Yields the same {@link MatchResult} union as {@link processChunk}, so a strategy
+   * that deferred a decision at a chunk boundary can still report a real match once
+   * the stream ends. Strategies with nothing to settle yield the buffer as a single
+   * non-match result; a strategy holding nothing yields nothing at all.
    *
    * @param state - Mutable state
-   * @returns Remaining buffered content (empty string if nothing buffered)
+   * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch, streamIndices: [startIndex, endIndex] }`
    */
-  flush(state: TState): string;
+  flush(state: TState): Generator<MatchResult<TMatch>, void, undefined>;
 
   /**
    * Convert a match value to the raw matched string.

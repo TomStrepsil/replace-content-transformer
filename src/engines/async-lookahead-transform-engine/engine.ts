@@ -1,4 +1,5 @@
 import type {
+  MatchResult,
   SearchStrategy,
   StreamIndices
 } from "../../search-strategies/types.ts";
@@ -161,10 +162,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     );
     const scanSignals = [options.stopReplacingSignal, abandonSignal]
       .filter(isDefinedSignal);
-    super(
-      options.searchStrategy,
-      scanSignals.length > 0 ? AbortSignal.any(scanSignals) : undefined
-    );
+    super(options.searchStrategy, AbortSignal.any(scanSignals));
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
@@ -209,22 +207,28 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     if (this._stopReplacingSignal?.aborted) {
       if (!this.#flushedAfterAbort) {
         this.#flushedAfterAbort = true;
-        const tail = this._searchStrategy.flush(this._state);
-        if (tail) {
-          await this.#queue.push(textSlot(this.#siblingIndex++, tail));
-        }
+        await this.#enqueue(this._searchStrategy.flush(this._state));
       }
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
     }
 
-    for (const result of this._searchStrategy.processChunk(chunk, this._state)) {
+    await this.#enqueue(this._searchStrategy.processChunk(chunk, this._state));
+  }
+
+  async #enqueue(results: Iterable<MatchResult<TMatch>>): Promise<void> {
+    for (const result of results) {
       if (!result.isMatch) {
         await this.#queue.push(textSlot(this.#siblingIndex++, result.content));
         continue;
       }
       if (this._stopReplacingSignal?.aborted) {
-        await this.#queue.push(textSlot(this.#siblingIndex++, this._searchStrategy.matchToString(result.content)));
+        await this.#queue.push(
+          textSlot(
+            this.#siblingIndex++,
+            this._searchStrategy.matchToString(result.content)
+          )
+        );
         continue;
       }
       await this.#queue.push(
@@ -245,10 +249,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       return;
     }
     if (!this.#flushedAfterAbort) {
-      const tail = this._searchStrategy.flush(this._state);
-      if (tail) {
-        await this.#queue.push(textSlot(this.#siblingIndex++, tail));
-      }
+      await this.#enqueue(this._searchStrategy.flush(this._state));
     }
     this.#queue.close();
     await this.#drainDone;

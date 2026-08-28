@@ -106,8 +106,10 @@ export class LoopedIndexOfCancellableSearchStrategy
     }
   }
 
-  flush(state: LoopedIndexOfCancellableSearchState): string {
+  *flush(
+    state: LoopedIndexOfCancellableSearchState
+  ): Generator<MatchResult, void, undefined> {
     state.needleIndex = 0;
-    return super.flush(state);
+    yield* super.flush(state);
   }
 }

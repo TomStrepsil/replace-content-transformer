@@ -1,6 +1,9 @@
 import type { ReplacementContext, SyncTransformEngine } from "./types.ts";
 import { TransformEngineBase } from "./transform-engine-base.ts";
-import type { SearchStrategy } from "../search-strategies/types.ts";
+import type {
+  MatchResult,
+  SearchStrategy
+} from "../search-strategies/types.ts";
 
 /**
  * A replacement function for the sync engine.
@@ -56,15 +59,24 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   }
 
   write(chunk: string): void {
-    const sink = this._sink;
-
     if (this._stopReplacingSignal?.aborted) {
+      const sink = this._sink;
       this._flushAfterAbortIfNeeded();
       sink.enqueue(chunk);
       return;
     }
 
-    for (const result of this._searchStrategy.processChunk(chunk, this._state)) {
+    this.#emit(this._searchStrategy.processChunk(chunk, this._state));
+  }
+
+  override end(): void {
+    this.#emit(this._searchStrategy.flush(this._state));
+  }
+
+  #emit(results: Iterable<MatchResult<TMatch>>): void {
+    const sink = this._sink;
+
+    for (const result of results) {
       if (!result.isMatch) {
         sink.enqueue(result.content);
         continue;
