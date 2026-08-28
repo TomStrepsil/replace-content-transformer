@@ -379,6 +379,106 @@ describe("AnchorSequenceSearchStrategy", () => {
     });
   });
 
+  describe("a sub-strategy whose match is not a string", () => {
+    // The sequence is generic over TMatch, so a sub-strategy's match may be any
+    // shape it likes. `matchToString` is the only contract for rendering one;
+    // anything else turns an object match into "[object Object]".
+    type TokenMatch = { token: string };
+
+    const tokenAnchor = (
+      token: string,
+      defer: boolean
+    ): SearchStrategy<{ buffer: string }, TokenMatch> => ({
+      createState: () => ({ buffer: "" }),
+      *processChunk(haystack, state) {
+        if (defer) {
+          state.buffer += haystack;
+          return;
+        }
+        const scanned = state.buffer + haystack;
+        state.buffer = "";
+        const index = scanned.indexOf(token);
+        if (index === -1) {
+          yield { isMatch: false, content: scanned };
+          return;
+        }
+        if (index > 0) yield { isMatch: false, content: scanned.slice(0, index) };
+        state.buffer = scanned.slice(index + token.length);
+        yield {
+          isMatch: true,
+          content: { token },
+          streamIndices: [index, index + token.length]
+        };
+      },
+      *flush(state) {
+        const held = state.buffer;
+        state.buffer = "";
+        const index = held.indexOf(token);
+        if (index === -1) {
+          if (held) yield { isMatch: false, content: held };
+          return;
+        }
+        if (index > 0) yield { isMatch: false, content: held.slice(0, index) };
+        yield {
+          isMatch: true,
+          content: { token },
+          streamIndices: [index, index + token.length]
+        };
+        const rest = held.slice(index + token.length);
+        if (rest) yield { isMatch: false, content: rest };
+      },
+      matchToString: (match) => match.token
+    });
+
+    const render = (
+      strategy: AnchorSequenceSearchStrategy<{ buffer: string }, TokenMatch>,
+      results: MatchResult[]
+    ) =>
+      results
+        .map((result) =>
+          result.isMatch ? strategy.matchToString(result.content) : result.content
+        )
+        .join("");
+
+    test("renders a match settled during processChunk through matchToString", () => {
+      const strategy = new AnchorSequenceSearchStrategy([
+        tokenAnchor("{{", false),
+        tokenAnchor("}}", false)
+      ]);
+      const state = strategy.createState();
+      const input = "a {{name}} b";
+
+      const emitted = [
+        ...strategy.processChunk(input, state),
+        ...strategy.flush(state)
+      ];
+
+      expect(render(strategy, emitted)).toBe(input);
+      expect(emitted.filter((result) => result.isMatch)).toMatchObject([
+        { content: "{{name}}" }
+      ]);
+    });
+
+    test("renders a match settled during flush through matchToString", () => {
+      const strategy = new AnchorSequenceSearchStrategy([
+        tokenAnchor("{{", true),
+        tokenAnchor("}}", true)
+      ]);
+      const state = strategy.createState();
+      const input = "a {{name}} b";
+
+      const emitted = [
+        ...strategy.processChunk(input, state),
+        ...strategy.flush(state)
+      ];
+
+      expect(render(strategy, emitted)).toBe(input);
+      expect(emitted.filter((result) => result.isMatch)).toMatchObject([
+        { content: "{{name}}" }
+      ]);
+    });
+  });
+
   describe("reusing state after flush", () => {
     // `flush` is documented as re-setting the state for re-use, which the other
     // strategies honour: `LoopedIndexOfAnchoredSearchStrategy` resets its needle

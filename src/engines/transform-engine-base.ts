@@ -8,9 +8,8 @@ import type { EngineSink } from "./types.ts";
  * provides `start` plus the abort-flush helper used by the sync and
  * async-serial engines.
  *
- * `end()` is abstract: settling the strategy's buffer means routing whatever it
- * yields through the replacement, which every engine does differently — the
- * sync engine synchronously, the async engines awaiting each replacement.
+ * `end()` is abstract: each engine routes settled results through its own
+ * replacement path.
  *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)

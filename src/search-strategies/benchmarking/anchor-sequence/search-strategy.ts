@@ -8,24 +8,24 @@ export interface AnchorSequenceSearchState<TState> extends StringBufferState {
   strategyStates: TState[];
 }
 
+function renderResult<TState, TMatch>(
+  subStrategy: SearchStrategy<TState, TMatch>,
+  result: MatchResult<TMatch>
+): string {
+  return result.isMatch
+    ? subStrategy.matchToString(result.content)
+    : result.content;
+}
+
 function drainToString<TState, TMatch>(
   subStrategy: SearchStrategy<TState, TMatch>,
   subStrategyState: TState
 ): string {
   let buffered = "";
   for (const result of subStrategy.flush(subStrategyState)) {
-    buffered += result.isMatch
-      ? subStrategy.matchToString(result.content)
-      : result.content;
+    buffered += renderResult(subStrategy, result);
   }
   return buffered;
-}
-
-function extractMatchContent<TMatch>(match: TMatch): string {
-  if (Array.isArray(match)) {
-    return match[0];
-  }
-  return String(match);
 }
 
 export class AnchorSequenceSearchStrategy<TState, TMatch = string>
@@ -65,7 +65,7 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
           subStrategyState
         )) {
           if (matchResult.isMatch) {
-            matched = extractMatchContent(matchResult.content);
+            matched = subStrategy.matchToString(matchResult.content);
             break;
           }
           if (isMidMatch) {
@@ -124,12 +124,10 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
       let afterMatch = "";
       for (const result of settled) {
         if (result.isMatch && matched === null) {
-          matched = extractMatchContent(result.content);
+          matched = subStrategy.matchToString(result.content);
           continue;
         }
-        const text = result.isMatch
-          ? subStrategy.matchToString(result.content)
-          : result.content;
+        const text = renderResult(subStrategy, result);
         if (matched !== null) {
           afterMatch += text;
         } else if (needleIndex === 0) {

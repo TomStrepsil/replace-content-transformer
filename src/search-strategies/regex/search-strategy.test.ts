@@ -1039,6 +1039,15 @@ describe("RegexSearchStrategy", () => {
           { isMatch: true, text: "a" },
           { isMatch: false, text: "bbX" }
         ]
+      },
+      {
+        name: "a zero-length match ahead of a real one in the settled buffer",
+        pattern: /(?=(a).+Z)|(?=a)|b/,
+        haystack: "aXb",
+        expected: [
+          { isMatch: false, text: "aX" },
+          { isMatch: true, text: "b" }
+        ]
       }
     ]);
   });

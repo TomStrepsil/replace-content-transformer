@@ -1,5 +1,6 @@
 import { RegexSearchStrategy } from "../../../src/search-strategies/regex/search-strategy.ts";
 import type { StringBufferState } from "../../../src/search-strategies/string-buffer-strategy-base.ts";
+import type { MatchResult } from "../../../src/search-strategies/types.ts";
 
 export interface EmittedMatch {
   text: string;
@@ -30,39 +31,35 @@ export function drive(
   chunks: string[]
 ): DriveResult {
   const state: StringBufferState = strategy.createState();
-  let output = "";
   const matches: EmittedMatch[] = [];
   const flushMatches: EmittedMatch[] = [];
+  let output = "";
   let peakBuffer = 0;
 
-  for (const chunk of chunks) {
-    for (const result of strategy.processChunk(chunk, state)) {
-      if (result.isMatch) {
-        matches.push({
-          text: strategy.matchToString(result.content),
-          start: result.streamIndices[0],
-          end: result.streamIndices[1]
-        });
+  const record = (
+    results: Iterable<MatchResult<RegExpExecArray>>,
+    into: EmittedMatch[]
+  ) => {
+    for (const result of results) {
+      if (!result.isMatch) {
+        output += result.content;
+        continue;
       }
-      output += result.isMatch
-        ? strategy.matchToString(result.content)
-        : result.content;
-    }
-    if (state.buffer.length > peakBuffer) peakBuffer = state.buffer.length;
-  }
-
-  for (const result of strategy.flush(state)) {
-    if (result.isMatch) {
-      flushMatches.push({
-        text: strategy.matchToString(result.content),
+      const text = strategy.matchToString(result.content);
+      into.push({
+        text,
         start: result.streamIndices[0],
         end: result.streamIndices[1]
       });
+      output += text;
     }
-    output += result.isMatch
-      ? strategy.matchToString(result.content)
-      : result.content;
+  };
+
+  for (const chunk of chunks) {
+    record(strategy.processChunk(chunk, state), matches);
+    if (state.buffer.length > peakBuffer) peakBuffer = state.buffer.length;
   }
+  record(strategy.flush(state), flushMatches);
 
   return { output, matches, flushMatches, peakBuffer };
 }

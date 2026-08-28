@@ -20,8 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Surrogate pairs split across chunks now rejoin into a single match, rather than yielding one match per lone surrogate. Previously documented as a limitation
 - Fixed lookahead confirmation checking only a candidate's extent, so `/a(?=bc)|(a)/` over `"ab"` reported the wrong branch's captures. Captures are now compared too. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
 - Fixed two more lookahead confirmation gaps: a zero-length candidate skipped confirmation entirely, losing `/(?=ab)|aX/` over `["a", "X"]`; and a capture inside the lookahead could still grow past the chunk edge, so `/a(?=(b+))/` over `["ab", "bX"]` captured `"b"` where a whole-input `exec` captures `"bb"`
+- Fixed `flush()` stopping at a zero-length match rather than skipping it as `processChunk` does, which hid any real match later in the settled buffer
 - Removed tests for regex search strategy that should have been removed with [#53](https://github.com/TomStrepsil/replace-content-transformer/pull/53)
 - Fixed benchmarking `AnchorSequenceSearchStrategy` to reset state properly, so that benchmark is more realistic
+- Fixed benchmarking `AnchorSequenceSearchStrategy` rendering a sub-strategy's match with `String()` rather than its `matchToString`, which turned a non-string `TMatch` into `"[object Object]"`
 
 ### Added
 

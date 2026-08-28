@@ -23,19 +23,11 @@ function sameCaptures(
   );
 }
 
-/**
- * A capture inside a lookahead runs past the match's own end, so it can reach
- * the edge of the haystack while the match does not. Agreeing with the original
- * pattern *here* proves nothing in that case: more input would extend the
- * capture, and the match would be reported with different capture data.
- */
-function readsToEndOfHaystack(
+function aCaptureCouldStillGrow(
   match: RegExpExecArray,
   haystackLength: number
 ): boolean {
-  return (
-    match.indices?.some((entry) => entry?.[1] === haystackLength) ?? false
-  );
+  return match.indices?.some((entry) => entry?.[1] === haystackLength) ?? false;
 }
 
 function nonMatch(content: string): MatchResult<RegExpExecArray> {
@@ -53,6 +45,40 @@ function toMatchResult(
     content: match,
     streamIndices: [startIndex, startIndex + match[0].length]
   };
+}
+
+type ScanCursor = { reportedUpTo: number };
+
+function skipOneCodeUnitPastZeroLengthMatch(
+  haystack: string,
+  cursor: ScanCursor,
+  matchIndex: number
+): MatchResult<RegExpExecArray> {
+  const skippedFrom = cursor.reportedUpTo;
+  cursor.reportedUpTo = Math.min(skippedFrom + matchIndex + 1, haystack.length);
+  return nonMatch(haystack.slice(skippedFrom, cursor.reportedUpTo));
+}
+
+function advanceToMatch(
+  match: RegExpExecArray,
+  haystack: string,
+  cursor: ScanCursor
+): MatchResult<RegExpExecArray> | null {
+  const precedingContentFrom = cursor.reportedUpTo;
+  cursor.reportedUpTo = precedingContentFrom + match.index;
+  return match.index > 0
+    ? nonMatch(haystack.slice(precedingContentFrom, cursor.reportedUpTo))
+    : null;
+}
+
+function takeMatch(
+  match: RegExpExecArray,
+  cursor: ScanCursor,
+  baseOffset: number
+): MatchResult<RegExpExecArray> {
+  const matchStart = cursor.reportedUpTo;
+  cursor.reportedUpTo = matchStart + match[0].length;
+  return toMatchResult(match, baseOffset + matchStart);
 }
 
 /**
@@ -122,7 +148,7 @@ export class RegexSearchStrategy
     const completeMatch = confirmation.exec(haystack);
     if (completeMatch === null) return null;
     if (!sameCaptures(candidate, completeMatch)) return null;
-    if (readsToEndOfHaystack(completeMatch, haystack.length)) return null;
+    if (aCaptureCouldStillGrow(completeMatch, haystack.length)) return null;
 
     if (!this.reportsIndices) delete completeMatch.indices;
     return completeMatch;
@@ -136,16 +162,16 @@ export class RegexSearchStrategy
     const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
-    let position = 0;
+    const cursor: ScanCursor = { reportedUpTo: 0 };
     try {
-      while (position < length) {
-        const remainingHaystack = haystack.substring(position);
+      while (cursor.reportedUpTo < length) {
+        const remainingHaystack = haystack.substring(cursor.reportedUpTo);
         const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
         const matchStart = partialMatch?.index ?? remainingHaystack.length;
         const settledMatch = this.settledMatch(partialMatch, remainingHaystack);
 
         if (settledMatch === null) {
-          position = length;
+          cursor.reportedUpTo = length;
           state.buffer = remainingHaystack.slice(matchStart);
           if (matchStart > 0)
             yield nonMatch(remainingHaystack.slice(0, matchStart));
@@ -153,33 +179,19 @@ export class RegexSearchStrategy
         }
 
         state.buffer = "";
-        const matchLength = settledMatch[0].length;
 
-        const cannotAdvanceTheCursor = matchLength === 0;
-        if (cannotAdvanceTheCursor) {
-          const resumeAfterZeroLengthMatch = Math.min(
-            position + matchStart + 1,
-            length
-          );
-          const skipped = haystack.slice(position, resumeAfterZeroLengthMatch);
-          position = resumeAfterZeroLengthMatch;
-          yield nonMatch(skipped);
+        if (settledMatch[0].length === 0) {
+          yield skipOneCodeUnitPastZeroLengthMatch(haystack, cursor, matchStart);
           continue;
         }
 
-        if (matchStart > 0) {
-          position += matchStart;
-          yield nonMatch(remainingHaystack.slice(0, matchStart));
-        }
-
-        const startIndex = baseOffset + position;
-        position += matchLength;
-
-        yield toMatchResult(settledMatch, startIndex);
+        const precedingContent = advanceToMatch(settledMatch, haystack, cursor);
+        if (precedingContent) yield precedingContent;
+        yield takeMatch(settledMatch, cursor, baseOffset);
       }
     } finally {
-      if (position < length) {
-        state.buffer += haystack.slice(position);
+      if (cursor.reportedUpTo < length) {
+        state.buffer += haystack.slice(cursor.reportedUpTo);
       }
       state.streamOffset += haystack.length - bufferLength;
     }
@@ -193,22 +205,26 @@ export class RegexSearchStrategy
     state.buffer = "";
     state.streamOffset = 0;
 
-    let position = 0;
-    while (position < buffer.length) {
-      const remaining = buffer.substring(position);
-      const finalMatch = this.completeMatchRegex.exec(remaining);
-      if (!finalMatch?.[0]) break;
+    const cursor: ScanCursor = { reportedUpTo: 0 };
+    while (cursor.reportedUpTo < buffer.length) {
+      const finalMatch = this.completeMatchRegex.exec(
+        buffer.substring(cursor.reportedUpTo)
+      );
+      if (finalMatch === null) break;
 
-      if (finalMatch.index)
-        yield nonMatch(remaining.slice(0, finalMatch.index));
+      if (finalMatch[0].length === 0) {
+        yield skipOneCodeUnitPastZeroLengthMatch(buffer, cursor, finalMatch.index);
+        continue;
+      }
 
-      const matchStart = position + finalMatch.index;
-      position = matchStart + finalMatch[0].length;
-
-      yield toMatchResult(finalMatch, baseOffset + matchStart);
+      const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
+      if (precedingContent) yield precedingContent;
+      yield takeMatch(finalMatch, cursor, baseOffset);
     }
 
-    if (position < buffer.length) yield nonMatch(buffer.slice(position));
+    if (cursor.reportedUpTo < buffer.length) {
+      yield nonMatch(buffer.slice(cursor.reportedUpTo));
+    }
   }
 
   override matchToString(match: RegExpExecArray): string {
