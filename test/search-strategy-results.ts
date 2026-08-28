@@ -36,6 +36,10 @@ function flushToString<TState, TMatch>(
  *
  * Kept free of any test-runner import so non-test tooling (e.g. the chunk-variance
  * diagnostic) can reuse it.
+ *
+ * Both `processChunk` and `flush` scan until their cursor passes the end, so both
+ * are bounded by `maxResults`: a scan that stops advancing fails the test rather
+ * than exhausting the heap and killing the worker.
  */
 function collectSearchStrategyResults<TState, TMatch = string>(
   strategy: SearchStrategy<TState, TMatch>,
@@ -48,18 +52,29 @@ function collectSearchStrategyResults<TState, TMatch = string>(
   output: string;
 } {
   const state = strategy.createState();
-  const results: MatchResult<TMatch>[] = [];
-  for (const chunk of chunks) {
-    for (const result of strategy.processChunk(chunk, state)) {
-      results.push(result);
-      if (results.length > maxResults) {
+
+  const collectBounded = (
+    source: string,
+    yields: Iterable<MatchResult<TMatch>>,
+    into: MatchResult<TMatch>[]
+  ) => {
+    for (const result of yields) {
+      into.push(result);
+      if (into.length > maxResults) {
         throw new Error(
-          `processChunk did not advance: exceeded ${maxResults} results`
+          `${source} did not advance: exceeded ${maxResults} results`
         );
       }
     }
+  };
+
+  const results: MatchResult<TMatch>[] = [];
+  for (const chunk of chunks) {
+    collectBounded("processChunk", strategy.processChunk(chunk, state), results);
   }
-  const flushResults = [...strategy.flush(state)];
+
+  const flushResults: MatchResult<TMatch>[] = [];
+  collectBounded("flush", strategy.flush(state), flushResults);
   const flush = flushResults
     .map((result) => resultToString(strategy, result))
     .join("");
