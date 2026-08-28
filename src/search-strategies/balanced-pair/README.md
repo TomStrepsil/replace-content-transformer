@@ -123,7 +123,7 @@ interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
 | Opening found, no inner opens     | `0` (after `--` + 0)  | accumulated → cleared      | Yield as complete match                |
 | Opening found, inner opens exist  | `> 0`                 | accumulating               | Set `currentNeedleIndex = 1`, continue |
 | Subsequent close balances depth   | decrements toward `0` | accumulating               | Continue or yield when reaching `0`    |
-| Flush mid-match                   | reset to `0`          | cleared (returned as-is)   | Return buffered content unflushed      |
+| Flush mid-match                   | reset to `0`          | cleared (yielded as-is)    | Yield buffered content as a non-match  |
 
 **Flush behaviour:**
 
