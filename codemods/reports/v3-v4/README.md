@@ -64,7 +64,7 @@ The loop is written for the names actually in use, and is deliberately the **beh
 
 `flush()` is an ordinary name on cache, logger, stream and database APIs. Neither tool mentions one:
 
-- an implementation qualifies by its class `implements SearchStrategy<…>` or `extends …StrategyBase<…>`
-- a call site qualifies by its receiver being named for a strategy (`strategy`, `this.searchStrategy`)
+- an implementation qualifies by its class `implements SearchStrategy<…>` or `extends …StrategyBase<…>`, including under an import alias (`import type { SearchStrategy as Strategy }`, `import { StringBufferStrategyBase as Base }`); the signature then uses your local name for `MatchResult` too
+- a call site qualifies by its receiver being named for a strategy (`strategy`, `this.searchStrategy`); a receiver named otherwise (`const s = new RegexSearchStrategy(…); s.flush(…)`) is not recognised, since the tool reads names, not types
 
 A strategy that satisfies the interface structurally, without saying so, will not be found — search for `flush` by hand if you have one. Already-migrated code (a generator `flush`, a `for…of` over `flush()`) is silent too, so a second run after migrating should print nothing.

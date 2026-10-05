@@ -236,4 +236,78 @@ describe("flush-implementation report", () => {
     expect(report).not.toContain("MatchResult<string>");
     expect(report).toContain("inherited from RegexSearchStrategy");
   });
+
+  describe("aliased imports", () => {
+    const flushBody = [
+      "  flush(state: State): string {",
+      "    return state.buffer;",
+      "  }",
+      "}",
+      ""
+    ];
+
+    it("finds a class implementing an aliased SearchStrategy", () => {
+      const { report } = runTransform(
+        [
+          'import type { SearchStrategy as Strategy } from "replace-content-transformer";',
+          "class S implements Strategy<State, RegExpExecArray> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("fixture.ts:3");
+      expect(report).toContain("Generator<MatchResult<RegExpExecArray>, void, undefined>");
+    });
+
+    it("finds an aliased SearchStrategy imported with an inline type specifier", () => {
+      const { report } = runTransform(
+        [
+          'import { type SearchStrategy as Strategy } from "replace-content-transformer";',
+          "class S implements Strategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("fixture.ts:3");
+      expect(report).toContain("MatchResult<string>");
+    });
+
+    it("finds a class extending an aliased StringBufferStrategyBase", () => {
+      const { report } = runTransform(
+        [
+          'import { StringBufferStrategyBase as Base } from "replace-content-transformer";',
+          "class S extends Base<RegExpExecArray> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("fixture.ts:3");
+      expect(report).toContain("MatchResult<RegExpExecArray>");
+    });
+
+    it("stays quiet about an alias of something that is not a strategy", () => {
+      const { report } = runTransform(
+        [
+          'import { Cache as Strategy } from "somewhere";',
+          "class S implements Strategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toBe("");
+    });
+
+    it("does not ask for a MatchResult import that is already aliased", () => {
+      const { report } = runTransform(
+        [
+          'import type { MatchResult as Result, SearchStrategy as Strategy } from "replace-content-transformer";',
+          "class S implements Strategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("Generator<Result<string>, void, undefined>");
+      expect(report).not.toContain("add a type import");
+    });
+  });
 });

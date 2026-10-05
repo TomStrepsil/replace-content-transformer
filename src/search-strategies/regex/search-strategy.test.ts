@@ -98,6 +98,42 @@ function expectNativeCapturesAtEverySplit(
   }
 }
 
+function expectSettledMatchesAreNative(pattern: RegExp, haystack: string): void {
+  const original = new RegExp(pattern.source, `${pattern.flags}y`);
+
+  for (const chunks of [[haystack], ...everySplitOf(haystack)]) {
+    const settled = matchDetailsOf(pattern, chunks);
+    for (const { captures, groups, streamIndices } of settled) {
+      original.lastIndex = streamIndices[0];
+      const native = original.exec(haystack);
+      expect({ chunks, at: streamIndices[0], captures, groups }).toEqual({
+        chunks,
+        at: streamIndices[0],
+        captures: native === null ? null : [...native],
+        groups: native?.groups
+      });
+    }
+  }
+}
+
+function bufferingAtEveryTwoWaySplit(pattern: RegExp, haystack: string) {
+  let peakBuffer = 0;
+  let deferrals = 0;
+
+  for (const chunks of everyTwoWaySplit(haystack).slice(1)) {
+    const strategy = new RegexSearchStrategy(pattern);
+    const state = strategy.createState();
+    chunks.forEach((chunk, index) => {
+      Array.from(strategy.processChunk(chunk, state));
+      peakBuffer = Math.max(peakBuffer, state.buffer.length);
+      const isBoundary = index < chunks.length - 1;
+      if (isBoundary && state.buffer.length > 0) deferrals++;
+    });
+  }
+
+  return { peakBuffer, deferrals };
+}
+
 function describeChunkInvariantCases(
   cases: {
     name: string;
@@ -123,6 +159,10 @@ function describeChunkInvariantCases(
 
       it("reports the captures a non-streaming exec would, at every split", () => {
         expectNativeCapturesAtEverySplit(pattern, haystack);
+      });
+
+      it("only settles matches a non-streaming sticky exec would produce at the same index", () => {
+        expectSettledMatchesAreNative(pattern, haystack);
       });
     });
   });
@@ -676,19 +716,6 @@ describe("RegexSearchStrategy", () => {
           },
           { isMatch: false, content: " here" }
         ]
-      },
-      {
-        name: "rejoins a surrogate pair split across chunks into a single match, via the unicode flag",
-        pattern: /(?<foo>.)/u,
-        chunks: ["\ud83d", "\ude04"],
-        expected: [
-          {
-            isMatch: true,
-            content: expect.objectContaining({
-              groups: { foo: "\ud83d\ude04" }
-            })
-          }
-        ]
       }
     ];
 
@@ -763,6 +790,21 @@ describe("RegexSearchStrategy", () => {
 
   describe("alternation", () => {
     describeChunkInvariantCases([
+      {
+        name: "a higher-priority backreference alternative running out behind a native match",
+        pattern: /(a)\1b|a/,
+        haystack: "aab",
+        expected: [{ isMatch: true, text: "aab" }]
+      },
+      {
+        name: "the same, after leading content",
+        pattern: /(a)\1b|a/,
+        haystack: "xaab",
+        expected: [
+          { isMatch: false, text: "x" },
+          { isMatch: true, text: "aab" }
+        ]
+      },
       {
         name: "distinct alternation branches",
         pattern: /cat|dog/,
@@ -1041,6 +1083,15 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
+        name: "a capture inside a lookahead whose branch settles only with more input",
+        pattern: /a(?=(?:b(?:x|(c))d|b))/,
+        haystack: "abcd",
+        expected: [
+          { isMatch: true, text: "a" },
+          { isMatch: false, text: "bcd" }
+        ]
+      },
+      {
         name: "a zero-length match ahead of a real one in the settled buffer",
         pattern: /(?=(a).+Z)|(?=a)|b/,
         haystack: "aXb",
@@ -1050,6 +1101,61 @@ describe("RegexSearchStrategy", () => {
         ]
       }
     ]);
+  });
+
+  describe("buffering at a chunk boundary", () => {
+    it.each([
+      {
+        name: "a delimited span",
+        pattern: /\{\{[^{}]*\}\}/,
+        haystack: "a {{b}} c",
+        peakBuffer: 5,
+        deferrals: 5
+      },
+      {
+        name: "a run of non-whitespace",
+        pattern: /\S+/,
+        haystack: "hello world",
+        peakBuffer: 5,
+        deferrals: 9
+      },
+      {
+        name: "a trailing unbounded quantifier",
+        pattern: /foo.+/,
+        haystack: "foo bar",
+        peakBuffer: 7,
+        deferrals: 6
+      },
+      {
+        name: "an eager quantifier",
+        pattern: /[A-Z]+/,
+        haystack: "please MATCH this",
+        peakBuffer: 5,
+        deferrals: 5
+      },
+      {
+        name: "a literal that nothing could extend",
+        pattern: /END/,
+        haystack: "xxENDyy",
+        peakBuffer: 3,
+        deferrals: 3
+      },
+      {
+        name: "a fixed-width date",
+        pattern: /\d{4}-\d{2}-\d{2}/,
+        haystack: "on 2024-06-15 ok",
+        peakBuffer: 10,
+        deferrals: 10
+      }
+    ])(
+      "$name: buffers $peakBuffer at most and defers $deferrals times across every two-way split",
+      ({ pattern, haystack, peakBuffer, deferrals }) => {
+        expect(bufferingAtEveryTwoWaySplit(pattern, haystack)).toEqual({
+          peakBuffer,
+          deferrals
+        });
+      }
+    );
   });
 
   describe("incomplete matches requiring flush", () => {
@@ -1168,11 +1274,12 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("maps capture-group and `d`-flag indices of a settled match onto the stream", () => {
-      const { flushResults } = collectSearchStrategyResults(
+      const { results, flushResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
         ["prefix ", "{{value}}"]
       );
 
+      expect(results.some((result) => result.isMatch)).toBe(false);
       const match = flushResults.find((result) => result.isMatch);
       expect(match).toMatchObject({
         isMatch: true,
@@ -1245,6 +1352,28 @@ describe("RegexSearchStrategy", () => {
       expect(settled[0]).toBe("OLD");
       expect(settled.index + settled[0].length).toBeLessThan(7);
     });
+
+    it.each([
+      { name: "a static pattern", pattern: /OLD/, haystack: "xxOLDyy" },
+      { name: "a lookahead pattern", pattern: /a(?=bc)/, haystack: "xxabcyy" }
+    ])(
+      "consults the partial-match regex once per scan iteration and never the original, for $name",
+      ({ pattern, haystack }) => {
+        const strategy = new RegexSearchStrategy(pattern);
+        const state = strategy.createState();
+        const originalExec = vi.spyOn(pattern, "exec");
+        const partialExec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+        try {
+          const results = [...strategy.processChunk(haystack, state)];
+          const matchCount = results.filter((result) => result.isMatch).length;
+          const scanIterations = matchCount + 1;
+          expect(partialExec).toHaveBeenCalledTimes(scanIterations);
+          expect(originalExec).not.toHaveBeenCalled();
+        } finally {
+          vi.restoreAllMocks();
+        }
+      }
+    );
 
     it("passes the remainder through if the partial regex ever reports no match at all", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
@@ -1665,6 +1794,37 @@ describe("RegexSearchStrategy", () => {
       flushToString(strategy, state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [6, 11] });
+    });
+
+    it("offsets the confirmation match's indices when a lookahead pattern reports them", () => {
+      expectSameMatchesAtEverySplit(/(\w+)(?= END)/d, "xx hello END yy");
+
+      const [match] = matchDetailsOf(/(\w+)(?= END)/d, ["xx hello", " END yy"]);
+      expect(match).toMatchObject({
+        streamIndices: [3, 8],
+        indices: [
+          [3, 8],
+          [3, 8]
+        ]
+      });
+    });
+
+    it("offsets named-group indices of a confirmation match exactly once", () => {
+      expectSameMatchesAtEverySplit(/(?<word>\w+)(?= END)/d, "xx hello END yy");
+
+      const [match] = matchDetailsOf(/(?<word>\w+)(?= END)/d, [
+        "xx hello",
+        " END yy"
+      ]);
+      expect(match).toMatchObject({
+        streamIndices: [3, 8],
+        indexGroups: { word: [3, 8] }
+      });
+    });
+
+    it("omits indices from a confirmation match when the pattern has no d flag", () => {
+      const [match] = matchDetailsOf(/(\w+)(?= END)/, ["xx hello", " END yy"]);
+      expect(match.indices).toBeUndefined();
     });
   });
 

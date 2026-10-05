@@ -123,11 +123,11 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
       let matched: string | null = null;
       let afterMatch = "";
       for (const result of settled) {
-        if (result.isMatch && matched === null) {
-          matched = subStrategy.matchToString(result.content);
+        const text = renderResult(subStrategy, result);
+        if (result.isMatch && matched === null && text !== "") {
+          matched = text;
           continue;
         }
-        const text = renderResult(subStrategy, result);
         if (matched !== null) {
           afterMatch += text;
         } else if (needleIndex === 0) {

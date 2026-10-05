@@ -42,6 +42,27 @@ describe("input validation", () => {
     expect(() => validate(/foo(?=bar)/)).not.toThrow();
   });
 
+  it("should allow a capturing group inside a lookahead", () => {
+    expect(() => validate(/a(?=(b+))/)).not.toThrow();
+  });
+
+  it("should allow a named capturing group inside a lookahead", () => {
+    expect(() => validate(/a(?=(?<tail>b))/)).not.toThrow();
+  });
+
+  it("should allow a capturing group nested deeper inside a lookahead", () => {
+    expect(() => validate(/a(?=(?:b(c)d))/)).not.toThrow();
+  });
+
+  it("should allow a capturing group alongside a lookahead", () => {
+    expect(() => validate(/(\w+)(?= END)/)).not.toThrow();
+    expect(() => validate(/(?<word>\w+)(?= END)/)).not.toThrow();
+  });
+
+  it("should allow a non-capturing group inside a lookahead", () => {
+    expect(() => validate(/a(?=(?:bc))/)).not.toThrow();
+  });
+
   it("should not allow a word boundary in the needle", () => {
     expect(() => validate(/\bfoo/)).toThrow(
       "word boundaries are not supported"

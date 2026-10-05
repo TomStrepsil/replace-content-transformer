@@ -57,6 +57,8 @@ export interface SearchStrategy<TState, TMatch = string> {
    * the stream ends. Strategies with nothing to settle yield the buffer as a single
    * non-match result; a strategy holding nothing yields nothing at all.
    *
+   * Also re-sets `state` for re-use, so the same state can drive a second stream.
+   *
    * @param state - Mutable state
    * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch, streamIndices: [startIndex, endIndex] }`
    */

@@ -31,7 +31,7 @@ import PartialMatchRegExp from "regex-partial-match";
 
 class RegexSearchStrategy {
   private readonly completeMatchRegex: RegExp; // Original pattern
-  private readonly partialMatchRegex: RegExp; // Updated for partial detection
+  private readonly partialMatchRegex: PartialMatchRegExp; // Updated for partial detection
 
   constructor(needle: RegExp) {
     this.completeMatchRegex = needle;
@@ -42,67 +42,68 @@ class RegexSearchStrategy {
 
 ### Scanning with the Partial Regex
 
-The scan uses the **partial** regex: one `exec` per scan position, and (for every pattern that does not use a lookahead) that result is the answer. The original pattern settles whatever is left buffered at [End of Stream](#end-of-stream), and confirms candidates for the lookahead case below.
+The scan uses the **partial** regex: one `exec` per scan position, then a decision on the result. The original pattern settles whatever is left buffered at [End of Stream](#end-of-stream), and confirms candidates for the one lookahead case below.
 
 ```
 p = partialMatchRegex.exec(remainingHaystack)
 
-  nothing viable            → nothing here can ever match; emit the remainder
-  p reaches end-of-haystack → still growing; buffer from p.index, emit the prefix
-  p ends before the end     → settled; it IS the match — emit it
+  p reaches end-of-haystack  → more input could change it; buffer from p.index, emit the prefix
+                               (includes "nothing viable", which holds nothing)
+  p ends short of it         → settled; it IS the match — emit it
+                               (on a backreference or lookahead pattern, only if hitEnd(p) is false)
 ```
+
+A candidate that reaches the end of the haystack is deferred without being examined. Deferral is always safe, because [End of Stream](#end-of-stream) settles whatever is still buffered with the original pattern. That holds even when nothing could extend the match: `/END/` over `"xxEND"` is held until the next chunk or `flush`, as is `/[A-Z]+/` over `"please MAT"`. Probing every edge candidate to let the first settle a chunk earlier measured around 1.3x slower on nearly every shape (2.2x on `/\S+/`) for no gain in time, so the strategy does not.
+
+A candidate that ends short of the haystack's end is settled outright for most patterns. The decision is made once, at construction, from the partial regex's `features`: a pattern with no backreference and no lookahead cannot have an incomplete partial match that ends anywhere but at end-of-haystack, since only the `$(?![\s\S])` truncation marker produces one. A shorter match is therefore the original pattern's match at that index.
+
+For a backreference or lookahead pattern that is not enough, and the candidate is passed to `hitEnd()` as well. This follows the JDK's [`Matcher.hitEnd()`](https://docs.oracle.com/javase/8/docs/api/java/util/regex/Matcher.html#hitEnd--): it reports whether the partial regex read the end of the haystack while producing the match, and where it did not, no continuation of the input can change the match's index or text. `true` defers the candidate; `false` settles it.
 
 Two properties make this sound:
 
 - **Superset** — the partial regex matches everything the original matches, and never starts later. A partial scan cannot miss what a complete scan would find.
-- **Identity** — an _incomplete_ partial match can only end at end-of-haystack, because that is what the `$(?![\s\S])` truncation marker asserts. So a partial match ending _before_ end-of-haystack cannot have used that branch: it is the original pattern's match at that index, identical in extent, capture groups and `d`-flag indices. A zero-width assertion is the exception, since the branch it takes cannot move where the match ends — see [Lookahead Confirmation](#lookahead-confirmation).
+- **Identity** — a candidate that ends short of the end, on a pattern where that is decided without a probe, or where `hitEnd()` is `false`, never relied on the `$(?![\s\S])` truncation marker, so it is the original pattern's match at that index, identical in extent, capture groups and `d`-flag indices. One case is invisible to `hitEnd()`: a lookahead read in an earlier iteration of a quantified group — see [Lookahead Confirmation](#lookahead-confirmation).
 
-Note that "nothing viable" is reported as a zero-length match at end-of-haystack rather than as `null` — the truncation branch always matches the empty string there.
-
+Note that "nothing viable" is reported as a zero-length match at end-of-haystack rather than as `null` — the truncation branch always matches the empty string there. It reaches end-of-haystack like any other edge candidate, so it is deferred, but buffering from end-of-haystack holds nothing and the whole remainder is emitted.
 ### Lookahead Confirmation
 
-Identity holds for the text a match _consumes_, not for what it _asserts_. A positive lookahead is zero-width: its atoms are partialised like everything else, so `(?=bc)` is satisfied by a bare `b` at end-of-haystack — but that truncation happens _inside_ the assertion, where it cannot extend the match's own end.
+Identity holds for the text a match _consumes_, not for what it _asserts_. A positive lookahead is zero-width: its atoms are partialised like everything else, so `(?=bc)` is satisfied by a bare `b` at end-of-haystack. The candidate ends short of the edge, so on a lookahead pattern it is not settled on that alone. `hitEnd()` sees the truncation, because the partial regex read the end inside the assertion:
 
 ```
 Pattern: /a(?=bc)/
 Chunk:   "ab"
 
 partialMatchRegex.exec() → "a" at position 0, ending at 1 of 2
-
-┌──────────────────────────────────────────────┐
-│ Chunk: "ab"                                  │
-│         ^     ends before the edge …         │
-│          ^    … but the lookahead ran into it│
-└──────────────────────────────────────────────┘
+hitEnd()                 → true: the assertion ran into the edge, so "a" is deferred
 ```
 
-By the rule above that candidate is settled — yet `/a(?=bc)/` does not match `"ab"` at all. So where the pattern uses a lookahead, a settled candidate is confirmed before it is emitted: the original pattern, anchored at the candidate's index, has to match there and produce **the same match** — the same extent *and* the same captures. Where it does not, the candidate is treated as still growing, and buffered from its own index exactly like a partial that reached the edge. What is emitted is the confirmation's own match object, so `groups` and `d`-flag indices are the ones a non-streaming `exec` would hand back.
+The same holds for a capture inside the assertion: `/a(?=(b+))/` over `"ab"` is held until the capture can no longer grow, and `/a(?=(?:b(?:x|(c))d|b))/` is held while the higher-priority branch is still viable.
 
-Comparing the extent alone is not enough, because a truncated lookahead can decide which *branch* of an alternation wins without moving where the match ends:
-
-```
-Pattern: /a(?=bc)|(a)/
-Chunk:   "ab"
-
-partial       → "a" via branch 1, the lookahead truncated at the edge; capture 1 undefined
-confirmation  → "a" via branch 2, since `bc` never arrives;              capture 1 = "a"
-```
-
-Both are one character long, so an extent-only check would pass the *partial's* match through and a replacement would see `undefined` where `exec` gives `"a"`. Since the branch that wins is exactly what the missing content decides, the candidate is not settled at all: it is buffered, and re-decided when the next chunk arrives or `flush` settles it against the original pattern.
+The one thing it cannot see is a lookahead read in an _earlier iteration_ of a quantified group. ECMAScript resets a quantified group's captures on every iteration, including the partial regex's truncation markers, so the evidence is wiped before the match ends:
 
 ```
-Pattern: /a(?=bc)/
+Pattern: /(?:a(?=bcd)|b)+/
+Chunk:   "abc"
 
-  ["abc"]      → confirmed on the spot → match "a", then "bc"
-  ["ab", "c"]  → "ab" held; "abc" confirms → match "a", then "bc"
-  ["ab", "X"]  → "ab" held; "abX" can never match → "abX" as non-match text
+partialMatchRegex.exec() → "ab" at position 0
+hitEnd()                 → false: the (?=bcd) read in iteration 1 is invisible
 ```
 
-The check is decided once, at construction, from the partial regex's `features` — a pattern with no lookahead never pays for it and keeps the single-`exec` scan. See [Positive lookaheads](#️-positive-lookaheads) for what it costs the ones that do.
+`"abcx"` matches only `"b"` at index 1, so `"ab"` must not be emitted. Where the pattern uses a lookahead, a candidate that ends short of the edge and that `hitEnd()` has settled is therefore confirmed before it is emitted: the original pattern, anchored at the candidate's index, has to match there and produce **the same match**, with the same extent _and_ the same captures. Where it does not, the candidate is treated as still growing, and buffered from its own index exactly like a deferred one. What is emitted is the confirmation's own match object, so `groups` and `d`-flag indices are the ones a non-streaming `exec` would hand back. This is a [documented limit upstream](https://github.com/TomStrepsil/regex-partial-match/issues/123).
+
+```
+Pattern: /(?:a(?=bcd)|b)+/
+
+  ["abcd"]       → confirmed on the spot → match "ab", then "cd"
+  ["abc", "d"]   → "abc" held; "abcd" confirms → match "ab", then "cd"
+  ["abc", "x"]   → "abc" held; "abcx" has no match at 0 → "a" as non-match text, then "b" as the match
+```
+
+Both the `hitEnd()` probe and the confirmation are decided once, at construction, from the partial regex's `features` — a pattern with no lookahead never pays for the confirmation, and one with neither a lookahead nor a backreference pays for neither. See [Positive lookaheads](#️-positive-lookaheads) for what it costs the ones that do.
 
 ### Settled Match
 
-A partial match that ends before the end of the chunk is final, and is emitted as the match:
+A partial match that ends before the end of the chunk is final (on a backreference or lookahead pattern, provided `hitEnd()` is `false`), and is emitted as the match:
 
 ```
 Pattern: /PLACEHOLDER/
@@ -124,7 +125,7 @@ Result:
 
 ### Deferred Match
 
-A partial match that runs to the end of the chunk might still grow, so it is buffered rather than emitted:
+A partial match that reaches the end of the chunk might still change, so it is buffered rather than emitted (as is a shorter one on a backreference or lookahead pattern when `hitEnd()` is `true`):
 
 ```
 Pattern: /PLACEHOLDER/
@@ -135,14 +136,14 @@ partialMatchRegex.exec() → "PLACE" at position 6, ending at 11 of 11
 ┌──────────────────────────────────────────────┐
 │ Chunk: "Hello PLACE"                         │
 │               ^^^^^                          │
-│               runs to the edge — defer       │
+│               reaches the edge — defer       │
 └──────────────────────────────────────────────┘
 
 Output: "Hello " (non-match)
 Buffer: "PLACE"
 ```
 
-This is what makes the strategy chunk-invariant. The same rule covers three hazards that look distinct but are the same question — _is anything starting here still growing?_
+This is what makes the strategy chunk-invariant. The same rule covers three hazards that look distinct but are the same question — _does the partial match run into the edge?_
 
 ```
 Pattern: /foo.?bar|o/    "x fooXbar"
@@ -155,7 +156,7 @@ Pattern: /\d{4}-\d{2}|\d{4}/    "born 2024-06 ok"
   ["born 2024-", "06 ok"]  → one match, "2024-06"   (not "2024")
 ```
 
-The third is the one that defeats a naive guard: `2024` ends at index 9 of a 10-character chunk, comfortably short of the edge, while `2024-` was still a viable prefix of the higher-priority branch. Comparing where the candidates _start_ finds nothing to prefer — only the partial match reaching end-of-haystack reveals it.
+The third is the one that defeats a naive guard: `2024` ends at index 9 of a 10-character chunk, comfortably short of the edge, while `2024-` was still a viable prefix of the higher-priority branch. Comparing where the candidates _start_ finds nothing to prefer. The partial regex prefers the higher-priority branch, so its candidate is `2024-`, which reaches the edge and is deferred.
 
 ### Buffer Continuation
 
@@ -223,7 +224,7 @@ Output: "a" (non-match), then "b" (match)
 Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
 
 > [!NOTE]
-> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`. Anyone implementing `SearchStrategy`, or driving a strategy directly, has to handle that — see the [v3 → v4 migration report](../../../codemods/transforms/v3-v4/README.md).
+> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`. Anyone implementing `SearchStrategy`, or driving a strategy directly, has to handle that — see the [v3 → v4 migration report](../../../codemods/reports/v3-v4/README.md).
 
 ## Partial Match Transformation
 
@@ -286,7 +287,7 @@ Knowing when to buffer requires understanding if the part of the regular express
 > [!NOTE]
 > This restriction is specifically about **predictive** negative lookaheads: ones whose truth depends on content that hasn't arrived yet. `(?!bar)` needs to see, and rule out, up to three more characters before it can be trusted — that's exactly the case this strategy can't support without a full state machine.
 >
-> It does _not_ apply to [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/)'s own internal use of `(?![\s\S])`, visible in the generated partial regex — e.g. `(?:P|$(?![\s\S]))(?:L|$(?![\s\S]))...` for `/PLACEHOLDER/` (see [Partial Match Transformation](#partial-match-transformation)). That marker only ever asserts absence of _already-received_ content, never a claim about anything still to arrive[^2].
+> It does _not_ apply to [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/)'s own internal use of `(?![\s\S])`, visible in the generated partial regex — e.g. `(?:P|$(?![\s\S]))(?:L|$(?![\s\S]))...` for `/PLACEHOLDER/` (see [Partial Match Transformation](#partial-match-transformation)). That marker only ever asserts absence of _already-received_ content, never a claim about anything still to arrive [^2].
 >
 > - `(?!bar)` (user pattern): depends on 3 characters not yet received → must know to buffer to find out, despite complete expression matching → **unsupported**.
 > - `(?![\s\S])` (internal marker): depends on zero unseen characters, it's an assertion of _absence_ → always decidable immediately → **safe**.
@@ -317,7 +318,7 @@ Problem: `m` only changes the behaviour of `^` and `$`, both of which are unsupp
 /foo/y;
 ```
 
-Problem: This strategy already finds every match itself by advancing its own cursor, but `exec()`'s `g`/`y` behaviour keeps its own `lastIndex` cursor on the regex object, which goes stale between the strategy's internal calls and can silently drop matches[^3]. Rejected by [input validation](./input-validation.ts) rather than silently stripped.
+Problem: This strategy already finds every match itself by advancing its own cursor, but `exec()`'s `g`/`y` behaviour keeps its own `lastIndex` cursor on the regex object, which goes stale between the strategy's internal calls and can silently drop matches [^3]. Rejected by [input validation](./input-validation.ts) rather than silently stripped.
 
 ### ⚠️ Positive lookaheads
 
@@ -327,10 +328,12 @@ Problem: This strategy already finds every match itself by advancing its own cur
 
 Supported, and chunk-invariant — but the assertion reads content the match itself does not consume, so a candidate cannot be emitted until that content has arrived. Fed `"border"`, the strategy holds it: `-top` may be in the next chunk, or may never come. See [Lookahead Confirmation](#lookahead-confirmation) for the mechanism.
 
+A candidate that ends short of the edge settles only once nothing inside the assertion could read more input, so a capture inside the assertion (`/a(?=(b+))/`) is held until it can no longer grow. Capturing groups inside a lookahead are accepted.
+
 Two costs follow:
 
 - **Deferral past the end of the match.** A match whose own text ends well inside the chunk is still buffered, for as much content as the lookahead can inspect. That is bounded by the assertion's own length for a fixed one like `(?=-top)`, but a lookahead containing an unbounded quantifier (`/foo(?=.*;)/`) inherits [Unbounded Quantifiers](#️-unbounded-quantifiers) and can hold the buffer to the end of the stream.
-- **A second `exec` per candidate.** Confirmation costs one anchored `exec` against the original pattern for every candidate the scan would otherwise settle on the spot — including the ones it goes on to rule out. On the lookahead shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md) that measured around a fifth slower, on a single-machine before/after rather than the A/B/B/A method that suite recommends. Patterns with no lookahead are unaffected.
+- **A `hitEnd()` probe and a second `exec` per candidate.** Every candidate that ends short of the edge is probed with `hitEnd()`, and the ones it settles cost one anchored `exec` against the original pattern for confirmation — including the ones that go on to be ruled out. On the lookahead shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md) that measured about 1.24x, A/B/B/A against the tree before the settle rule. Patterns with no lookahead are unaffected.
 
 That shape doubles as a guard on the confirmation itself: with the check removed it reports 42 matches where a non-streaming `matchAll` over the same content finds 40.
 
@@ -340,15 +343,15 @@ That shape doubles as a guard on the confirmation itself: with the check removed
 /(.+?) \1/;
 ```
 
-Backreferences are supported, including across chunk boundaries: [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) resolves captures at match time and re-expands each backreference into per-atom partial form on every `exec()` call (see [its documentation](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/backreferences.md) for the full algorithm). For example, `/(.+?) \1/` correctly matches `"foo foo"` split as `"foo f"` + `"oo bar"`.
+Backreferences are supported, including across chunk boundaries: [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) resolves captures at match time and re-expands each backreference into per-atom partial form on every `exec()` call (see [its documentation](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/backreferences.md) for the full algorithm). For example, `/(.+?) \1/` correctly matches `"foo foo"` split as `"foo f"` + `"oo bar"`. A higher-priority alternative that runs out of input behind a shorter match is deferred too: `/(a)\1b|a/` over `"aa"` + `"b"` yields `"aab"`, not `"a"`, `"a"` and `"b"`. With a backreference in play `exec` can return a native match that ignores an alternative still running out of input, and the candidate ends short of the edge, so this is the case `hitEnd()` is consulted for.
 
 That comes with real caveats for streaming use:
 
-- **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Scanning with the Partial Regex](#scanning-with-the-partial-regex) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom.
-- **Prefix-ambiguous top-level alternation can silently drop a match.** When a top-level `|` has branches sharing a prefix (e.g. `/^(ab)\1|^(abc)\2/`, where the first branch's `"ab"` is a strict prefix of the second branch's `"abc"`), the internal capture scan can resolve the _shorter_ branch before enough input has arrived, causing the partial-match `exec()` to return `null` for content that is in fact a valid partial match. Since [`processChunk`](./search-strategy.ts) treats a `null` partial-match result as "definitely not a match" — flushing what's buffered as ordinary non-match content, rather than continuing to buffer it — this isn't just a slower path, it's a **lost match**: `/^(ab)\1|^(abc)\2/` fed `"ab"`, then `"ca"`, then `"bc"` yields two non-matches (`"abca"`, `"bc"`) instead of the single match `"abcabc"` a non-chunked `exec()` on the concatenated string would find.
+- **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Scanning with the Partial Regex](#scanning-with-the-partial-regex) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom. Candidates that end short of the edge are also probed with `hitEnd()`, which measured about 1.07x on the backreference shape.
+- **Prefix-ambiguous top-level alternation can silently drop a match.** When a top-level `|` has branches sharing a prefix (e.g. `/(ab)\1|(abc)\2/`, where the first branch's `"ab"` is a strict prefix of the second branch's `"abc"`), the internal capture scan can resolve the _shorter_ branch before enough input has arrived, causing the partial-match `exec()` to return `null` for content that is in fact a valid partial match. Since [`processChunk`](./search-strategy.ts) treats a `null` partial-match result as "definitely not a match" — flushing what's buffered as ordinary non-match content, rather than continuing to buffer it — this isn't just a slower path, it's a **lost match**: `/(ab)\1|(abc)\2/` fed `"ab"`, then `"ca"`, then `"bc"` yields two non-matches (`"abca"`, `"bc"`) instead of the single match `"abcabc"` a non-chunked `exec()` on the concatenated string would find.
 
 > [!TIP]
-> List the longer/more specific branch _first_ in the alternation (`/^(abc)\1|^(ab)\2/` rather than `/^(ab)\1|^(abc)\2/`) when branches share a prefix. This has been verified to avoid the dropped-match case above — the capture scan then resolves the longer branch first, so the ambiguous prefix stays buffered instead of being flushed as a non-match, and the same three chunks (`"ab"`, `"ca"`, `"bc"`) go on to produce the correct `"abcabc"` match. This depends on scan-resolution order rather than being a documented guarantee, so treat it as a mitigation to test against your own pattern, not a fix.
+> List the longer/more specific branch _first_ in the alternation (`/(abc)\1|(ab)\2/` rather than `/(ab)\1|(abc)\2/`) when branches share a prefix. This has been verified to avoid the dropped-match case above — the capture scan then resolves the longer branch first, so the ambiguous prefix stays buffered instead of being flushed as a non-match, and the same three chunks (`"ab"`, `"ca"`, `"bc"`) go on to produce the correct `"abcabc"` match. This depends on scan-resolution order rather than being a documented guarantee, so treat it as a mitigation to test against your own pattern, not a fix.
 
 - **`\k<name>` with no named capturing groups in the pattern** is treated by `regex-partial-match` as an atomic (all-or-nothing) backreference, rather than the [identity escape](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape) [Annex B](https://tc39.es/ecma262/#sec-regular-expressions-patterns) would otherwise permit — so `"k"` or `"k<"` alone won't register as a valid partial match if this is the pattern's only reference to `\k`. This is a narrow edge case; if the deprecated Annex B identity-escape meaning is actually intended, use `k` instead of `\k`.
 
@@ -412,7 +415,7 @@ The practical effect is that a nullable pattern matches only where it matches so
 Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked.
 
 > [!WARNING]
-> A pattern that can **only** match empty therefore never matches **anything**, and does so silently:[^4]
+> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^4]
 >
 > ```js
 > new RegExp(""); //  never matches
@@ -421,12 +424,15 @@ Output stays lossless — skipped positions are passed through as ordinary non-m
 > /(?!z)/; //         never matches
 > ```
 
-Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point, so the skip can split a surrogate pair across two non-match segments. Output remains lossless — the pieces reassemble exactly — and no match is affected, since a skipped position yields text rather than a match. Deferral is what rejoins a pair that lands on a chunk edge; this path is the one place the cursor moves without consulting it.
+Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point, so the skip can split a surrogate pair across two non-match segments. Output remains lossless — the pieces reassemble exactly — and no match is affected, since a skipped position yields text rather than a match. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
 
-Skipping is not the whole story for a nullable pattern: where a partial match _is_ possible at that position, the strategy buffers instead, so the same buffering limits described under [Unbounded Quantifiers](#️-unbounded-quantifiers) above still apply. `/(a*b)?/` buffers exactly as `/a*b/` does.
-A skipped zero-length match is the one place the cursor still advances on chunk-relative grounds, so the [Deferred Match](#deferred-match) rule does not apply to it. Where a partial match _is_ viable at that position the strategy defers instead, so nullable patterns buffer exactly as their non-nullable equivalents do.
+Skipping is not the whole story for a nullable pattern: where a partial match _is_ viable at that position the strategy defers instead, so the buffering limits under [Unbounded Quantifiers](#️-unbounded-quantifiers) still apply and `/(a*b)?/` buffers exactly as `/a*b/` does. A skipped zero-length match is the one place the cursor advances on chunk-relative grounds, so the [Deferred Match](#deferred-match) rule does not apply to it.
 
 Both the invariant and the split-dependent cases are pinned in [`search-strategy.test.ts`](./search-strategy.test.ts), driven over every two-way, three-way and per-character split of their input.
+
+### ⚠️ Surrogate pairs split across chunks
+
+Chunks must not split a surrogate pair. Only whole astral characters are supported, as with [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#surrogate-pair-matching). If the source is bytes, decode them with a `TextDecoder` (or `TextDecoderStream`, which never emits half a pair) before the stream reaches the transformer. The strategy has no handling for a pair divided across two chunks.
 
 ### ✅ Supported Features
 
@@ -442,7 +448,7 @@ Both the invariant and the split-dependent cases are pinned in [`search-strategy
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
 - 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
-- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices)[^5]: `/foo/d`
+- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^5]: `/foo/d`
 
 ## Credits
 

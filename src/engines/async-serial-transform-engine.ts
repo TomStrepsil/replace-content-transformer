@@ -90,7 +90,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
       }
 
       if (this._stopReplacingSignal?.aborted) {
-        sink.enqueue(this._searchStrategy.matchToString(result.content));
+        sink.enqueue(this._renderVerbatim(result));
         continue;
       }
 

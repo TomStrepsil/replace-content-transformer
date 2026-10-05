@@ -6,6 +6,7 @@ export interface EmittedMatch {
   text: string;
   start: number;
   end: number;
+  captures: (string | undefined)[];
 }
 
 export interface DriveResult {
@@ -49,7 +50,8 @@ export function drive(
       into.push({
         text,
         start: result.streamIndices[0],
-        end: result.streamIndices[1]
+        end: result.streamIndices[1],
+        captures: [...result.content]
       });
       output += text;
     }
@@ -84,7 +86,8 @@ export function referenceMatches(
     .map((match) => ({
       text: match[0],
       start: match.index,
-      end: match.index + match[0].length
+      end: match.index + match[0].length,
+      captures: [...match]
     }));
 }
 
@@ -94,7 +97,8 @@ export function referenceMatches(
  * Counting matches is not enough: a match settled too early can be *replaced*
  * rather than split — `/\d{4}-\d{2}|\d{4}/` emitting `2024` where the reference
  * has `2024-06` keeps both the count and the losslessness intact. Comparing
- * text and stream offsets in order is what catches it.
+ * text, stream offsets and captures in order is what catches it — captures
+ * because a lookahead can settle on the wrong branch without moving either end.
  */
 export function firstDivergence(
   streamed: EmittedMatch[],
@@ -109,7 +113,11 @@ export function firstDivergence(
       expected !== undefined &&
       emitted.text === expected.text &&
       emitted.start === expected.start &&
-      emitted.end === expected.end;
+      emitted.end === expected.end &&
+      emitted.captures.length === expected.captures.length &&
+      emitted.captures.every(
+        (capture, group) => capture === expected.captures[group]
+      );
     if (!same) return { at, streamed: emitted, reference: expected };
   }
   return null;

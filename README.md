@@ -83,6 +83,9 @@ const replacedStream = readableStream
   .pipeThrough(new TextEncoderStream());
 ```
 
+> [!NOTE]
+> String chunks must come from a `TextDecoder`/`TextDecoderStream`, so a surrogate pair is never split across chunks. See [Surrogate pairs split across chunks](./src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
+
 ### 👨‍🍳 Recipes
 
 #### Single Static String Replacement
@@ -155,7 +158,7 @@ const transformer = new ReplaceContentTransformer(
 ```
 
 > [!NOTE]
-> `streamIndices[1]` (endIndex) is exclusive, following the same convention as [`String.prototype.slice(startIndex, endIndex)`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice)[^2]
+> `streamIndices[1]` (endIndex) is exclusive, following the same convention as [`String.prototype.slice(startIndex, endIndex)`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice) [^2]
 
 [^2]: See [half-open intervals](https://en.wikipedia.org/wiki/Interval_(mathematics)#Half-open_intervals)
 
@@ -507,7 +510,7 @@ The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchSt
 The `flush` is called by the engine once no further input can arrive, to settle anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. Strategies with nothing to settle yield their buffer as a single non-match result. This also re-sets the provided state parameter for re-use.
 
 > [!IMPORTANT]
-> `flush` returned a `string` in v3. See the [v3 → v4 migration report](./codemods/transforms/v3-v4/README.md), which locates every implementation and call site and prints what to write.
+> `flush` returned a `string` in v3. See the [v3 → v4 migration report](./codemods/reports/v3-v4/README.md), which locates every implementation and call site and prints what to write.
 
 > [!NOTE]
 > The `streamIndices` property contains absolute character offsets into the stream passed to the engine as `[startIndex, endIndex]`, thus not chunk-relative.

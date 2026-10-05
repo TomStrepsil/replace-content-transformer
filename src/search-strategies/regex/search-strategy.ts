@@ -1,5 +1,5 @@
 import type { MatchResult, SearchStrategy } from "../types.js";
-import PartialMatchRegExp from "regex-partial-match";
+import PartialMatchRegExp, { features, hitEnd } from "regex-partial-match";
 import validateInput from "./input-validation.js";
 import StringBufferStrategyBase, {
   type StringBufferState
@@ -23,11 +23,17 @@ function sameCaptures(
   );
 }
 
-function aCaptureCouldStillGrow(
+const FEATURES_NEEDING_PROBE_BEFORE_END = [
+  "backreference",
+  "namedBackreference",
+  "lookahead"
+] as const;
+
+function endsAtHaystackEnd(
   match: RegExpExecArray,
-  haystackLength: number
+  haystack: string
 ): boolean {
-  return match.indices?.some((entry) => entry?.[1] === haystackLength) ?? false;
+  return match.index + match[0].length === haystack.length;
 }
 
 function nonMatch(content: string): MatchResult<RegExpExecArray> {
@@ -90,9 +96,8 @@ function takeMatch(
  * using partial match detection to avoid splitting incomplete patterns.
  *
  * @throws If `needle` uses a construct whose truth a streaming scan cannot decide
- * at a chunk boundary — negative lookaheads, lookbehinds, word boundaries, or the
- * `^`/`$` anchors — or the `g`, `y` or `m` flags. See
- * [Limitations](./README.md#limitations).
+ * at a chunk boundary — negative lookaheads, lookbehinds, word boundaries, the
+ * `^`/`$` anchors — or the `g`, `y` or `m` flags. See [Limitations](./README.md#limitations).
  *
  * @example Basic regex search
  * ```typescript
@@ -114,9 +119,9 @@ export class RegexSearchStrategy
   implements SearchStrategy<StringBufferState, RegExpExecArray>
 {
   private readonly completeMatchRegex: RegExp;
-  private readonly partialMatchRegex: RegExp;
+  private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
-  private readonly reportsIndices: boolean;
+  private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
 
   constructor(needle: RegExp) {
     super();
@@ -124,12 +129,13 @@ export class RegexSearchStrategy
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
-    this.reportsIndices = needle.flags.includes("d");
-    this.lookaheadConfirmationRegex = partialMatchRegex.features.has("lookahead")
-      ? new RegExp(
-          needle.source,
-          `${needle.flags.replace("d", "")}yd`
-        )
+    const patternFeatures = features(partialMatchRegex);
+    this.probesCandidatesEndingBeforeHaystackEnd =
+      FEATURES_NEEDING_PROBE_BEFORE_END.some((feature) =>
+        patternFeatures.has(feature)
+      );
+    this.lookaheadConfirmationRegex = patternFeatures.has("lookahead")
+      ? new RegExp(needle.source, `${needle.flags}y`)
       : null;
   }
 
@@ -138,8 +144,9 @@ export class RegexSearchStrategy
     haystack: string
   ): RegExpExecArray | null {
     if (candidate === null) return null;
-    const matchLength = candidate[0].length;
-    if (candidate.index + matchLength === haystack.length) return null;
+    if (endsAtHaystackEnd(candidate, haystack)) return null;
+    if (!this.probesCandidatesEndingBeforeHaystackEnd) return candidate;
+    if (hitEnd(this.partialMatchRegex, candidate)) return null;
 
     const confirmation = this.lookaheadConfirmationRegex;
     if (confirmation === null) return candidate;
@@ -147,11 +154,7 @@ export class RegexSearchStrategy
     confirmation.lastIndex = candidate.index;
     const completeMatch = confirmation.exec(haystack);
     if (completeMatch === null) return null;
-    if (!sameCaptures(candidate, completeMatch)) return null;
-    if (aCaptureCouldStillGrow(completeMatch, haystack.length)) return null;
-
-    if (!this.reportsIndices) delete completeMatch.indices;
-    return completeMatch;
+    return sameCaptures(candidate, completeMatch) ? completeMatch : null;
   }
 
   *processChunk(
@@ -179,12 +182,14 @@ export class RegexSearchStrategy
         }
 
         state.buffer = "";
-
         if (settledMatch[0].length === 0) {
-          yield skipOneCodeUnitPastZeroLengthMatch(haystack, cursor, matchStart);
+          yield skipOneCodeUnitPastZeroLengthMatch(
+            haystack,
+            cursor,
+            settledMatch.index
+          );
           continue;
         }
-
         const precedingContent = advanceToMatch(settledMatch, haystack, cursor);
         if (precedingContent) yield precedingContent;
         yield takeMatch(settledMatch, cursor, baseOffset);
@@ -213,10 +218,13 @@ export class RegexSearchStrategy
       if (finalMatch === null) break;
 
       if (finalMatch[0].length === 0) {
-        yield skipOneCodeUnitPastZeroLengthMatch(buffer, cursor, finalMatch.index);
+        yield skipOneCodeUnitPastZeroLengthMatch(
+          buffer,
+          cursor,
+          finalMatch.index
+        );
         continue;
       }
-
       const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
       if (precedingContent) yield precedingContent;
       yield takeMatch(finalMatch, cursor, baseOffset);

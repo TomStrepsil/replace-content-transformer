@@ -84,15 +84,16 @@ function typeNameOf(node) {
  * Which one it is decides where the match type sits, so the kind is carried
  * rather than just the type arguments.
  */
-function strategyClause(classNode) {
+function strategyClause(classNode, importedNames) {
+  const resolve = (name) => importedNames.get(name) ?? name;
   if (!classNode) return null;
   const implemented = classNode.implements ?? [];
   for (const clause of Array.isArray(implemented) ? implemented : []) {
-    if (STRATEGY_NAME.test(typeNameOf(clause) ?? "")) {
+    if (STRATEGY_NAME.test(resolve(typeNameOf(clause) ?? ""))) {
       return { isInterface: true, node: clause };
     }
   }
-  const superName = typeNameOf(classNode.superClass) ?? "";
+  const superName = resolve(typeNameOf(classNode.superClass) ?? "");
   if (GENERIC_BASE.test(superName)) {
     return {
       isInterface: false,
@@ -161,19 +162,33 @@ function parameterList(fn, j) {
   return fn.params.map((parameter) => j(parameter).toSource()).join(", ");
 }
 
-function importsMatchResult(root, j) {
-  return (
-    root
-      .find(j.ImportDeclaration)
-      .find(j.Identifier, { name: MATCH_RESULT })
-      .size() > 0
-  );
+/** Local name -> exported name, for every named import that was renamed. */
+function importedNamesByLocal(root, j) {
+  const names = new Map();
+  root
+    .find(j.ImportDeclaration)
+    .find(j.ImportSpecifier)
+    .forEach(({ node }) => {
+      const imported = node.imported?.name;
+      const local = node.local?.name ?? imported;
+      if (imported && local) names.set(local, imported);
+    });
+  return names;
+}
+
+function localNameOf(importedNames, exportedName) {
+  for (const [local, imported] of importedNames) {
+    if (imported === exportedName) return local;
+  }
+  return null;
 }
 
 export default function transform(fileInfo, api) {
   const j = api.jscodeshift;
   const root = j(fileInfo.source);
   const findings = [];
+  const importedNames = importedNamesByLocal(root, j);
+  const matchResultName = localNameOf(importedNames, MATCH_RESULT);
   let signatureNeedsMatchResult = false;
 
   root
@@ -187,7 +202,7 @@ export default function transform(fileInfo, api) {
       // `flush(): string` is an ordinary name on cache, logger and stream APIs.
       // Saying nothing about those is the point; a report full of false hits is
       // one nobody reads.
-      const clause = strategyClause(enclosingClass(path));
+      const clause = strategyClause(enclosingClass(path), importedNames);
       if (clause === null) return;
 
       const at = `${fileInfo.path}:${method.loc?.start.line ?? "?"}`;
@@ -203,7 +218,7 @@ export default function transform(fileInfo, api) {
       signatureNeedsMatchResult = true;
       findings.push(
         `${at}: flush(${parameterList(fn, j)}): string\n` +
-          `    becomes *flush(${parameterList(fn, j)}): Generator<${MATCH_RESULT}<${matchType ?? "TMatch"}>, void, undefined>` +
+          `    becomes *flush(${parameterList(fn, j)}): Generator<${matchResultName ?? MATCH_RESULT}<${matchType ?? "TMatch"}>, void, undefined>` +
           (matchType === null
             ? `\n    TMatch is inherited from ${clause.inheritedFrom}; use that class's match type`
             : "")
@@ -248,7 +263,7 @@ export default function transform(fileInfo, api) {
       });
     });
 
-  if (signatureNeedsMatchResult && !importsMatchResult(root, j)) {
+  if (signatureNeedsMatchResult && matchResultName === null) {
     findings.push(
       `${fileInfo.path}: add a type import for ${MATCH_RESULT}`
     );

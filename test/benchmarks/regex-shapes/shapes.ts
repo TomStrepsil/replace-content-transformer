@@ -12,11 +12,15 @@
 /**
  * What the scan has to do when a match candidate reaches the end of a chunk.
  *
- * - `settles` — the match completes and cannot grow, so it is emitted at once.
- * - `defers` — the partial reaches end-of-haystack, so the match is held until
- *   the next chunk (or `flush`) resolves it. A lookahead counts: what it
- *   inspects reaches past the matched text. Buffering is bounded by the length
- *   of the pending match.
+ * - `settles` — the match completes before the end of the chunk, so it is
+ *   emitted at once. A match that happens to end exactly on the chunk edge is
+ *   held like any other (see `defers`).
+ * - `defers` — the candidate reaches the end of the haystack, so more input
+ *   could change it and it is held until the next chunk (or `flush`) resolves
+ *   it. On a backreference or lookahead pattern a candidate that ends earlier
+ *   defers too when `hitEnd()` says the partial regex read to the end, since
+ *   what a lookahead inspects reaches past the matched text. Buffering is
+ *   bounded by the length of the pending match.
  * - `buffers-to-end` — nothing can ever stop the match growing, so the buffer
  *   runs to the end of the stream. This is the worst case the deferral buys.
  * - `no-match` — nothing viable anywhere; the cheapest path, one partial `exec`
@@ -59,6 +63,15 @@ const attributes = repeat(
 );
 const duplicated = repeat("alpha alpha beta gamma gamma delta epsilon ", 20);
 const digits = repeat("8675309", 200);
+const boundaryChunkSize = 64;
+const boundaryTerminator = "END";
+const boundaryAligned = repeat(
+  "lorem ipsum dolor sit amet ".repeat(3).slice(
+    0,
+    boundaryChunkSize - boundaryTerminator.length
+  ) + boundaryTerminator,
+  24
+);
 const declarations = repeat(
   "border-top: 1px; border-bottom: 2px; padding-top: 3px; border-top: 4px; ",
   20
@@ -68,7 +81,7 @@ export const shapes: ContentShape[] = [
   {
     name: "terminator — /\\{\\{[^{}]*\\}\\}/ over a template",
     description:
-      "The closing anchor cannot be consumed by the body, so every match settles the moment it completes. The shape the algorithm suite already covers, kept here as the baseline the others are read against.",
+      "The closing anchor cannot be consumed by the body, so a match settles the moment it completes, unless it ends exactly on a chunk edge. The shape the algorithm suite already covers, kept here as the baseline the others are read against.",
     boundary: "settles",
     pattern: /\{\{[^{}]*\}\}/,
     content: template,
@@ -86,7 +99,7 @@ export const shapes: ContentShape[] = [
   {
     name: "alternation — /\\d{4}-\\d{2}-\\d{2}|\\d{4}/ over dates",
     description:
-      "The lower-priority branch can complete while the higher-priority one is still viable, so a match that ends well short of the chunk edge still has to defer.",
+      "The lower-priority branch can complete while the higher-priority one is still viable, which leaves the partial match reaching the end of the haystack, so it defers.",
     boundary: "defers",
     pattern: /\d{4}-\d{2}-\d{2}|\d{4}/,
     content: csv,
@@ -102,13 +115,13 @@ export const shapes: ContentShape[] = [
     chunkSize: 64
   },
   {
-    name: "surrogate pairs — /(?<char>.)/u over emoji",
+    name: "astral characters — /(?<char>.)/u over emoji",
     description:
-      "Chunk edges fall inside surrogate pairs. A lone high surrogate is a viable partial, so it defers and rejoins its low surrogate rather than matching alone.",
+      "One match per code point under the `u` flag, over content mixing astral characters with ASCII. Chunk edges fall between whole characters, as a `TextDecoder` delivers them: a chunk that splits a surrogate pair is unsupported input.",
     boundary: "defers",
     pattern: /(?<char>.)/u,
     content: emoji,
-    chunkSize: 25
+    chunkSize: 27
   },
   {
     name: "backreference — /(\\w+) \\1/ over repeated words",
@@ -140,11 +153,20 @@ export const shapes: ContentShape[] = [
   {
     name: "dense — /\\d/ over digits",
     description:
-      "One match per character: maximum yield rate, minimum scan work per match. Isolates per-match overhead from scanning overhead.",
-    boundary: "settles",
+      "One match per character: maximum yield rate, minimum scan work per match. Isolates per-match overhead from scanning overhead. The digit that lands on a chunk edge defers to the next chunk.",
+    boundary: "defers",
     pattern: /\d/,
     content: digits,
     chunkSize: 64
+  },
+  {
+    name: "boundary-aligned — /END/ over matches ending on chunk edges",
+    description:
+      "Every chunk ends with a complete, exact-length match that nothing can extend. A match reaching the end of the haystack is always held until the next chunk, because `flush` can settle it with the original pattern, so every one of these defers and is emitted with the following chunk. Isolates the cost of that deferral.",
+    boundary: "defers",
+    pattern: /END/,
+    content: boundaryAligned,
+    chunkSize: boundaryChunkSize
   },
   {
     name: "no terminator — /\\S+/ over unbroken text",

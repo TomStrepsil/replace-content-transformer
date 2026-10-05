@@ -89,7 +89,7 @@ if (asJson) {
   const wrong = reports.filter((r) => !r.agreesWithReference || !r.lossless);
   if (wrong.length === 0) {
     console.log(
-      "\n✅ every shape matches the non-streaming reference match for match, in text and stream offsets, and output is lossless\n"
+      "\n✅ every shape matches the non-streaming reference match for match, in text, stream offsets and captures, and output is lossless\n"
     );
   } else {
     console.log("");

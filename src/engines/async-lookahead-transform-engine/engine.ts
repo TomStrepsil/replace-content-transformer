@@ -105,6 +105,43 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
   abandonPendingSignal?: AbortSignal;
 }
 
+function releasingOnSettle(
+  source: AsyncIterable<string>,
+  release: () => void
+): AsyncIterableIterator<string> {
+  const iterator = source[Symbol.asyncIterator]();
+  let held = true;
+  const releaseOnce = () => {
+    if (!held) return;
+    held = false;
+    release();
+  };
+  return {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next() {
+      try {
+        const step = await iterator.next();
+        if (step.done) releaseOnce();
+        return step;
+      } catch (error) {
+        releaseOnce();
+        throw error;
+      }
+    },
+    async return(value?: unknown) {
+      try {
+        return iterator.return
+          ? await iterator.return(value)
+          : { done: true, value: undefined };
+      } finally {
+        releaseOnce();
+      }
+    }
+  };
+}
+
 /**
  * Stream-protocol-agnostic core of the lookahead transformer.
  *
@@ -224,10 +261,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       }
       if (this._stopReplacingSignal?.aborted) {
         await this.#queue.push(
-          textSlot(
-            this.#siblingIndex++,
-            this._searchStrategy.matchToString(result.content)
-          )
+          textSlot(this.#siblingIndex++, this._renderVerbatim(result))
         );
         continue;
       }
@@ -293,13 +327,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       release();
       return result;
     }
-    return (async function* () {
-      try {
-        yield* result;
-      } finally {
-        release();
-      }
-    })();
+    return releasingOnSettle(result, release);
   }
 
   async #drain(): Promise<void> {
