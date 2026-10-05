@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated `regex-partial-match` to 2.0.1
+  - An incomplete `\x`, `\u` or `\c` escape no longer swallows the characters after it (it threw on `/\x(a)/`), and a `\c` ending the pattern is read as a literal backslash and `c`
+  - A `\k<name>` after every declaration of a duplicated name no longer rejects a partly typed value
+  - Matching a backreference pattern is faster, by about 20x on a 100 kB input
+- Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
+
 ## [3.0.2] - 2026-08-27
 
 ### Fixed

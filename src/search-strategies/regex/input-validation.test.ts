@@ -139,4 +139,8 @@ describe("input validation", () => {
   it("should allow patterns without global, sticky or multiline flags", () => {
     expect(() => validate(/allowed/disu)).not.toThrow();
   });
+
+  it("should allow a pattern with an incomplete hex escape followed by a group", () => {
+    expect(() => validate(new RegExp("\\x(a)"))).not.toThrow();
+  });
 });
