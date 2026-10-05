@@ -1,19 +1,20 @@
 import type PartialMatchRegExp from "regex-partial-match";
+import features from "regex-partial-match/features";
 
 const throwUnsupported = (reason: string): never => {
   throw new Error(`${reason} not supported`);
 };
 
 const inputValidation = (partialMatchRegex: PartialMatchRegExp) => {
-  const { features } = partialMatchRegex;
+  const detected = features(partialMatchRegex);
   switch (true) {
-    case features.has("negativeLookahead"):
+    case detected.has("negativeLookahead"):
       return throwUnsupported("negative lookaheads are");
-    case features.has("lookbehind") || features.has("negativeLookbehind"):
+    case detected.has("lookbehind") || detected.has("negativeLookbehind"):
       return throwUnsupported("lookbehinds are");
-    case features.has("wordBoundary") || features.has("nonWordBoundary"):
+    case detected.has("wordBoundary") || detected.has("nonWordBoundary"):
       return throwUnsupported("word boundaries are");
-    case features.has("startAnchor") || features.has("endAnchor"):
+    case detected.has("startAnchor") || detected.has("endAnchor"):
       return throwUnsupported("the ^ and $ anchors are");
     case partialMatchRegex.global:
       return throwUnsupported("the global (g) flag is");

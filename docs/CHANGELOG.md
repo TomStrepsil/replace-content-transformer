@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** matches that were previously chunk-dependent no longer are, so tests asserting over chunked output will change. A match that runs to the end of a chunk is now deferred until the next chunk settles it, or until `flush` does at end of stream — the same matches, arriving later
 - Unbounded quantifiers are no longer a *correctness* caveat, only a buffering one. `/[A-Z]+/` over `"please MAT"` + `"CH this"` yields one `MATCH`, not `MAT` and `CH`. What remains is cost: a pattern that never stops growing (`/\S+/` over unbroken text) buffers to end of stream, and since the buffer is re-scanned from position 0 each chunk that cost is quadratic in stream length. A terminator the body cannot consume (`/\{\{[^{}]*\}\}/`) bounds the buffer to one pending match rather than emptying it, and content with no matches at all gets *faster*, since the redundant second scan is gone. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed an unreachable branch in `AsyncLookaheadTransformEngine`'s constructor: its scan signal is always defined, since the abandon signal is composed unconditionally. Internal only, no behaviour change
+- Updated `regex-partial-match` to 2.0.1
+  - An incomplete `\x`, `\u` or `\c` escape no longer swallows the characters after it (it threw on `/\x(a)/`), and a `\c` ending the pattern is read as a literal backslash and `c`
+  - A `\k<name>` after every declaration of a duplicated name no longer rejects a partly typed value
+  - Matching a backreference pattern is faster, by about 20x on a 100 kB input
+- Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
 
 ### Fixed
 
