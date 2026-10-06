@@ -14,6 +14,25 @@ import {
   flushesText
 } from "../../../test/utilities.ts";
 
+function heldSlotCounter(concurrency: number) {
+  const inner = new SemaphoreStrategy(concurrency);
+  let held = 0;
+  const strategy: ConcurrencyStrategy = {
+    async acquire() {
+      const release = await inner.acquire();
+      held++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        held--;
+        release();
+      };
+    }
+  };
+  return { strategy, held: () => held };
+}
+
 async function runEngine(
   engine: AsyncLookaheadTransformEngine<object, string>,
   sink: EngineSink,
@@ -248,6 +267,128 @@ describe("AsyncLookaheadTransformEngine", () => {
       await expect(engine.end()).rejects.toThrow("boom");
       expect(errors).toHaveLength(1);
       expect((errors[0] as Error).message).toBe("boom");
+    });
+
+    const failingBody: AsyncIterable<string> = {
+      async *[Symbol.asyncIterator]() {
+        yield "partial";
+        throw new Error("drain failed");
+      }
+    };
+    it.each<[string, { first: () => Promise<AsyncIterable<string>>; sinkThrows?: boolean }]>([
+      ["the replacement rejects", { first: async () => Promise.reject(new Error("drain failed")) }],
+      [
+        "its iterator cannot be created",
+        {
+          first: async () => ({
+            [Symbol.asyncIterator]() {
+              throw new Error("drain failed");
+            }
+          })
+        }
+      ],
+      [
+        "its next() throws synchronously",
+        {
+          first: async () => ({
+            [Symbol.asyncIterator]() {
+              return {
+                next() {
+                  throw new Error("drain failed");
+                }
+              };
+            }
+          })
+        }
+      ],
+      ["its body errors mid-stream", { first: async () => failingBody }],
+      ["the sink throws", { first: async () => asyncIterable("R"), sinkThrows: true }]
+    ])("releases every concurrency slot when the drain fails because %s", async (_, { first, sinkThrows }) => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] }
+      );
+      const replacement = vi
+        .fn()
+        .mockImplementationOnce(first)
+        .mockImplementation(async () => asyncIterable("R"));
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      const { sink, errors } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        concurrencyStrategy
+      });
+      engine.start(
+        sinkThrows
+          ? {
+              ...sink,
+              enqueue: () => {
+                throw new Error("drain failed");
+              }
+            }
+          : sink
+      );
+      await engine.write("MMM");
+      await expect(engine.end()).rejects.toThrow("drain failed");
+      expect(errors).toHaveLength(1);
+      await vi.waitFor(() => expect(held()).toBe(0));
+    });
+
+    it("resolves a write() suspended on backpressure when the drain fails", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] }
+      );
+      const gate = deferred<AsyncIterable<string>>();
+      let callCount = 0;
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(4);
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => (callCount++ === 0 ? gate.promise : asyncIterable("R")),
+        concurrencyStrategy,
+        highWaterMark: 1
+      });
+      engine.start(sink);
+
+      const writePromise = engine.write("MMM");
+      await settleMicrotasks(10);
+      gate.reject(new Error("drain failed"));
+
+      await expect(writePromise).resolves.toBeUndefined();
+      await expect(engine.end()).rejects.toThrow("drain failed");
+      await vi.waitFor(() => expect(held()).toBe(0));
+    });
+
+    it("releases every concurrency slot when a nested engine's drain fails", async () => {
+      const strategy = {
+        createState: () => ({}),
+        processChunk: vi.fn().mockImplementation(function* (chunk: string) {
+          yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] as [number, number] };
+        }),
+        flush: vi.fn().mockImplementation(flushesText()),
+        matchToString: vi.fn().mockImplementation((m: string) => m)
+      };
+      let innerCalls = 0;
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      const { sink, errors } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        concurrencyStrategy,
+        replacement: async (_match, { depth }) => {
+          if (depth === 0) return nested(asyncIterable("a", "b", "c"));
+          if (innerCalls++ === 0) throw new Error("drain failed");
+          return asyncIterable("R");
+        }
+      });
+      engine.start(sink);
+      await engine.write("outer");
+      await expect(engine.end()).rejects.toThrow("drain failed");
+      expect(errors).toHaveLength(1);
+      await vi.waitFor(() => expect(held()).toBe(0));
     });
   });
 
@@ -783,6 +924,36 @@ describe("AsyncLookaheadTransformEngine", () => {
 
       await expect(writePromise).resolves.toBeUndefined();
       await engine.end();
+    });
+
+    it("cancel() while write() is suspended on a full queue releases every acquired concurrency slot", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] as [number, number] }
+      );
+      const gate = deferred<AsyncIterable<string>>();
+      let callCount = 0;
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(4);
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => (callCount++ === 0 ? gate.promise : asyncIterable("")),
+        concurrencyStrategy,
+        highWaterMark: 1
+      });
+      engine.start(sink);
+
+      const writePromise = engine.write("MMM");
+      await settleMicrotasks(10);
+      expect(held()).toBe(3);
+
+      engine.cancel();
+      gate.resolve(asyncIterable(""));
+      await writePromise;
+      await engine.end();
+
+      expect(held()).toBe(0);
     });
 
     it("cancel() discards buffered text slots — does not emit them to the sink", async () => {

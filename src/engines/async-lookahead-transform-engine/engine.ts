@@ -37,12 +37,6 @@ export type LookaheadReplacementContext = ReplacementContext & {
  */
 export const DEFAULT_HIGH_WATER_MARK = 32;
 
-/**
- * Wrap a replacement's `AsyncIterable<string>` so that the granted
- * concurrency slot is held through chunk production and released
- * exactly once when the producer reaches `done: true` (or throws, or
- * the consumer aborts the iterator early via `return()`).
- */
 function textSlot(siblingIndex: number, value: string): TextSlotNode {
   return { kind: SLOT_KIND.text, siblingIndex, value };
 }
@@ -103,43 +97,6 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    * combines both signals via `AbortSignal.any()`.
    */
   abandonPendingSignal?: AbortSignal;
-}
-
-function releasingOnSettle(
-  source: AsyncIterable<string>,
-  release: () => void
-): AsyncIterableIterator<string> {
-  const iterator = source[Symbol.asyncIterator]();
-  let held = true;
-  const releaseOnce = () => {
-    if (!held) return;
-    held = false;
-    release();
-  };
-  return {
-    [Symbol.asyncIterator]() {
-      return this;
-    },
-    async next() {
-      try {
-        const step = await iterator.next();
-        if (step.done) releaseOnce();
-        return step;
-      } catch (error) {
-        releaseOnce();
-        throw error;
-      }
-    },
-    async return(value?: unknown) {
-      try {
-        return iterator.return
-          ? await iterator.return(value)
-          : { done: true, value: undefined };
-      } finally {
-        releaseOnce();
-      }
-    }
-  };
 }
 
 /**
@@ -230,6 +187,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   override start(sink: EngineSink): void {
     super.start(sink);
     this.#drainDone = this.#drain().catch((err) => {
+      this.cancel();
+      void this.#abandonRemaining();
       this._sink.error(err);
       throw err;
     });
@@ -314,25 +273,56 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     match: TMatch,
     matchIndex: number,
     streamIndices: StreamIndices
-  ): Promise<AsyncIterable<string> | Nested> {
+  ): Promise<AsyncIterableIterator<string> | Nested> {
     const release = await this.#options.concurrencyStrategy.acquire(node);
-    let result: AsyncIterable<string> | Nested;
-    try {
-      result = await this.#options.replacement(match, { matchIndex, streamIndices, depth: this.#depth });
-    } catch (err) {
+    const releaseAndThrow = (err: unknown): never => {
       release();
       throw err;
+    };
+    let iterator: AsyncIterator<string>;
+    try {
+      const result = await this.#options.replacement(match, { matchIndex, streamIndices, depth: this.#depth });
+      if (result instanceof Nested) {
+        release();
+        return result;
+      }
+      iterator = result[Symbol.asyncIterator]();
+    } catch (err) {
+      return releaseAndThrow(err);
     }
-    if (result instanceof Nested) {
-      release();
-      return result;
-    }
-    return releasingOnSettle(result, release);
+    return {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next() {
+        try {
+          return iterator.next().then((step) => {
+            if (step.done) release();
+            return step;
+          }, releaseAndThrow);
+        } catch (err) {
+          return releaseAndThrow(err);
+        }
+      },
+      async return(value?: unknown) {
+        try {
+          return (await iterator.return?.(value)) ?? { done: true, value };
+        } finally {
+          release();
+        }
+      }
+    } satisfies AsyncIterableIterator<string>;
   }
 
   async #drain(): Promise<void> {
     for await (const slot of this.#queue) {
       await this.#emitSlot(slot);
+    }
+  }
+
+  async #abandonRemaining(): Promise<void> {
+    for await (const slot of this.#queue) {
+      await this.#emitSlot(slot).catch(() => {});
     }
   }
 
@@ -344,7 +334,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const result = await slot.iterable!;
     if (this.#abandonSignal.aborted) {
       if (!(result instanceof Nested)) {
-        const iter = result[Symbol.asyncIterator]() as AsyncIterator<string>;
+        const iter = result[Symbol.asyncIterator]();
         await iter.next();
         await iter.return?.();
       }

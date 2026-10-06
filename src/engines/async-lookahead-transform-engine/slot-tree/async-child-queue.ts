@@ -4,8 +4,9 @@ import type { SlotNode } from "./types.ts";
  * A bounded single-producer / single-consumer async channel of
  * {@link SlotNode}s.
  *
- * - `push()` suspends when the queue is at `limit`; resolves immediately
- *   if a consumer is already waiting (direct hand-off).
+ * - `push()` buffers the node, then suspends while the queue is over
+ *   `limit`; resolves immediately if a consumer is already waiting
+ *   (direct hand-off). A node pushed before `close()` is always drained.
  * - `close()` signals end-of-stream; any waiting consumer is resolved
  *   with `{ done: true }`.
  * - Iteration yields nodes in push order and terminates after `close()`
@@ -38,11 +39,10 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
       waitingConsumer({ value: node, done: false });
       return;
     }
-    if (this.#buffer.length >= this.#limit) {
+    this.#buffer.push(node);
+    if (this.#buffer.length > this.#limit) {
       await new Promise<void>((resolve) => this.#pendingProducers.push(resolve));
     }
-    if (this.#closed) return;
-    this.#buffer.push(node);
   }
 
   close(): void {

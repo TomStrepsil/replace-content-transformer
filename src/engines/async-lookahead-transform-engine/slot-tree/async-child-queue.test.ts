@@ -95,7 +95,7 @@ describe("AsyncChildQueue", () => {
     expect(result.done).toBe(true);
   });
 
-  it("close() while push is suspended for capacity rejects the producer", async () => {
+  it("close() while push is suspended for capacity resolves the producer and keeps its node for the drain", async () => {
     const queue = new AsyncChildQueue(1);
     await queue.push(textNode("fills-limit"));
 
@@ -109,8 +109,11 @@ describe("AsyncChildQueue", () => {
     // Close the queue while the producer is suspended
     queue.close();
 
-    // The blocked push must resolve (data silently dropped) rather than hang
+    // The blocked push must resolve rather than hang
     await expect(blockedPush).resolves.toBeUndefined();
+
+    const drained = await drain(queue);
+    expect(drained.map((n) => (n as TextSlotNode).value)).toEqual(["fills-limit", "blocked"]);
   });
 
   it("producer unblocked by a consumer is not affected by a subsequent close()", async () => {
