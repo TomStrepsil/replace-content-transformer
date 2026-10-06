@@ -237,6 +237,162 @@ describe("flush-implementation report", () => {
     expect(report).toContain("inherited from RegexSearchStrategy");
   });
 
+  describe("which methods are flush implementations", () => {
+    const reportFor = (header) =>
+      runTransform(strategy(header, "    return state.buffer;", "  }")).report;
+
+    it("matches a quoted method name", () => {
+      expect(reportFor('  "flush"(state: State): string {')).toContain("fixture.ts:2");
+    });
+
+    it.each([
+      ["a getter", "  get flush(): string {"],
+      ["a setter", "  set flush(value: string) {"],
+      ["a static method", "  static flush(state: State): string {"],
+      ["a computed method", "  [flush](state: State): string {"],
+      ["a computed string method", '  ["flush"](state: State): string {'],
+      ["a private method", "  #flush(state: State): string {"],
+      ["a method with another name", "  drain(state: State): string {"]
+    ])("says nothing about %s", (_, header) => {
+      expect(reportFor(header)).toBe("");
+    });
+  });
+
+  describe("what each return becomes", () => {
+    const reportFor = (...body) =>
+      runTransform(
+        strategy("  flush(state: State): string {", ...body, "  }")
+      ).report;
+
+    it("says nothing about a bare return", () => {
+      expect(reportFor("    if (!state.buffer) return;", "    return state.buffer;")).not.toContain(
+        "line 3"
+      );
+    });
+
+    it("binds a conditional before guarding it", () => {
+      expect(reportFor("    return state.cached ? state.cached : state.buffer;")).toContain(
+        "const flushed = state.cached ? state.cached : state.buffer;"
+      );
+    });
+
+    it("binds a logical expression before guarding it", () => {
+      expect(reportFor("    return state.cached ?? state.buffer;")).toContain(
+        "const flushed = state.cached ?? state.buffer;"
+      );
+    });
+
+    it("does not treat a computed flush call as delegation", () => {
+      const report = reportFor("    return this.inner[flush](state);");
+
+      expect(report).not.toContain("yield*");
+      expect(report).toContain("const flushed = this.inner[flush](state);");
+    });
+
+    it("does not treat a non-flush call as delegation", () => {
+      expect(reportFor("    return this.inner.drain(state);")).not.toContain("yield*");
+    });
+
+    it("does not treat a bare flush() call as delegation", () => {
+      expect(reportFor("    return flush(state);")).not.toContain("yield*");
+    });
+
+    it.each([
+      ["a function expression", "function () { return 1; }"],
+      ["an arrow function", "() => { return 1; }"],
+      ["an object method", "{ get() { return 1; } }"],
+      ["a class method", "class { get() { return 1; } }"]
+    ])("ignores returns inside %s", (_, nested) => {
+      const report = reportFor(`    const value = ${nested};`, "    return state.buffer;");
+
+      expect(report).not.toContain("line 3");
+      expect(report).toContain("line 4");
+    });
+
+    it("ends the generator after a return that is not last", () => {
+      const report = reportFor(
+        "    if (state.done) return state.buffer;",
+        "    return state.other;"
+      );
+
+      expect(report).toContain("line 3: `return state.buffer` becomes");
+      expect(report).toContain("then `return;` to end the generator");
+      expect(report).not.toMatch(/line 4:[^\n]*then `return;`/);
+    });
+  });
+
+  it("reports an unannotated flush, as plain JavaScript writes it", () => {
+    const { report } = runTransform(
+      [
+        "class S extends StringBufferStrategyBase {",
+        "  flush(state) {",
+        "    return state.buffer;",
+        "  }",
+        "}",
+        ""
+      ].join("\n")
+    );
+
+    expect(report).toContain("fixture.ts:2");
+    expect(report).toContain("Generator<MatchResult<string>, void, undefined>");
+  });
+
+  describe("the signature written", () => {
+    const signatureFor = (parameters) =>
+      runTransform(
+        strategy(`  flush(${parameters}): string {`, "    return state.buffer;", "  }")
+      ).report;
+
+    it("takes no parameters", () => {
+      expect(signatureFor("")).toContain("becomes *flush(): Generator<");
+    });
+
+    it("keeps every parameter in order", () => {
+      expect(signatureFor("state: State, final: boolean")).toContain(
+        "becomes *flush(state: State, final: boolean): Generator<"
+      );
+    });
+  });
+
+  describe("which classes are strategies", () => {
+    const reportFor = (heading) =>
+      runTransform(
+        [heading, "  flush(state: State): string {", "    return state.buffer;", "  }", "}", ""].join("\n")
+      ).report;
+
+    it("finds a namespace-qualified interface", () => {
+      expect(reportFor("class S implements rct.SearchStrategy<State, Foo> {")).toContain(
+        "MatchResult<Foo>"
+      );
+    });
+
+    it("finds a base class with no type arguments", () => {
+      expect(reportFor("class S extends StringBufferStrategyBase {")).toContain(
+        "MatchResult<string>"
+      );
+    });
+
+    it("says nothing about an interface that only resembles a strategy", () => {
+      expect(reportFor("class S implements Flushable<State> {")).toBe("");
+    });
+
+    it("says nothing about a class that implements nothing and extends nothing", () => {
+      expect(reportFor("class S {")).toBe("");
+    });
+
+    it("says nothing about a class extending something that is not a strategy", () => {
+      expect(reportFor("class S extends Cache {")).toBe("");
+    });
+  });
+
+  it("does not ask for the import when only a non-string flush was found", () => {
+    const { report } = runTransform(
+      strategy("  flush(state: State): number {", "    return 1;", "  }")
+    );
+
+    expect(report).not.toContain("add a type import");
+  });
+
   describe("aliased imports", () => {
     const flushBody = [
       "  flush(state: State): string {",
@@ -256,6 +412,18 @@ describe("flush-implementation report", () => {
       );
 
       expect(report).toContain("fixture.ts:3");
+      expect(report).toContain("Generator<MatchResult<RegExpExecArray>, void, undefined>");
+    });
+
+    it("finds a class implementing a SearchStrategy imported under a string-literal name", () => {
+      const { report } = runTransform(
+        [
+          'import type { "SearchStrategy" as Strategy } from "replace-content-transformer";',
+          "class S implements Strategy<State, RegExpExecArray> {",
+          ...flushBody
+        ].join("\n")
+      );
+
       expect(report).toContain("Generator<MatchResult<RegExpExecArray>, void, undefined>");
     });
 

@@ -32,10 +32,10 @@ const STRATEGY_RECEIVER = /strategy/i;
 
 function isFlushCall(node) {
   return (
-    node?.type === "CallExpression" &&
-    node.callee?.type === "MemberExpression" &&
+    node.type === "CallExpression" &&
+    node.callee.type === "MemberExpression" &&
     !node.callee.computed &&
-    node.callee.property?.type === "Identifier" &&
+    node.callee.property.type === "Identifier" &&
     node.callee.property.name === FLUSH
   );
 }
@@ -45,11 +45,11 @@ function isFlushCall(node) {
  * the receiver has to look like a search strategy before the site is reported.
  */
 function looksLikeStrategy(receiver) {
-  if (receiver?.type === "Identifier") {
+  if (receiver.type === "Identifier") {
     return STRATEGY_RECEIVER.test(receiver.name);
   }
-  if (receiver?.type === "MemberExpression") {
-    return STRATEGY_RECEIVER.test(receiver.property?.name ?? "");
+  if (receiver.type === "MemberExpression") {
+    return STRATEGY_RECEIVER.test(receiver.property.name);
   }
   return false;
 }
@@ -80,7 +80,7 @@ export default function transform(fileInfo, api) {
       const parent = path.parent.node;
       if (parent.type === "ForOfStatement") return;
 
-      const at = `${fileInfo.path}:${path.node.loc?.start.line ?? "?"}`;
+      const at = `${fileInfo.path}:${path.node.loc.start.line}`;
       const call = j(path.node).toSource();
 
       const isSimpleDeclaration =

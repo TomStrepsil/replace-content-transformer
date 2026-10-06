@@ -44,20 +44,21 @@ const FUNCTION_TYPES = new Set([
   "ObjectMethod"
 ]);
 
-function isFlushMethod(node) {
+function isFlushKey(key) {
   return (
-    (node.type === "ClassMethod" || node.type === "MethodDefinition") &&
-    !node.computed &&
-    !node.static &&
-    node.key?.type === "Identifier" &&
-    node.key.name === FLUSH &&
-    node.kind !== "get" &&
-    node.kind !== "set"
+    (key.type === "Identifier" && key.name === FLUSH) ||
+    (key.type === "StringLiteral" && key.value === FLUSH)
   );
 }
 
-function functionOf(node) {
-  return node.type === "MethodDefinition" ? node.value : node;
+function isFlushMethod(node) {
+  return (
+    node.type === "ClassMethod" &&
+    !node.computed &&
+    !node.static &&
+    isFlushKey(node.key) &&
+    !["get", "set"].includes(node.kind)
+  );
 }
 
 function enclosingClass(path) {
@@ -67,11 +68,10 @@ function enclosingClass(path) {
       return current.node;
     }
   }
-  return null;
 }
 
 function typeNameOf(node) {
-  const expression = node?.expression ?? node?.id ?? node;
+  const expression = node?.expression ?? node;
   if (expression?.type === "Identifier") return expression.name;
   if (expression?.type === "TSQualifiedName") return expression.right?.name;
   return null;
@@ -86,10 +86,8 @@ function typeNameOf(node) {
  */
 function strategyClause(classNode, importedNames) {
   const resolve = (name) => importedNames.get(name) ?? name;
-  if (!classNode) return null;
-  const implemented = classNode.implements ?? [];
-  for (const clause of Array.isArray(implemented) ? implemented : []) {
-    if (STRATEGY_NAME.test(resolve(typeNameOf(clause) ?? ""))) {
+  for (const clause of classNode.implements) {
+    if (STRATEGY_NAME.test(resolve(typeNameOf(clause)))) {
       return { isInterface: true, node: clause };
     }
   }
@@ -98,8 +96,7 @@ function strategyClause(classNode, importedNames) {
     return {
       isInterface: false,
       node: {
-        typeParameters:
-          classNode.superTypeParameters ?? classNode.superClass?.typeParameters
+        typeParameters: classNode.superTypeParameters
       }
     };
   }
@@ -117,12 +114,9 @@ function strategyClause(classNode, importedNames) {
  * `StringBufferStrategyBase<TMatch>` names it first.
  */
 function matchTypeName(clause, j) {
-  if (clause?.inheritedFrom) return null;
-  const parameters =
-    clause?.node?.typeParameters?.params ??
-    clause?.node?.typeArguments?.params ??
-    [];
-  const type = clause?.isInterface ? parameters[1] : parameters[0];
+  if (clause.inheritedFrom) return null;
+  const parameters = clause.node.typeParameters?.params ?? [];
+  const type = clause.isInterface ? parameters[1] : parameters[0];
   if (!type) return "string";
   return j(type).toSource();
 }
@@ -130,17 +124,15 @@ function matchTypeName(clause, j) {
 function returnsString(fn) {
   const annotation = fn.returnType?.typeAnnotation;
   if (!annotation) return true;
-  return (
-    annotation.type === "TSStringKeyword" ||
-    annotation.type === "StringTypeAnnotation"
-  );
+  return annotation.type === "TSStringKeyword";
 }
 
 function isDelegatingCall(argument) {
   return (
-    argument?.type === "CallExpression" &&
-    argument.callee?.type === "MemberExpression" &&
-    argument.callee.property?.type === "Identifier" &&
+    argument.type === "CallExpression" &&
+    argument.callee.type === "MemberExpression" &&
+    !argument.callee.computed &&
+    argument.callee.property.type === "Identifier" &&
     argument.callee.property.name === FLUSH
   );
 }
@@ -150,12 +142,11 @@ function owningFunction(returnPath) {
   for (let current = returnPath.parent; current; current = current.parent) {
     if (FUNCTION_TYPES.has(current.node.type)) return current.node;
   }
-  return null;
 }
 
 function isFinalStatement(fn, node) {
-  const statements = fn.body?.body;
-  return Array.isArray(statements) && statements[statements.length - 1] === node;
+  const statements = fn.body.body;
+  return statements[statements.length - 1] === node;
 }
 
 function parameterList(fn, j) {
@@ -169,9 +160,7 @@ function importedNamesByLocal(root, j) {
     .find(j.ImportDeclaration)
     .find(j.ImportSpecifier)
     .forEach(({ node }) => {
-      const imported = node.imported?.name;
-      const local = node.local?.name ?? imported;
-      if (imported && local) names.set(local, imported);
+      names.set(node.local.name, node.imported.name ?? node.imported.value);
     });
   return names;
 }
@@ -196,8 +185,7 @@ export default function transform(fileInfo, api) {
     .filter((path) => isFlushMethod(path.node))
     .forEach((path) => {
       const method = path.node;
-      const fn = functionOf(method);
-      if (fn.generator) return;
+      if (method.generator) return;
 
       // `flush(): string` is an ordinary name on cache, logger and stream APIs.
       // Saying nothing about those is the point; a report full of false hits is
@@ -205,9 +193,9 @@ export default function transform(fileInfo, api) {
       const clause = strategyClause(enclosingClass(path), importedNames);
       if (clause === null) return;
 
-      const at = `${fileInfo.path}:${method.loc?.start.line ?? "?"}`;
+      const at = `${fileInfo.path}:${method.loc.start.line}`;
 
-      if (!returnsString(fn)) {
+      if (!returnsString(method)) {
         findings.push(
           `${at}: flush() does not return a string; check whether it is already migrated`
         );
@@ -217,8 +205,8 @@ export default function transform(fileInfo, api) {
       const matchType = matchTypeName(clause, j);
       signatureNeedsMatchResult = true;
       findings.push(
-        `${at}: flush(${parameterList(fn, j)}): string\n` +
-          `    becomes *flush(${parameterList(fn, j)}): Generator<${matchResultName ?? MATCH_RESULT}<${matchType ?? "TMatch"}>, void, undefined>` +
+        `${at}: flush(${parameterList(method, j)}): string\n` +
+          `    becomes *flush(${parameterList(method, j)}): Generator<${matchResultName ?? MATCH_RESULT}<${matchType ?? "TMatch"}>, void, undefined>` +
           (matchType === null
             ? `\n    TMatch is inherited from ${clause.inheritedFrom}; use that class's match type`
             : "")
@@ -226,15 +214,15 @@ export default function transform(fileInfo, api) {
 
       const returns = j(path)
         .find(j.ReturnStatement)
-        .filter((returnPath) => owningFunction(returnPath) === fn);
+        .filter((returnPath) => owningFunction(returnPath) === method);
 
       returns.forEach((returnPath) => {
         const argument = returnPath.node.argument;
         if (!argument) return;
 
-        const line = returnPath.node.loc?.start.line ?? "?";
+        const line = returnPath.node.loc.start.line;
         const source = j(argument).toSource();
-        const terminator = isFinalStatement(fn, returnPath.node)
+        const terminator = isFinalStatement(method, returnPath.node)
           ? ""
           : ", then `return;` to end the generator";
 
