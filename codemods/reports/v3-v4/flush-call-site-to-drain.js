@@ -54,6 +54,13 @@ function looksLikeStrategy(receiver) {
   return false;
 }
 
+function isAlreadyDrained(parent) {
+  return (
+    parent.type === "ForOfStatement" ||
+    (parent.type === "YieldExpression" && parent.delegate)
+  );
+}
+
 function drainLoop(call, tailName, receiver) {
   return [
     `    for (const result of ${call}) {`,
@@ -78,7 +85,7 @@ export default function transform(fileInfo, api) {
       if (!looksLikeStrategy(receiver)) return;
 
       const parent = path.parent.node;
-      if (parent.type === "ForOfStatement") return;
+      if (isAlreadyDrained(parent)) return;
 
       const at = `${fileInfo.path}:${path.node.loc.start.line}`;
       const call = j(path.node).toSource();

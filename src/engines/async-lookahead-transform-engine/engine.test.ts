@@ -926,11 +926,70 @@ describe("AsyncLookaheadTransformEngine", () => {
       await engine.end();
     });
 
+    it("cancel() while write() is suspended on a full queue stops scanning the rest of the chunk", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] },
+        { isMatch: true, content: "M", streamIndices: [3, 4] }
+      );
+      const gate = deferred<AsyncIterable<string>>();
+      const fn = vi.fn(async () => (fn.mock.calls.length === 1 ? gate.promise : asyncIterable("")));
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn,
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        highWaterMark: 1
+      });
+      engine.start(sink);
+
+      const writePromise = engine.write("MMMM");
+      await settleMicrotasks(10);
+
+      engine.cancel();
+      gate.resolve(asyncIterable(""));
+
+      await expect(writePromise).resolves.toBeUndefined();
+      await engine.end();
+      expect(fn).toHaveBeenCalledTimes(3);
+    });
+
+    it("cancel() while the stop-replacing flush is suspended on a full queue does not pass the chunk through", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      strategy.flush.mockImplementation(flushesText("A", "B", "C"));
+      const ac = new AbortController();
+      const gate = deferred<AsyncIterable<string>>();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        highWaterMark: 1,
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("M");
+      ac.abort();
+
+      const writePromise = engine.write("X");
+      await settleMicrotasks(10);
+
+      engine.cancel();
+      gate.resolve(asyncIterable(""));
+
+      await expect(writePromise).resolves.toBeUndefined();
+      await engine.end();
+      expect(chunks).toEqual([]);
+    });
+
     it("cancel() while write() is suspended on a full queue releases every acquired concurrency slot", async () => {
       const strategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] },
-        { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] },
-        { isMatch: true, content: "M", streamIndices: [2, 3] as [number, number] }
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] }
       );
       const gate = deferred<AsyncIterable<string>>();
       let callCount = 0;
@@ -1047,7 +1106,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         createState: vi.fn().mockReturnValue({}),
         processChunk: vi.fn().mockImplementation(function* (chunk: string) {
           if (processCount++ === 0) {
-            yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
+            yield { isMatch: true, content: "M", streamIndices: [0, 1] };
           } else {
             yield { isMatch: false, content: chunk };
           }
@@ -1082,7 +1141,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       return {
         createState: () => ({}),
         processChunk: vi.fn().mockImplementation(function* (chunk: string) {
-          yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] as [number, number] };
+          yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] };
         }),
         flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((m: string) => m)

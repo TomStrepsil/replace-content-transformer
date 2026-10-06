@@ -35,6 +35,7 @@ const FLUSH = "flush";
 const STRATEGY_NAME = /SearchStrategy|StrategyBase/;
 const GENERIC_BASE = /StrategyBase$/;
 const MATCH_RESULT = "MatchResult";
+const PACKAGE = "replace-content-transformer";
 
 const FUNCTION_TYPES = new Set([
   "FunctionDeclaration",
@@ -153,11 +154,17 @@ function parameterList(fn, j) {
   return fn.params.map((parameter) => j(parameter).toSource()).join(", ");
 }
 
-/** Local name -> exported name, for every named import that was renamed. */
+function isPackageImport(declaration) {
+  const source = declaration.source.value;
+  return source === PACKAGE || source.startsWith(`${PACKAGE}/`);
+}
+
+/** Local name -> exported name, for every named import from this package. */
 function importedNamesByLocal(root, j) {
   const names = new Map();
   root
     .find(j.ImportDeclaration)
+    .filter(({ node }) => isPackageImport(node))
     .find(j.ImportSpecifier)
     .forEach(({ node }) => {
       names.set(node.local.name, node.imported.name ?? node.imported.value);

@@ -465,6 +465,44 @@ describe("flush-implementation report", () => {
       expect(report).toBe("");
     });
 
+    it("stays quiet about an aliased SearchStrategy from another package", () => {
+      const { report } = runTransform(
+        [
+          'import type { SearchStrategy as Strategy } from "another-library";',
+          "class S implements Strategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toBe("");
+    });
+
+    it("does not print a MatchResult alias from another package", () => {
+      const { report } = runTransform(
+        [
+          'import type { MatchResult as Result } from "another-library";',
+          'import type { SearchStrategy } from "replace-content-transformer";',
+          "class S implements SearchStrategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("Generator<MatchResult<string>, void, undefined>");
+      expect(report).toContain("add a type import for MatchResult");
+    });
+
+    it("resolves an alias imported from a package subpath", () => {
+      const { report } = runTransform(
+        [
+          'import type { SearchStrategy as Strategy } from "replace-content-transformer/web";',
+          "class S implements Strategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("MatchResult<string>");
+    });
+
     it("does not ask for a MatchResult import that is already aliased", () => {
       const { report } = runTransform(
         [

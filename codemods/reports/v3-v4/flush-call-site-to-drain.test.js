@@ -104,6 +104,22 @@ describe("flush-call-site report", () => {
     expect(report).toBe("");
   });
 
+  it("says nothing about a flush already delegated with yield*", () => {
+    const { report } = runTransform(
+      ["function* flush(state) {", "  yield* this.innerStrategy.flush(state);", "}", ""].join("\n")
+    );
+
+    expect(report).toBe("");
+  });
+
+  it("reports a flush result that is yielded without delegating", () => {
+    const { report } = runTransform(
+      ["function* flush(state) {", "  yield this.innerStrategy.flush(state);", "}", ""].join("\n")
+    );
+
+    expect(report).toContain("needs rethinking by hand");
+  });
+
   it("says nothing about a flush that is not a search strategy's", () => {
     const { report } = runTransform(
       ["const tail = writer.flush();", "if (tail) out(tail);", ""].join("\n")

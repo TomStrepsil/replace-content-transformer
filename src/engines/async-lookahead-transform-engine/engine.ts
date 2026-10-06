@@ -204,6 +204,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       if (!this.#flushedAfterAbort) {
         this.#flushedAfterAbort = true;
         await this.#enqueue(this._searchStrategy.flush(this._state));
+        if (this.#cancelled) return;
       }
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
@@ -214,6 +215,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   async #enqueue(results: Iterable<MatchResult<TMatch>>): Promise<void> {
     for (const result of results) {
+      if (this.#cancelled) return;
       if (!result.isMatch) {
         await this.#queue.push(textSlot(this.#siblingIndex++, result.content));
         continue;

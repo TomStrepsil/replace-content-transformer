@@ -2,11 +2,37 @@ import { RegexSearchStrategy } from "../../../src/search-strategies/regex/search
 import type { StringBufferState } from "../../../src/search-strategies/string-buffer-strategy-base.ts";
 import type { MatchResult } from "../../../src/search-strategies/types.ts";
 
+type Span = [number, number] | undefined;
+
 export interface EmittedMatch {
   text: string;
   start: number;
   end: number;
   captures: (string | undefined)[];
+  /** `d`-flag spans, full match first, then each group; absent without `d`. */
+  indices?: Span[];
+  /** `d`-flag spans of named groups; absent without named groups. */
+  groupIndices?: Record<string, Span>;
+}
+
+const copySpan = (span: Span): Span => span && [span[0], span[1]];
+
+function spansOf(
+  match: RegExpExecArray
+): Pick<EmittedMatch, "indices" | "groupIndices"> {
+  const { indices } = match;
+  if (!indices) return {};
+  return {
+    indices: indices.map(copySpan),
+    ...(indices.groups && {
+      groupIndices: Object.fromEntries(
+        Object.entries(indices.groups).map(([name, span]) => [
+          name,
+          copySpan(span)
+        ])
+      )
+    })
+  };
 }
 
 export interface DriveResult {
@@ -51,7 +77,8 @@ export function drive(
         text,
         start: result.streamIndices[0],
         end: result.streamIndices[1],
-        captures: [...result.content]
+        captures: [...result.content],
+        ...spansOf(result.content)
       });
       output += text;
     }
@@ -87,7 +114,8 @@ export function referenceMatches(
       text: match[0],
       start: match.index,
       end: match.index + match[0].length,
-      captures: [...match]
+      captures: [...match],
+      ...spansOf(match)
     }));
 }
 
@@ -99,6 +127,8 @@ export function referenceMatches(
  * has `2024-06` keeps both the count and the losslessness intact. Comparing
  * text, stream offsets and captures in order is what catches it — captures
  * because a lookahead can settle on the wrong branch without moving either end.
+ * `d`-flag spans are compared too, since rebasing them to stream offsets is a
+ * step of its own that the match text cannot vouch for.
  */
 export function firstDivergence(
   streamed: EmittedMatch[],
@@ -117,7 +147,10 @@ export function firstDivergence(
       emitted.captures.length === expected.captures.length &&
       emitted.captures.every(
         (capture, group) => capture === expected.captures[group]
-      );
+      ) &&
+      JSON.stringify(emitted.indices) === JSON.stringify(expected.indices) &&
+      JSON.stringify(emitted.groupIndices) ===
+        JSON.stringify(expected.groupIndices);
     if (!same) return { at, streamed: emitted, reference: expected };
   }
   return null;

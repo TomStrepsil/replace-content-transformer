@@ -94,7 +94,7 @@ npm run bench:regex-shapes:report    # buffering + fidelity, no timing
 
 The [algorithm benchmarks](#algorithm-benchmarks) above use anchor-shaped content throughout, which is the one shape that can always settle the moment a match completes. This suite covers the rest: eager quantifiers, alternation branches that could still grow, backreferences, `d`-flag indices, astral characters under the `u` flag, nullable patterns, and content with no terminator at all — plus a growth curve showing that the last of those is quadratic in stream length rather than a constant factor.
 
-A deterministic report (`--report`) accompanies the timing run: peak buffer per shape, matches settled at a boundary versus at `flush`, and agreement with a non-streaming reference over the same input.
+A deterministic report (`npm run bench:regex-shapes:report`) accompanies the timing run: peak buffer per shape, matches settled at a boundary versus at `flush`, and agreement with a non-streaming reference over the same input.
 
 ### Runtime Benchmarks
 
