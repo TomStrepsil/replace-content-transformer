@@ -3,8 +3,6 @@ import jscodeshift from "jscodeshift";
 import transform from "./replacement-callback-positional-to-context.js";
 
 function runTransform(source) {
-  // The 3rd argument represents CLI options passed to jscodeshift transforms.
-  // It's optional, but passing an empty object keeps helper calls signature-complete.
   return transform(
     {
       path: "fixture.ts",

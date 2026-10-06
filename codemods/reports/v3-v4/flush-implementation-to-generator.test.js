@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import jscodeshift from "jscodeshift";
+import { withParser } from "jscodeshift";
 
-const tsx = jscodeshift.withParser("tsx");
+const tsx = withParser("tsx");
 import transform from "./flush-implementation-to-generator.js";
 
 function runTransform(source) {
