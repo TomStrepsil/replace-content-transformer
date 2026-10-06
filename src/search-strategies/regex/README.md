@@ -402,8 +402,8 @@ Such a pattern is accepted, but **a zero-length match is never emitted**. The ru
 The practical effect is that a nullable pattern matches only where it matches something:
 
 ```js
-/\d*/; // matches like /\d+/  — "a12b3c" ➜ "12", "3"
-/a?/; //  matches like /a/    — "xaybaaz" ➜ "a", "a", "a"
+/\d*/;   // matches like /\d+/   — "a12b3c" ➜ "12", "3"
+/a?/;    // matches like /a/     — "xaybaaz" ➜ "a", "a", "a"
 /(ab)*/; // matches like /(ab)+/
 ```
 
@@ -414,9 +414,9 @@ Output stays lossless — skipped positions are passed through as ordinary non-m
 >
 > ```js
 > new RegExp(""); //  never matches
-> /(?:)/; //          never matches
-> /(?=a)/; //         never matches — the lookahead consumes nothing
-> /(?!z)/; //         never matches
+> /(?:)/;         //  never matches
+> /(?=a)/;        //  never matches — the lookahead consumes nothing
+> /(?!z)/;        //  never matches
 > ```
 
 Where a partial match _is_ viable at a position the strategy defers instead of skipping, so `/(a*b)?/` buffers exactly as `/a*b/` does and the limits under [Unbounded Quantifiers](#️-unbounded-quantifiers) apply.
