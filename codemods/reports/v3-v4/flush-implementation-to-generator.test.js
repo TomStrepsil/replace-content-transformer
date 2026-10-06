@@ -361,9 +361,11 @@ describe("flush-implementation report", () => {
       ).report;
 
     it("finds a namespace-qualified interface", () => {
-      expect(reportFor("class S implements rct.SearchStrategy<State, Foo> {")).toContain(
-        "MatchResult<Foo>"
-      );
+      expect(
+        reportFor(
+          'import * as rct from "replace-content-transformer";\nclass S implements rct.SearchStrategy<State, Foo> {'
+        )
+      ).toContain("MatchResult<Foo>");
     });
 
     it("finds a base class with no type arguments", () => {
@@ -485,6 +487,30 @@ describe("flush-implementation report", () => {
       const { report } = runTransform([importLine, `class S ${heritage} {`, ...flushBody].join("\n"));
 
       expect(report).toBe("");
+    });
+
+    it("stays quiet about a namespace-imported strategy from another package", () => {
+      const { report } = runTransform(
+        [
+          'import * as other from "another-library";',
+          "class S implements other.SearchStrategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toBe("");
+    });
+
+    it("reports a namespace-imported strategy from this package", () => {
+      const { report } = runTransform(
+        [
+          'import * as rct from "replace-content-transformer";',
+          "class S implements rct.SearchStrategy<State> {",
+          ...flushBody
+        ].join("\n")
+      );
+
+      expect(report).toContain("*flush(");
     });
 
     it("does not print a MatchResult alias from another package", () => {

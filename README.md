@@ -596,22 +596,20 @@ There are three concrete engines:
 The sync/async distinction determines which adapter accepts the engine (`ReplaceContentTransformer` / `AsyncReplaceContentTransformer`).
 
 ```typescript
-// sync or async, dependent on asynchronicity of the replacement needed
-*processChunk(chunk: string): Generator<string, void, undefined> {
-  for (const { isMatch, content } of this.searchStrategy.processChunk(
-    chunk,
-    this.searchState
-  )) {
-    if (isMatch) {
-      yield /* some replacement form (static, functional, iterator, async...) */
-    } else {
-      yield content;
-    }
+#emit(results: Iterable<MatchResult<TMatch>>) {
+  for (const { isMatch, content } of results) {
+    sink.enqueue(
+      isMatch
+        ? /* some replacement form (static, functional, iterator, async...) */
+        : content
+    );
   }
 }
-// common to all engines
-*flush(): Generator<MatchResult<TMatch>, void, undefined> {
-  yield* this.searchStrategy.flush(this.searchState);
+write(chunk: string) {
+  this.#emit(this.searchStrategy.processChunk(chunk, this.searchState));
+}
+end() {
+  this.#emit(this.searchStrategy.flush(this.searchState));
 }
 ```
 

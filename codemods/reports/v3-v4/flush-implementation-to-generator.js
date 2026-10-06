@@ -78,6 +78,12 @@ function typeNameOf(node) {
   return null;
 }
 
+function qualifierOf(node) {
+  const expression = node?.expression ?? node;
+  if (expression?.type !== "TSQualifiedName") return null;
+  return expression.left?.type === "Identifier" ? expression.left.name : "";
+}
+
 /**
  * The `implements SearchStrategy<...>` or `extends …StrategyBase<...>` clause
  * that identifies the class as one this migration applies to.
@@ -85,15 +91,19 @@ function typeNameOf(node) {
  * Which one it is decides where the match type sits, so the kind is carried
  * rather than just the type arguments.
  */
-function strategyClause(classNode, importedNames, foreignNames) {
-  const resolve = (name) =>
-    foreignNames.has(name) ? "" : (importedNames.get(name) ?? name);
+function strategyClause(classNode, importedNames, foreignNames, packageNamespaces) {
+  const resolve = (node) => {
+    const name = typeNameOf(node);
+    const qualifier = qualifierOf(node);
+    if (qualifier !== null) return packageNamespaces.has(qualifier) ? name : "";
+    return foreignNames.has(name) ? "" : (importedNames.get(name) ?? name);
+  };
   for (const clause of classNode.implements) {
-    if (STRATEGY_NAME.test(resolve(typeNameOf(clause)))) {
+    if (STRATEGY_NAME.test(resolve(clause))) {
       return { isInterface: true, node: clause };
     }
   }
-  const superName = resolve(typeNameOf(classNode.superClass) ?? "");
+  const superName = resolve(classNode.superClass);
   if (GENERIC_BASE.test(superName)) {
     return {
       isInterface: false,
@@ -184,6 +194,16 @@ function foreignLocalNames(root, j) {
   return names;
 }
 
+function packageNamespaceNames(root, j) {
+  const names = new Set();
+  root
+    .find(j.ImportDeclaration)
+    .filter(({ node }) => isPackageImport(node))
+    .find(j.ImportNamespaceSpecifier)
+    .forEach(({ node }) => names.add(node.local.name));
+  return names;
+}
+
 function localNameOf(importedNames, exportedName) {
   for (const [local, imported] of importedNames) {
     if (imported === exportedName) return local;
@@ -197,6 +217,7 @@ export default function transform(fileInfo, api) {
   const findings = [];
   const importedNames = importedNamesByLocal(root, j);
   const foreignNames = foreignLocalNames(root, j);
+  const packageNamespaces = packageNamespaceNames(root, j);
   const matchResultName = localNameOf(importedNames, MATCH_RESULT);
   let signatureNeedsMatchResult = false;
 
@@ -210,7 +231,12 @@ export default function transform(fileInfo, api) {
       // `flush(): string` is an ordinary name on cache, logger and stream APIs.
       // Saying nothing about those is the point; a report full of false hits is
       // one nobody reads.
-      const clause = strategyClause(enclosingClass(path), importedNames, foreignNames);
+      const clause = strategyClause(
+        enclosingClass(path),
+        importedNames,
+        foreignNames,
+        packageNamespaces
+      );
       if (clause === null) return;
 
       const at = `${fileInfo.path}:${method.loc.start.line}`;
