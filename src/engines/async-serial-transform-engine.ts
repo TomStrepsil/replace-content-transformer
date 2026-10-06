@@ -64,9 +64,8 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
     if (this.#cancelled) return;
 
     if (this._stopReplacingSignal?.aborted) {
-      const sink = this._sink;
       this._flushAfterAbortIfNeeded();
-      sink.enqueue(chunk);
+      this._sink.enqueue(chunk);
       return;
     }
 

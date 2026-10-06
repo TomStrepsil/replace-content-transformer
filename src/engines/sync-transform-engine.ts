@@ -60,9 +60,8 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
 
   write(chunk: string): void {
     if (this._stopReplacingSignal?.aborted) {
-      const sink = this._sink;
       this._flushAfterAbortIfNeeded();
-      sink.enqueue(chunk);
+      this._sink.enqueue(chunk);
       return;
     }
 
