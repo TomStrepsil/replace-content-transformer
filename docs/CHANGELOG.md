@@ -9,37 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`. Anything buffered at end of stream used to be emitted verbatim, which meant a strategy could never defer a decision at a chunk boundary — deferral is only correct if the deferred content can still become a match once the stream ends. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; everyone else has a [migration report](../codemods/reports/v3-v4/README.md)
-- **BREAKING:** matches that were previously chunk-dependent no longer are, so tests asserting over chunked output will change. A match that runs to the end of a chunk is now deferred until the next chunk settles it, or until `flush` does at end of stream — the same matches, arriving later
-- Unbounded quantifiers are no longer a *correctness* caveat, only a buffering one. `/[A-Z]+/` over `"please MAT"` + `"CH this"` yields one `MATCH`, not `MAT` and `CH`. What remains is cost: a pattern that never stops growing (`/\S+/` over unbroken text) buffers to end of stream, and since the buffer is re-scanned from position 0 each chunk that cost is quadratic in stream length. A terminator the body cannot consume (`/\{\{[^{}]*\}\}/`) bounds the buffer to one pending match rather than emptying it, and content with no matches at all gets *faster*, since the redundant second scan is gone. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
-- `RegexSearchStrategy` emits each match without delegating to a nested generator (`yield*`), which cost about 50 ns per match under V8: 1.2–1.9x faster on match-dense input, unchanged where nothing matches
-- `AsyncLookaheadTransformEngine` releases a replacement's concurrency slot from a plain iterator rather than an async generator wrapping it with `yield*`: about 20% less engine time per replacement
-- Removed an unreachable branch in `AsyncLookaheadTransformEngine`'s constructor: its scan signal is always defined, since the abandon signal is composed unconditionally. Internal only, no behaviour change
-- Updated `regex-partial-match` to 2.0.1
-  - An incomplete `\x`, `\u` or `\c` escape no longer swallows the characters after it (it threw on `/\x(a)/`), and a `\c` ending the pattern is read as a literal backslash and `c`
-  - A `\k<name>` after every declaration of a duplicated name no longer rejects a partly typed value
-  - Matching a backreference pattern is faster, by about 20x on a 100 kB input
+- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; for everyone else there is a [migration report](../codemods/reports/v3-v4/README.md)
+- **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
+- Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
+- Updated `regex-partial-match` to 2.0.1 (floor `^2.0.0`, for `hitEnd()` and `features()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
 
 ### Fixed
 
-- Fixed chunking-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)). Three mechanisms — a match accepted at a position later than a viable partial began, a match ending exactly at the boundary that more input would extend, and a match ending *before* the boundary while a higher-priority alternation branch was still viable, including a higher-priority alternative of a backreference pattern that ran out of input behind a shorter match (`/(a)\1b|a/` over `"aa"` + `"b"`) — turn out to be one question, *is anything starting here still growing?*, which the partial-match regex already answers through `hitEnd()`. The scan is now driven by the partial regex alone, and the original pattern is not consulted until `flush` — bar confirming candidates where the pattern uses a lookahead. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
-- Documented that input must be decoded with a `TextDecoder`/`TextDecoderStream` so surrogate pairs are never split across chunks. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks)
-- Fixed lookahead confirmation checking only a candidate's extent, so `/a(?=bc)|(a)/` over `"ab"` reported the wrong branch's captures. Captures are now compared too. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
-- Fixed two more lookahead confirmation gaps: a zero-length candidate skipped confirmation entirely, losing `/(?=ab)|aX/` over `["a", "X"]`; and a capture inside the lookahead could still grow past the chunk edge, so `/a(?=(b+))/` over `["ab", "bX"]` captured `"b"` where a whole-input `exec` captures `"bb"`
-- Fixed `flush()` stopping at a zero-length match rather than skipping it as `processChunk` does, which hid any real match later in the settled buffer
-- Removed tests for regex search strategy that should have been removed with [#53](https://github.com/TomStrepsil/replace-content-transformer/pull/53)
-- Fixed benchmarking `AnchorSequenceSearchStrategy` dropping a sequence that completed on the last chunk: `flush` now drives its sub-strategies and yields those as real matches with correct `streamIndices`, rather than concatenating the buffers as literal text
-- Fixed benchmarking `AnchorSequenceSearchStrategy` to reset state properly, so that benchmark is more realistic
-- Fixed benchmarking `AnchorSequenceSearchStrategy` rendering a sub-strategy's match with `String()` rather than its `matchToString`, which turned a non-string `TMatch` into `"[object Object]"`
+- Fixed chunk-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)): premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
+- Fixed lookahead confirmation in the regex search strategy: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
+- Fixed `flush()` stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
+- Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at `flush`, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
+- Documented that input must be decoded with a `TextDecoder`/`TextDecoderStream` so surrogate pairs are never split. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks)
+- Removed regex strategy tests that should have gone with [#53](https://github.com/TomStrepsil/replace-content-transformer/pull/53)
 
 ### Added
 
-- Chunk-boundary tests driving the regex search strategy over *every* two-way, three-way and per-character split of each curated pattern, asserting a match sequence identical to the non-streaming result and lossless output. The patterns that used to be split-dependent are in that table, so the fix is verified rather than assumed
-- Tests for engine paths that had none: cancelling an async-serial replacement mid-flight (between results, from inside the replacement, and mid-iterable), and settling a deferred match when the stream is aborted
-- `codemods/reports/v3-v4` — a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites: it locates each one and prints the exact replacement, without editing any file
-- Raised the `regex-partial-match` floor to `^2.0.0`, for `hitEnd()` and `features()`
-- `SearchStrategy`, `MatchResult`, `StreamIndices`, `StringBufferStrategyBase` and `StringBufferState` are now exported from the package root. A custom strategy could previously only satisfy the interface structurally, with no way to import the types its `flush` signature now needs
+- Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
+- Tests for engine cancellation and for settling a deferred match on abort
+- `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files
+- `SearchStrategy`, `MatchResult`, `StreamIndices`, `StringBufferStrategyBase` and `StringBufferState` are exported from the package root
 
 ## [3.0.2] - 2026-08-27
 
