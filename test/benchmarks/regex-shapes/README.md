@@ -27,7 +27,7 @@ Every shape declares which one it exercises, and the timing run groups by it, so
 
 ## Shapes
 
-Beyond the boundary behaviours, the catalogue covers the scan features whose cost is not visible in anchor-shaped content: `d`-flag index rebasing, named groups, genuine backreferences (which cannot use the cheap static partial regex, and re-expand the captured value atom by atom), positive lookaheads (whose every candidate costs a second, anchored `exec` against the original pattern before it can settle), astral characters under the `u` flag (chunked between whole characters, as a `TextDecoder` delivers them), matches that end exactly on a chunk edge and nothing can extend (`/END/`, which defers regardless), nullable patterns that take the zero-length skip path, and match-dense content that isolates per-match overhead from scanning overhead.
+Beyond the boundary behaviours, the catalogue covers the scan features whose cost is not visible in anchor-shaped content: `d`-flag index rebasing, named groups, backreferences, positive lookaheads, astral characters under the `u` flag, matches ending exactly on a chunk edge, nullable patterns that take the zero-length skip path, and match-dense content that isolates per-match overhead from scanning overhead [^1].
 
 Add one by appending to [`shapes.ts`](./shapes.ts) — the timing run, the report and the grouping all derive from that array.
 
@@ -43,7 +43,7 @@ A single ratio is misleading for `buffers-to-end` content. The whole buffer is r
 24000 chars (375 chunks)    4.99 ms
 ```
 
-Roughly 4x per doubling. A pattern with no terminator its own body cannot consume (`/\S+/`, `/foo.+/`) is quadratic in stream length, and that is worth knowing before reaching for one.
+Roughly 4x per doubling: a pattern with no terminator its own body cannot consume (`/\S+/`, `/foo.+/`) is quadratic in stream length.
 
 ## The report
 
@@ -61,8 +61,10 @@ no match — /ZZZ\d+/ over prose                   no-match            25       
 
 ## Comparing against another branch
 
-Timing on a laptop drifts over the minutes a suite takes — enough to swamp the effect being measured, and in one direction, so it reads as a real regression. Check out the baseline in a second worktree, run **both orderings** (A, B, B, A) and take the geometric mean of the two ratios; that cancels monotonic drift. The report needs none of this and can simply be diffed.
+Timing on a laptop drifts over the minutes a suite takes, in one direction, so it reads as a real regression. Check out the baseline in a second worktree, run **both orderings** (A, B, B, A) and take the geometric mean of the two ratios, which cancels monotonic drift. The report needs none of this and can simply be diffed.
 
-Two caveats on doing it that way. Each worktree runs its **own** copy of this suite, so a change to the shapes or the driver is measured as if it were a change to the strategy; keep the suite identical across both, or compare only the `src/` under test. And the drift correction is a blunt instrument — it cancels a monotonic trend, not a machine that is busy in bursts.
+Keep the suite identical across both worktrees, or compare only the `src/` under test, since each runs its own copy [^2]. [#27](https://github.com/TomStrepsil/replace-content-transformer/issues/27) tracks replacing this with tooling; until then, any figure quoted from this suite in a PR should say which method produced it.
 
-[#27](https://github.com/TomStrepsil/replace-content-transformer/issues/27) tracks replacing this with tooling: a contributor-run comparison of two branches' `src/` driven by the local branch's harnesses, emitting PR-friendly markdown. Until that lands, the manual method above is what these numbers rest on, and any figure quoted from this suite in a PR should say which method produced it.
+[^1]: Backreferences cannot use the cheap static partial regex and re-expand the captured value atom by atom; every lookahead candidate costs a second, anchored `exec` against the original pattern before it can settle; astral characters are chunked between whole characters, as a `TextDecoder` delivers them; `/END/` defers regardless of whether anything could extend it.
+
+[^2]: Otherwise a change to the shapes or the driver is measured as if it were a change to the strategy. The drift correction is also a blunt instrument: it cancels a monotonic trend, not a machine that is busy in bursts.

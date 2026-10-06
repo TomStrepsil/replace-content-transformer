@@ -53,18 +53,17 @@ p = partialMatchRegex.exec(remainingHaystack)
                                (on a backreference or lookahead pattern, only if hitEnd(p) is false)
 ```
 
-A candidate that reaches the end of the haystack is deferred without being examined. Deferral is always safe, because [End of Stream](#end-of-stream) settles whatever is still buffered with the original pattern. That holds even when nothing could extend the match: `/END/` over `"xxEND"` is held until the next chunk or `flush`, as is `/[A-Z]+/` over `"please MAT"`. Probing every edge candidate to let the first settle a chunk earlier measured around 1.3x slower on nearly every shape (2.2x on `/\S+/`) for no gain in time, so the strategy does not.
+A candidate that reaches the end of the haystack is deferred without being examined, "nothing viable" included [^2]. Deferral is always safe, because [End of Stream](#end-of-stream) settles whatever is still buffered with the original pattern: `/END/` over `"xxEND"` is held until the next chunk or `flush`, as is `/[A-Z]+/` over `"please MAT"`. Probing such candidates so that some settle a chunk earlier is not worth its cost [^3].
 
-A candidate that ends short of the haystack's end is settled outright for most patterns. The decision is made once, at construction, from the partial regex's `features`: a pattern with no backreference and no lookahead cannot have an incomplete partial match that ends anywhere but at end-of-haystack, since only the `$(?![\s\S])` truncation marker produces one. A shorter match is therefore the original pattern's match at that index.
+A candidate that ends short of the end is settled outright for most patterns: only the `$(?![\s\S])` truncation marker can make a partial match incomplete, and it only matches at end-of-haystack, so a shorter match is the original pattern's match at that index. That is decided once, at construction, from the partial regex's `features`.
 
-For a backreference or lookahead pattern that is not enough, and the candidate is passed to `hitEnd()` as well. This follows the JDK's [`Matcher.hitEnd()`](https://docs.oracle.com/javase/8/docs/api/java/util/regex/Matcher.html#hitEnd--): it reports whether the partial regex read the end of the haystack while producing the match, and where it did not, no continuation of the input can change the match's index or text. `true` defers the candidate; `false` settles it.
+A backreference or lookahead pattern breaks that, so its candidate is also passed to `hitEnd()`, which follows the JDK's [`Matcher.hitEnd()`](https://docs.oracle.com/javase/8/docs/api/java/util/regex/Matcher.html#hitEnd--): `true` means the partial regex read the end of the haystack, so the candidate is deferred; `false` means no continuation can change the match's index or text, so it is settled.
 
 Two properties make this sound:
 
 - **Superset** — the partial regex matches everything the original matches, and never starts later. A partial scan cannot miss what a complete scan would find.
-- **Identity** — a candidate that ends short of the end, on a pattern where that is decided without a probe, or where `hitEnd()` is `false`, never relied on the `$(?![\s\S])` truncation marker, so it is the original pattern's match at that index, identical in extent, capture groups and `d`-flag indices. One case is invisible to `hitEnd()`: a lookahead read in an earlier iteration of a quantified group — see [Lookahead Confirmation](#lookahead-confirmation).
+- **Identity** — a candidate settled this way never relied on the truncation marker, so it is the original pattern's match at that index: identical in extent, capture groups and `d`-flag indices. One case is invisible to `hitEnd()` — see [Lookahead Confirmation](#lookahead-confirmation).
 
-Note that "nothing viable" is reported as a zero-length match at end-of-haystack rather than as `null` — the truncation branch always matches the empty string there. It reaches end-of-haystack like any other edge candidate, so it is deferred, but buffering from end-of-haystack holds nothing and the whole remainder is emitted.
 ### Lookahead Confirmation
 
 Identity holds for the text a match _consumes_, not for what it _asserts_. A positive lookahead is zero-width: its atoms are partialised like everything else, so `(?=bc)` is satisfied by a bare `b` at end-of-haystack. The candidate ends short of the edge, so on a lookahead pattern it is not settled on that alone. `hitEnd()` sees the truncation, because the partial regex read the end inside the assertion:
@@ -77,7 +76,7 @@ partialMatchRegex.exec() → "a" at position 0, ending at 1 of 2
 hitEnd()                 → true: the assertion ran into the edge, so "a" is deferred
 ```
 
-The same holds for a capture inside the assertion: `/a(?=(b+))/` over `"ab"` is held until the capture can no longer grow, and `/a(?=(?:b(?:x|(c))d|b))/` is held while the higher-priority branch is still viable.
+A capture inside the assertion is held the same way: `/a(?=(b+))/` over `"ab"` waits until the capture can no longer grow [^4].
 
 The one thing it cannot see is a lookahead read in an _earlier iteration_ of a quantified group. ECMAScript resets a quantified group's captures on every iteration, including the partial regex's truncation markers, so the evidence is wiped before the match ends:
 
@@ -89,7 +88,7 @@ partialMatchRegex.exec() → "ab" at position 0
 hitEnd()                 → false: the (?=bcd) read in iteration 1 is invisible
 ```
 
-`"abcx"` matches only `"b"` at index 1, so `"ab"` must not be emitted. Where the pattern uses a lookahead, a candidate that ends short of the edge and that `hitEnd()` has settled is therefore confirmed before it is emitted: the original pattern, anchored at the candidate's index, has to match there and produce **the same match**, with the same extent _and_ the same captures. Where it does not, the candidate is treated as still growing, and buffered from its own index exactly like a deferred one. What is emitted is the confirmation's own match object, so `groups` and `d`-flag indices are the ones a non-streaming `exec` would hand back. This is a [documented limit upstream](https://github.com/TomStrepsil/regex-partial-match/issues/123).
+`"abcx"` matches only `"b"` at index 1, so `"ab"` must not be emitted. Where the pattern uses a lookahead, a candidate that `hitEnd()` has settled is therefore confirmed: the original pattern, anchored at the candidate's index, has to produce **the same match**, extent _and_ captures. Otherwise the candidate is buffered from its own index, like a deferred one. The emitted match is the confirmation's own, so `groups` and `d`-flag indices are what a non-streaming `exec` returns. This is a [limit upstream](https://github.com/TomStrepsil/regex-partial-match/issues/123) too.
 
 ```
 Pattern: /(?:a(?=bcd)|b)+/
@@ -99,7 +98,7 @@ Pattern: /(?:a(?=bcd)|b)+/
   ["abc", "x"]   → "abc" held; "abcx" has no match at 0 → "a" as non-match text, then "b" as the match
 ```
 
-Both the `hitEnd()` probe and the confirmation are decided once, at construction, from the partial regex's `features` — a pattern with no lookahead never pays for the confirmation, and one with neither a lookahead nor a backreference pays for neither. See [Positive lookaheads](#️-positive-lookaheads) for what it costs the ones that do.
+Both the probe and the confirmation are decided once, at construction, from the partial regex's `features`, so a pattern without a lookahead never pays for the confirmation. See [Positive lookaheads](#️-positive-lookaheads) for the cost.
 
 ### Settled Match
 
@@ -146,17 +145,17 @@ Buffer: "PLACE"
 This is what makes the strategy chunk-invariant. The same rule covers three hazards that look distinct but are the same question — _does the partial match run into the edge?_
 
 ```
-Pattern: /foo.?bar|o/    "x fooXbar"
-  ["x fo", "oXbar"]  → one match, "fooXbar"   (not two `o` matches)
+Pattern: /foo.?bar|o/          "x fooXbar"
+  ["x fo", "oXbar"]            → one match, "fooXbar" (not two `o` matches)
 
-Pattern: /[A-Z]+/        "please MATCH this"
-  ["please MAT", "CH this"]  → one match, "MATCH"   (not "MAT" + "CH")
+Pattern: /[A-Z]+/              "please MATCH this"
+  ["please MAT", "CH this"]    → one match, "MATCH" (not "MAT" + "CH")
 
-Pattern: /\d{4}-\d{2}|\d{4}/    "born 2024-06 ok"
-  ["born 2024-", "06 ok"]  → one match, "2024-06"   (not "2024")
+Pattern: /\d{4}-\d{2}|\d{4}/   "born 2024-06 ok"
+  ["born 2024-", "06 ok"]      → one match, "2024-06" (not "2024")
 ```
 
-The third is the one that defeats a naive guard: `2024` ends at index 9 of a 10-character chunk, comfortably short of the edge, while `2024-` was still a viable prefix of the higher-priority branch. Comparing where the candidates _start_ finds nothing to prefer. The partial regex prefers the higher-priority branch, so its candidate is `2024-`, which reaches the edge and is deferred.
+The third defeats a naive guard: `2024` ends well short of the edge, but `2024-` was still a viable prefix of the higher-priority branch. The partial regex prefers that branch, so its candidate reaches the edge and is deferred.
 
 ### Buffer Continuation
 
@@ -168,7 +167,7 @@ Next chunk:      "HOLDER and more"
 
 Combined: "PLACEHOLDER and more"
 
-Step 1: completeMatchRegex.exec() → match at position 0
+Step 1: partialMatchRegex.exec() → "PLACEHOLDER" at position 0, ending short of the edge
 
 ┌──────────────────────────────────────────────┐
 │ Combined: "PLACEHOLDER and more"             │
@@ -179,7 +178,7 @@ Step 1: completeMatchRegex.exec() → match at position 0
 Result:
   - "PLACEHOLDER" → match
   - " and more" → continue processing
-  - matchBuffer: "" (cleared)
+  - buffer: "" (cleared)
 ```
 
 ### Failed Partial Match
@@ -224,7 +223,7 @@ Output: "a" (non-match), then "b" (match)
 Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
 
 > [!NOTE]
-> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`. Anyone implementing `SearchStrategy`, or driving a strategy directly, has to handle that — see the [v3 → v4 migration report](../../../codemods/reports/v3-v4/README.md).
+> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`.
 
 ## Partial Match Transformation
 
@@ -287,7 +286,7 @@ Knowing when to buffer requires understanding if the part of the regular express
 > [!NOTE]
 > This restriction is specifically about **predictive** negative lookaheads: ones whose truth depends on content that hasn't arrived yet. `(?!bar)` needs to see, and rule out, up to three more characters before it can be trusted — that's exactly the case this strategy can't support without a full state machine.
 >
-> It does _not_ apply to [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/)'s own internal use of `(?![\s\S])`, visible in the generated partial regex — e.g. `(?:P|$(?![\s\S]))(?:L|$(?![\s\S]))...` for `/PLACEHOLDER/` (see [Partial Match Transformation](#partial-match-transformation)). That marker only ever asserts absence of _already-received_ content, never a claim about anything still to arrive [^2].
+> It does _not_ apply to [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/)'s own internal use of `(?![\s\S])`, visible in the generated partial regex — e.g. `(?:P|$(?![\s\S]))(?:L|$(?![\s\S]))...` for `/PLACEHOLDER/` (see [Partial Match Transformation](#partial-match-transformation)). That marker only ever asserts absence of _already-received_ content, never a claim about anything still to arrive [^5].
 >
 > - `(?!bar)` (user pattern): depends on 3 characters not yet received → must know to buffer to find out, despite complete expression matching → **unsupported**.
 > - `(?![\s\S])` (internal marker): depends on zero unseen characters, it's an assertion of _absence_ → always decidable immediately → **safe**.
@@ -318,7 +317,7 @@ Problem: `m` only changes the behaviour of `^` and `$`, both of which are unsupp
 /foo/y;
 ```
 
-Problem: This strategy already finds every match itself by advancing its own cursor, but `exec()`'s `g`/`y` behaviour keeps its own `lastIndex` cursor on the regex object, which goes stale between the strategy's internal calls and can silently drop matches [^3]. Rejected by [input validation](./input-validation.ts) rather than silently stripped.
+Problem: This strategy already finds every match itself by advancing its own cursor, but `exec()`'s `g`/`y` behaviour keeps its own `lastIndex` cursor on the regex object, which goes stale between the strategy's internal calls and can silently drop matches [^6]. Rejected by [input validation](./input-validation.ts) rather than silently stripped.
 
 ### ⚠️ Positive lookaheads
 
@@ -328,14 +327,12 @@ Problem: This strategy already finds every match itself by advancing its own cur
 
 Supported, and chunk-invariant — but the assertion reads content the match itself does not consume, so a candidate cannot be emitted until that content has arrived. Fed `"border"`, the strategy holds it: `-top` may be in the next chunk, or may never come. See [Lookahead Confirmation](#lookahead-confirmation) for the mechanism.
 
-A candidate that ends short of the edge settles only once nothing inside the assertion could read more input, so a capture inside the assertion (`/a(?=(b+))/`) is held until it can no longer grow. Capturing groups inside a lookahead are accepted.
+A capture inside the assertion (`/a(?=(b+))/`) is held until it can no longer grow; capturing groups inside a lookahead are accepted.
 
 Two costs follow:
 
 - **Deferral past the end of the match.** A match whose own text ends well inside the chunk is still buffered, for as much content as the lookahead can inspect. That is bounded by the assertion's own length for a fixed one like `(?=-top)`, but a lookahead containing an unbounded quantifier (`/foo(?=.*;)/`) inherits [Unbounded Quantifiers](#️-unbounded-quantifiers) and can hold the buffer to the end of the stream.
-- **A `hitEnd()` probe and a second `exec` per candidate.** Every candidate that ends short of the edge is probed with `hitEnd()`, and the ones it settles cost one anchored `exec` against the original pattern for confirmation — including the ones that go on to be ruled out. On the lookahead shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md) that measured about 1.24x, A/B/B/A against the tree before the settle rule. Patterns with no lookahead are unaffected.
-
-That shape doubles as a guard on the confirmation itself: with the check removed it reports 42 matches where a non-streaming `matchAll` over the same content finds 40.
+- **A `hitEnd()` probe and a second `exec` per candidate.** Every candidate that ends short of the edge is probed, and the ones `hitEnd()` settles cost one anchored `exec` against the original pattern for confirmation. That measured about 1.24x on the lookahead content shape [^7]. Patterns with no lookahead are unaffected.
 
 ### ⚠️ Backreferences
 
@@ -343,17 +340,15 @@ That shape doubles as a guard on the confirmation itself: with the check removed
 /(.+?) \1/;
 ```
 
-Backreferences are supported, including across chunk boundaries: [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) resolves captures at match time and re-expands each backreference into per-atom partial form on every `exec()` call (see [its documentation](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/backreferences.md) for the full algorithm). For example, `/(.+?) \1/` correctly matches `"foo foo"` split as `"foo f"` + `"oo bar"`. A higher-priority alternative that runs out of input behind a shorter match is deferred too: `/(a)\1b|a/` over `"aa"` + `"b"` yields `"aab"`, not `"a"`, `"a"` and `"b"`. With a backreference in play `exec` can return a native match that ignores an alternative still running out of input, and the candidate ends short of the edge, so this is the case `hitEnd()` is consulted for.
+Backreferences are supported, including across chunk boundaries: [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) resolves captures at match time and re-expands each backreference into per-atom partial form on every `exec()` (see [its documentation](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/backreferences.md)). `/(.+?) \1/` matches `"foo foo"` split as `"foo f"` + `"oo bar"`, and `/(a)\1b|a/` over `"aa"` + `"b"` yields `"aab"`, not `"a"`, `"a"`, `"b"` [^8].
 
 That comes with real caveats for streaming use:
 
-- **Performance.** Constructing the partial-match regex class is slightly more expensive than constructing the equivalent native `RegExp`. Patterns that do contain a genuine backreference pay a further cost on the one `partialMatchRegex.exec()` call per chunk described in [Scanning with the Partial Regex](#scanning-with-the-partial-regex) above: instead of matching against the cheap static partial regex used otherwise, that call has to re-expand the backreference from its captured value, atom by atom. Candidates that end short of the edge are also probed with `hitEnd()`, which measured about 1.07x on the backreference shape.
-- **Prefix-ambiguous top-level alternation can silently drop a match.** When a top-level `|` has branches sharing a prefix (e.g. `/(ab)\1|(abc)\2/`, where the first branch's `"ab"` is a strict prefix of the second branch's `"abc"`), the internal capture scan can resolve the _shorter_ branch before enough input has arrived, causing the partial-match `exec()` to return `null` for content that is in fact a valid partial match. Since [`processChunk`](./search-strategy.ts) treats a `null` partial-match result as "definitely not a match" — flushing what's buffered as ordinary non-match content, rather than continuing to buffer it — this isn't just a slower path, it's a **lost match**: `/(ab)\1|(abc)\2/` fed `"ab"`, then `"ca"`, then `"bc"` yields two non-matches (`"abca"`, `"bc"`) instead of the single match `"abcabc"` a non-chunked `exec()` on the concatenated string would find.
+- **Performance.** Constructing the partial-match regex is slightly more expensive than a native `RegExp`, and a genuine backreference makes the per-chunk `partialMatchRegex.exec()` re-expand it atom by atom rather than use the cheap static partial regex. The `hitEnd()` probe adds about 1.07x on the backreference shape.
+- **Prefix-ambiguous top-level alternation can silently drop a match.** When top-level branches share a prefix (`/(ab)\1|(abc)\2/`), the internal capture scan can resolve the shorter branch too early, so the partial match from its true start is not found and a later, shorter candidate is returned instead. The content before that candidate is emitted as text, so the match is **lost** [^9].
 
 > [!TIP]
-> List the longer/more specific branch _first_ in the alternation (`/(abc)\1|(ab)\2/` rather than `/(ab)\1|(abc)\2/`) when branches share a prefix. This has been verified to avoid the dropped-match case above — the capture scan then resolves the longer branch first, so the ambiguous prefix stays buffered instead of being flushed as a non-match, and the same three chunks (`"ab"`, `"ca"`, `"bc"`) go on to produce the correct `"abcabc"` match. This depends on scan-resolution order rather than being a documented guarantee, so treat it as a mitigation to test against your own pattern, not a fix.
-
-- **`\k<name>` with no named capturing groups in the pattern** is treated by `regex-partial-match` as an atomic (all-or-nothing) backreference, rather than the [identity escape](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape) [Annex B](https://tc39.es/ecma262/#sec-regular-expressions-patterns) would otherwise permit — so `"k"` or `"k<"` alone won't register as a valid partial match if this is the pattern's only reference to `\k`. This is a narrow edge case; if the deprecated Annex B identity-escape meaning is actually intended, use `k` instead of `\k`.
+> List the longer branch _first_ (`/(abc)\1|(ab)\2/`). The capture scan then resolves it first, so the ambiguous prefix stays buffered and the same three chunks give `"abcabc"`. That relies on scan-resolution order rather than a guarantee, so test it against your own pattern.
 
 ### ⚠️ Unbounded Quantifiers
 
@@ -364,7 +359,7 @@ That comes with real caveats for streaming use:
 /\p{Uppercase_Letter}+/u;
 ```
 
-Problem: an unbounded quantifier has no reason to stop at a chunk edge. While a match could still grow, it is buffered rather than emitted — so the matches are the same however the stream is split, but the memory is not.
+Problem: an unbounded quantifier has no reason to stop at a chunk edge. While a match could still grow it is buffered, so the matches are the same however the stream is split, but the memory is not.
 
 The cost is decided by whether the pattern can _settle_:
 
@@ -375,9 +370,9 @@ The cost is decided by whether the pattern can _settle_:
 | `/foo.+/`                               | the rest of the stream                 |
 | `/\S+/` over unbroken text              | the whole stream                       |
 
-A terminator the body cannot consume **bounds** the buffer; it does not empty it. A match still in progress when a chunk ends is held until the next chunk completes it, so the peak is the length of the longest pending match rather than zero — 8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md). What matters is that the bound does not grow with the stream.
+A terminator the body cannot consume **bounds** the buffer without emptying it: a match in progress when a chunk ends is held, so the peak is the longest pending match (8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md)) and does not grow with the stream.
 
-`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream. There is no way around that in a streaming scan — nothing but the next chunk can say whether the run continues. Re-scanning a growing buffer each chunk costs time as well as memory, and because the whole buffer is re-scanned from position 0 every chunk that cost is **quadratic** in stream length rather than a constant factor: measured 23 µs at 1.5 KB, 323 µs at 6 KB and 4.99 ms at 24 KB, roughly 4× per doubling.
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. The buffer is also re-scanned from position 0 every chunk, so the cost is **quadratic** in stream length [^10].
 
 > [!TIP]
 > Give the pattern a terminator its own body cannot consume:
@@ -412,10 +407,10 @@ The practical effect is that a nullable pattern matches only where it matches so
 /(ab)*/; // matches like /(ab)+/
 ```
 
-Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked.
+Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked [^11].
 
 > [!WARNING]
-> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^4]
+> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^12]
 >
 > ```js
 > new RegExp(""); //  never matches
@@ -424,11 +419,7 @@ Output stays lossless — skipped positions are passed through as ordinary non-m
 > /(?!z)/; //         never matches
 > ```
 
-Where a zero-length match is skipped, the cursor advances by one **code unit**, not one code point, so the skip can split a surrogate pair across two non-match segments. Output remains lossless — the pieces reassemble exactly — and no match is affected, since a skipped position yields text rather than a match. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
-
-Skipping is not the whole story for a nullable pattern: where a partial match _is_ viable at that position the strategy defers instead, so the buffering limits under [Unbounded Quantifiers](#️-unbounded-quantifiers) still apply and `/(a*b)?/` buffers exactly as `/a*b/` does. A skipped zero-length match is the one place the cursor advances on chunk-relative grounds, so the [Deferred Match](#deferred-match) rule does not apply to it.
-
-Both the invariant and the split-dependent cases are pinned in [`search-strategy.test.ts`](./search-strategy.test.ts), driven over every two-way, three-way and per-character split of their input.
+Where a partial match _is_ viable at a position the strategy defers instead of skipping, so `/(a*b)?/` buffers exactly as `/a*b/` does and the limits under [Unbounded Quantifiers](#️-unbounded-quantifiers) apply.
 
 ### ⚠️ Surrogate pairs split across chunks
 
@@ -448,7 +439,7 @@ Chunks must not split a surrogate pair. Only whole astral characters are support
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
 - 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
-- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^5]: `/foo/d`
+- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^13]: `/foo/d`
 
 ## Credits
 
@@ -456,10 +447,26 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^1]: After significant performance degradation was observed when attempting [knuth-morris-pratt](https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm) for static string partial matching, the project has prioritised innate matching capabilities of the language.
 
-[^2]: `(?![\s\S])` asserts "no character exists at the current position" — a claim about content already in hand, decidable immediately from the buffer as it stands, never contingent on anything still to arrive. It isn't looking _ahead_ into unseen content at all; it's a boundary check on the known buffer, spelled as a negative lookahead only because that's the native way to express "and nothing follows." It's also confined to the _partial_-match regex, never the original/complete-match regex — its only job is answering "could this still become a match with more input," a permissive buffering decision, not a definitive pass/fail on the match itself. Where it applies, a false positive there just means "keep buffering a little longer," not an incorrectly emitted match. The same reasoning is why `(?=...)` (positive lookahead) is fully supported (see [Supported Features](#-supported-features)) but `(?!...)` isn't: a positive lookahead's own atoms get the same "or buffer more" treatment as the rest of the pattern, so there's no predictive claim being smuggled in. The catch is that the assertion is zero-width, so that "buffer more" has to be read out of the assertion explicitly rather than from where the match ends — see [Lookahead Confirmation](#lookahead-confirmation).
+[^2]: No viable partial is reported as a zero-length match at end-of-haystack rather than `null`, since the truncation branch always matches the empty string there. It is deferred like any other edge candidate, but buffering from end-of-haystack holds nothing, so the whole remainder is emitted.
 
-[^3]: Each internal `exec()` call runs against a fresh substring starting where the last match ended, but `lastIndex` (set by the previous `g`/`y` call) is left pointing at an offset within the _previous, longer_ substring. Reused verbatim as an offset into the new, shorter one, it can point past a real match — which then gets flushed as ordinary non-match content instead of surfacing as a match. `y` compounds this: it also refuses to scan forward from `lastIndex` at all, so a match anywhere but exactly there is missed even on the first call.
+[^3]: Measured around 1.3x slower on nearly every content shape, and 2.2x on `/\S+/`, for no gain in time.
 
-[^4]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
+[^4]: Likewise `/a(?=(?:b(?:x|(c))d|b))/` is held while the higher-priority branch is still viable.
 
-[^5]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
+[^5]: `(?![\s\S])` asserts "no character exists at the current position" — a claim about content already in hand, decidable immediately from the buffer as it stands, never contingent on anything still to arrive. It isn't looking _ahead_ into unseen content at all; it's a boundary check on the known buffer, spelled as a negative lookahead only because that's the native way to express "and nothing follows." It's also confined to the _partial_-match regex, never the original/complete-match regex — its only job is answering "could this still become a match with more input," a permissive buffering decision, not a definitive pass/fail on the match itself. Where it applies, a false positive there just means "keep buffering a little longer," not an incorrectly emitted match. The same reasoning is why `(?=...)` (positive lookahead) is fully supported (see [Supported Features](#-supported-features)) but `(?!...)` isn't: a positive lookahead's own atoms get the same "or buffer more" treatment as the rest of the pattern, so there's no predictive claim being smuggled in. The catch is that the assertion is zero-width, so that "buffer more" has to be read out of the assertion explicitly rather than from where the match ends — see [Lookahead Confirmation](#lookahead-confirmation).
+
+[^6]: Each internal `exec()` call runs against a fresh substring starting where the last match ended, but `lastIndex` (set by the previous `g`/`y` call) is left pointing at an offset within the _previous, longer_ substring. Reused verbatim as an offset into the new, shorter one, it can point past a real match — which then gets flushed as ordinary non-match content instead of surfacing as a match. `y` compounds this: it also refuses to scan forward from `lastIndex` at all, so a match anywhere but exactly there is missed even on the first call.
+
+[^7]: A/B/B/A against the tree before the settle rule. With the confirmation removed, that shape reports 42 matches where a non-streaming `matchAll` over the same content finds 40, so it doubles as a guard on it.
+
+[^8]: With a backreference in play `exec` can return a native match that ignores a higher-priority alternative still running out of input, and the candidate ends short of the edge. That is the case `hitEnd()` is consulted for.
+
+[^9]: `/(ab)\1|(abc)\2/` fed `"ab"`, `"ca"`, `"bc"` yields the single non-match `"abcabc"` instead of the match `"abcabc"` a non-chunked `exec()` finds. The partial regex returns `"a"` at index 3 for `"abca"` rather than the partial match at 0.
+
+[^10]: Measured 23 µs at 1.5 KB, 323 µs at 6 KB and 4.99 ms at 24 KB, roughly 4× per doubling.
+
+[^11]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
+
+[^12]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
+
+[^13]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
