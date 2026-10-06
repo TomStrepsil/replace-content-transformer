@@ -20,7 +20,7 @@ Every shape declares which one it exercises, and the timing run groups by it, so
 
 | Behaviour | What the scan does | Buffering |
 |---|---|---|
-| `settles` | The match completes before the end of the chunk, so it is emitted at once; a match ending exactly on the chunk edge is held like any other | none |
+| `settles` | The match completes before the end of the chunk, so it is emitted at once; a match ending exactly on the chunk edge is held like any other | bounded by a match ending on the chunk edge |
 | `defers` | The candidate reaches the end of the haystack, so more input could change it; it is held until the next chunk or `flush` resolves it. On a backreference or lookahead pattern a candidate ending earlier defers too when `hitEnd()` reports the partial regex read to the end — a lookahead counts, since what it inspects reaches past the matched text | bounded by the pending match |
 | `buffers-to-end` | Nothing can stop the match growing, so the buffer runs to the end of the stream | whole stream |
 | `no-match` | Nothing viable anywhere — one partial `exec` per scan position | none |

@@ -85,8 +85,9 @@ function typeNameOf(node) {
  * Which one it is decides where the match type sits, so the kind is carried
  * rather than just the type arguments.
  */
-function strategyClause(classNode, importedNames) {
-  const resolve = (name) => importedNames.get(name) ?? name;
+function strategyClause(classNode, importedNames, foreignNames) {
+  const resolve = (name) =>
+    foreignNames.has(name) ? "" : (importedNames.get(name) ?? name);
   for (const clause of classNode.implements) {
     if (STRATEGY_NAME.test(resolve(typeNameOf(clause)))) {
       return { isInterface: true, node: clause };
@@ -172,6 +173,17 @@ function importedNamesByLocal(root, j) {
   return names;
 }
 
+function foreignLocalNames(root, j) {
+  const names = new Set();
+  root
+    .find(j.ImportDeclaration)
+    .filter(({ node }) => !isPackageImport(node))
+    .forEach(({ node }) => {
+      for (const specifier of node.specifiers ?? []) names.add(specifier.local.name);
+    });
+  return names;
+}
+
 function localNameOf(importedNames, exportedName) {
   for (const [local, imported] of importedNames) {
     if (imported === exportedName) return local;
@@ -184,6 +196,7 @@ export default function transform(fileInfo, api) {
   const root = j(fileInfo.source);
   const findings = [];
   const importedNames = importedNamesByLocal(root, j);
+  const foreignNames = foreignLocalNames(root, j);
   const matchResultName = localNameOf(importedNames, MATCH_RESULT);
   let signatureNeedsMatchResult = false;
 
@@ -197,7 +210,7 @@ export default function transform(fileInfo, api) {
       // `flush(): string` is an ordinary name on cache, logger and stream APIs.
       // Saying nothing about those is the point; a report full of false hits is
       // one nobody reads.
-      const clause = strategyClause(enclosingClass(path), importedNames);
+      const clause = strategyClause(enclosingClass(path), importedNames, foreignNames);
       if (clause === null) return;
 
       const at = `${fileInfo.path}:${method.loc.start.line}`;

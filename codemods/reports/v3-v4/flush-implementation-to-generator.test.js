@@ -477,6 +477,16 @@ describe("flush-implementation report", () => {
       expect(report).toBe("");
     });
 
+    it.each([
+      ["an implemented", 'import type { SearchStrategy } from "another-library";', "implements SearchStrategy<State>"],
+      ["an extended", 'import { StringBufferStrategyBase } from "another-library";', "extends StringBufferStrategyBase<string>"],
+      ["a default-imported", 'import SearchStrategy from "another-library";', "implements SearchStrategy<State>"]
+    ])("stays quiet about %s strategy name from another package", (_, importLine, heritage) => {
+      const { report } = runTransform([importLine, `class S ${heritage} {`, ...flushBody].join("\n"));
+
+      expect(report).toBe("");
+    });
+
     it("does not print a MatchResult alias from another package", () => {
       const { report } = runTransform(
         [
