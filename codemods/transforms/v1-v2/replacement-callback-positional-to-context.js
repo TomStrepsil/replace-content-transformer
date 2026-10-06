@@ -36,8 +36,7 @@ function isReplacementProperty(node) {
 function isFunctionExpression(node) {
   return (
     node &&
-    (node.type === "ArrowFunctionExpression" ||
-      node.type === "FunctionExpression")
+    (["ArrowFunctionExpression", "FunctionExpression"].includes(node.type))
   );
 }
 

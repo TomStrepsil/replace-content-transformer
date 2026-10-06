@@ -64,7 +64,7 @@ function isFlushMethod(node) {
 function enclosingClass(path) {
   for (let current = path.parent; current; current = current.parent) {
     const { type } = current.node;
-    if (type === "ClassDeclaration" || type === "ClassExpression") {
+    if (["ClassDeclaration", "ClassExpression"].includes(type)) {
       return current.node;
     }
   }
