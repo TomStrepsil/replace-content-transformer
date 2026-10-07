@@ -211,6 +211,56 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
   });
 
+  describe("slot iterator return()", () => {
+    async function scheduledSlotIterator(
+      replacementIterator: AsyncIterator<string>
+    ) {
+      const scheduled: SlotTreeNode[] = [];
+      const spy: ConcurrencyStrategy = {
+        async acquire(node) {
+          scheduled.push(node);
+          return () => {};
+        }
+      };
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        replacement: async () => ({
+          [Symbol.asyncIterator]: () => replacementIterator
+        }),
+        concurrencyStrategy: spy
+      });
+      await runEngine(engine, sink, ["M"]);
+      const resolved = await (scheduled[0] as IterableSlotNode).iterable;
+      return (resolved as AsyncIterable<string>)[Symbol.asyncIterator]();
+    }
+
+    it("forwards the value to the replacement iterator's return() and yields its result", async () => {
+      const innerResult = { done: true as const, value: "inner-result" };
+      const innerReturn = vi.fn(async () => innerResult);
+      const slotIterator = await scheduledSlotIterator({
+        next: async () => ({ done: true, value: undefined }),
+        return: innerReturn
+      });
+      const result = await slotIterator.return!("passed-value");
+      expect(innerReturn).toHaveBeenCalledExactlyOnceWith("passed-value");
+      expect(result).toBe(innerResult);
+    });
+
+    it("yields a done result carrying the value when the replacement iterator has no return()", async () => {
+      const slotIterator = await scheduledSlotIterator({
+        next: async () => ({ done: true, value: undefined })
+      });
+      expect(await slotIterator.return!("passed-value")).toEqual({
+        done: true,
+        value: "passed-value"
+      });
+    });
+  });
+
   describe("backpressure", () => {
     it("suspends write() once highWaterMark buffered slots are reached", async () => {
       const strategy = mockSearchStrategyFactory(
