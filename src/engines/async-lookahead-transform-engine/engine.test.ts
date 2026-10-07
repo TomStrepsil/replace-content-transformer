@@ -269,12 +269,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect((errors[0] as Error).message).toBe("boom");
     });
 
-    const failingBody: AsyncIterable<string> = {
-      async *[Symbol.asyncIterator]() {
-        yield "partial";
-        throw new Error("drain failed");
-      }
-    };
     it.each<[string, { first: () => Promise<AsyncIterable<string>>; sinkThrows?: boolean }]>([
       ["the replacement rejects", { first: async () => Promise.reject(new Error("drain failed")) }],
       [
@@ -301,7 +295,14 @@ describe("AsyncLookaheadTransformEngine", () => {
           })
         }
       ],
-      ["its body errors mid-stream", { first: async () => failingBody }],
+      ["its body errors mid-stream", { first: async () => {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield "partial";
+            throw new Error("drain failed");
+          }
+        };
+      } }],
       ["the sink throws", { first: async () => asyncIterable("R"), sinkThrows: true }]
     ])("releases every concurrency slot when the drain fails because %s", async (_, { first, sinkThrows }) => {
       const strategy = mockSearchStrategyFactory(
