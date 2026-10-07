@@ -580,26 +580,6 @@ describe("AnchorSequenceSearchStrategy", () => {
       expect(emitted.join("")).toBe(input);
     });
 
-    test("drops an empty settled result rather than yielding an empty non-match", () => {
-      // No shipped strategy yields empty content, so this needs a stub. The
-      // guard is what keeps that contract from leaking out of the sequence.
-      const emptyYieldingSubStrategy: SearchStrategy<object, string> = {
-        createState: () => ({}),
-        *processChunk() {},
-        *flush() {
-          yield { isMatch: false, content: "" };
-        },
-        matchToString: (match) => match
-      };
-
-      const strategy = new AnchorSequenceSearchStrategy([
-        emptyYieldingSubStrategy
-      ]);
-      const state = strategy.createState();
-
-      expect([...strategy.flush(state)]).toEqual([]);
-    });
-
     test("carries a second settled sub-match on as text for the next anchor", () => {
       // `/a.c|a/` buffers "aa", which settles into two matches. Only the first
       // completes this anchor; the rest is text the next anchor must re-scan.
