@@ -387,6 +387,32 @@ describe("AsyncLookaheadTransformEngine", () => {
       await vi.waitFor(() => expect(held()).toBe(0));
     });
 
+    it("keeps draining remaining slots and reports only the first error when a later slot also fails", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] }
+      );
+      const replacement = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("first failure"))
+        .mockRejectedValueOnce(new Error("second failure"))
+        .mockImplementation(async () => asyncIterable("R"));
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      const { sink, errors } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        concurrencyStrategy
+      });
+      engine.start(sink);
+      await engine.write("MMM");
+      await expect(engine.end()).rejects.toThrow("first failure");
+      await vi.waitFor(() => expect(held()).toBe(0));
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toBe("first failure");
+    });
+
     it("resolves a write() suspended on backpressure when the drain fails", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] },
