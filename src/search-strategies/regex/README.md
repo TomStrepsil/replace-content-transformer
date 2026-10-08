@@ -447,7 +447,7 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^1]: After significant performance degradation was observed when attempting [knuth-morris-pratt](https://en.wikipedia.org/wiki/Knuth%E2%80%93Morris%E2%80%93Pratt_algorithm) for static string partial matching, the project has prioritised innate matching capabilities of the language.
 
-[^2]: No viable partial is reported as a zero-length match at end-of-haystack rather than `null`, since the truncation branch always matches the empty string there. It is deferred like any other edge candidate, but buffering from end-of-haystack holds nothing, so the whole remainder is emitted.
+[^2]: The partial regex never returns `null`. Every atom is rewritten as `(?:atom|$(?![\s\S]))` (see [Partial Match Transformation](#partial-match-transformation)), and that second alternative — the truncation marker — matches the empty string at end-of-haystack. Since the first atom has one too, the whole pattern can always match there with zero length, so "nothing viable" surfaces as that zero-length match. It is deferred like any other edge candidate, but buffering from end-of-haystack holds nothing, so the whole remainder is emitted.
 
 [^3]: Measured around 1.3x slower on nearly every content shape, and 2.2x on `/\S+/`, for no gain in time.
 
