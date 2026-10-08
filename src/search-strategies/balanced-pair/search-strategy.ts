@@ -83,12 +83,15 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
     }
   }
 
-  flush(state: BalancedPairSearchState): string {
+  *flush(
+    state: BalancedPairSearchState
+  ): Generator<MatchResult, void, undefined> {
     const flushed = state.balancedBuffer;
     state.balancedBuffer = "";
     state.balancedBufferStart = 0;
     state.nestingLevel = 0;
-    return flushed + this.anchorStringSearchStrategy.flush(state);
+    if (flushed) yield { isMatch: false, content: flushed };
+    yield* this.anchorStringSearchStrategy.flush(state);
   }
 
   matchToString(match: string): string {

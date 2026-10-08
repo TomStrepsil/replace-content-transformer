@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { IndexOfKnuthMorrisPrattSearchStrategy } from "./search-strategy.js";
 import type { MatchResult } from "../../types.js";
-import { collectSearchStrategyResults } from "../../../../test/utilities.js";
+import {
+  collectSearchStrategyResults,
+  flushToString
+} from "../../../../test/utilities.js";
 
 describe("IndexOfKnuthMorrisPratt", () => {
   describe("complete matches in single chunk", () => {
@@ -85,11 +88,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
           chunks
         );
-        if (flush) results.push({ isMatch: false, content: flush });
+        results.push(...flushResults);
 
         expect(results).toEqual(expected);
       });
@@ -126,11 +129,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
           chunks
         );
-        if (flush) results.push({ isMatch: false, content: flush });
+        results.push(...flushResults);
 
         expect(results).toEqual(expected);
       });
@@ -231,11 +234,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, flushResults } = collectSearchStrategyResults(
           new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
           chunks
         );
-        if (flush) results.push({ isMatch: false, content: flush });
+        results.push(...flushResults);
 
         expect(results).toEqual(expected);
       });
@@ -357,7 +360,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
           break;
         }
       }
-      const flushed = strategy.flush(state);
+      const flushed = flushToString(strategy, state);
 
       expect(results).toEqual([
         { isMatch: false, content: "First " },

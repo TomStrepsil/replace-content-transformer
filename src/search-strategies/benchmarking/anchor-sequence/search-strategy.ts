@@ -8,11 +8,24 @@ export interface AnchorSequenceSearchState<TState> extends StringBufferState {
   strategyStates: TState[];
 }
 
-function extractMatchContent<TMatch>(match: TMatch): string {
-  if (Array.isArray(match)) {
-    return match[0];
+function renderResult<TState, TMatch>(
+  subStrategy: SearchStrategy<TState, TMatch>,
+  result: MatchResult<TMatch>
+): string {
+  return result.isMatch
+    ? subStrategy.matchToString(result.content)
+    : result.content;
+}
+
+function drainToString<TState, TMatch>(
+  subStrategy: SearchStrategy<TState, TMatch>,
+  subStrategyState: TState
+): string {
+  let buffered = "";
+  for (const result of subStrategy.flush(subStrategyState)) {
+    buffered += renderResult(subStrategy, result);
   }
-  return String(match);
+  return buffered;
 }
 
 export class AnchorSequenceSearchStrategy<TState, TMatch = string>
@@ -52,7 +65,7 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
           subStrategyState
         )) {
           if (matchResult.isMatch) {
-            matched = extractMatchContent(matchResult.content);
+            matched = subStrategy.matchToString(matchResult.content);
             break;
           }
           if (isMidMatch) {
@@ -66,7 +79,7 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
           return;
         }
         state.buffer += matched;
-        haystack = subStrategy.flush(subStrategyState);
+        haystack = drainToString(subStrategy, subStrategyState);
         state.strategyStates[state.currentNeedleIndex] =
           subStrategy.createState();
 
@@ -89,12 +102,50 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
     }
   }
 
-  flush(state: AnchorSequenceSearchState<TState>): string {
-    return (
-      super.flush(state) +
-      this.subStrategies[state.currentNeedleIndex].flush(
-        state.strategyStates[state.currentNeedleIndex]
-      )
-    );
+  *flush(
+    state: AnchorSequenceSearchState<TState>
+  ): Generator<MatchResult, void, undefined> {
+    const needleIndex = state.currentNeedleIndex;
+    const subStrategy = this.subStrategies[needleIndex];
+    let matched: string | null = null;
+    let tail = "";
+    for (const result of subStrategy.flush(state.strategyStates[needleIndex])) {
+      const text = renderResult(subStrategy, result);
+      if (matched !== null) {
+        tail += text;
+      } else if (result.isMatch) {
+        matched = text;
+      } else if (needleIndex !== 0) {
+        state.buffer += text;
+      } else {
+        yield { isMatch: false, content: text };
+      }
+    }
+
+    if (matched === null) {
+      state.currentNeedleIndex = 0;
+      state.strategyStates = this.subStrategies.map((subStrategy) =>
+        subStrategy.createState()
+      );
+      yield* super.flush(state);
+      return;
+    }
+
+    state.buffer += matched;
+    state.strategyStates[needleIndex] = subStrategy.createState();
+    state.currentNeedleIndex = (needleIndex + 1) % this.subStrategies.length;
+    if (state.currentNeedleIndex === 0) {
+      const match = state.buffer;
+      const endIndex = state.streamOffset - tail.length;
+      state.buffer = "";
+      yield {
+        isMatch: true,
+        content: match,
+        streamIndices: [endIndex - match.length, endIndex]
+      };
+    }
+    state.streamOffset -= tail.length;
+    yield* this.processChunk(tail, state);
+    yield* this.flush(state);
   }
 }

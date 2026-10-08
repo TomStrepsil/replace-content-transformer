@@ -15,6 +15,9 @@
     "bench:algorithms:json": "./algorithm/run.sh",
     "bench:algorithms:json:succinct": "./algorithm/run-succinct.sh",
     "bench:algorithms:visualise": "node --import tsx algorithm/visualise-results.ts",
+    "bench:regex-shapes": "node --import tsx regex-shapes/run.bench.ts",
+    "bench:regex-shapes:report": "node --import tsx regex-shapes/report.ts",
+    "bench:regex-shapes:json": "node --import tsx regex-shapes/run.bench.ts --json",
     "bench:lookahead-engine": "./lookahead-engine/run.sh",
     "bench:lookahead-engine:timeline": "./lookahead-engine/run.sh --timeline",
     "bench:lookahead-engine:scenario": "./lookahead-engine/run.sh --scenario"

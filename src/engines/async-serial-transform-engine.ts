@@ -1,6 +1,9 @@
 import type { AsyncTransformEngine, ReplacementContext } from "./types.ts";
 import { TransformEngineBase } from "./transform-engine-base.ts";
-import type { SearchStrategy } from "../search-strategies/types.ts";
+import type {
+  MatchResult,
+  SearchStrategy
+} from "../search-strategies/types.ts";
 
 /**
  * A replacement function for the async serial engine.
@@ -59,15 +62,25 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
 
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
-    const sink = this._sink;
 
     if (this._stopReplacingSignal?.aborted) {
       this._flushAfterAbortIfNeeded();
-      sink.enqueue(chunk);
+      this._sink.enqueue(chunk);
       return;
     }
 
-    for (const result of this._searchStrategy.processChunk(chunk, this._state)) {
+    await this.#emit(this._searchStrategy.processChunk(chunk, this._state));
+  }
+
+  override async end(): Promise<void> {
+    if (this.#cancelled) return;
+    await this.#emit(this._flush());
+  }
+
+  async #emit(results: Iterable<MatchResult<TMatch>>): Promise<void> {
+    const sink = this._sink;
+
+    for (const result of results) {
       if (this.#cancelled) return;
 
       if (!result.isMatch) {
@@ -76,7 +89,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
       }
 
       if (this._stopReplacingSignal?.aborted) {
-        sink.enqueue(this._searchStrategy.matchToString(result.content));
+        sink.enqueue(this._renderVerbatim(result));
         continue;
       }
 

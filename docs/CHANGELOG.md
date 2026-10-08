@@ -9,11 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Updated `regex-partial-match` to 2.0.1
-  - An incomplete `\x`, `\u` or `\c` escape no longer swallows the characters after it (it threw on `/\x(a)/`), and a `\c` ending the pattern is read as a literal backslash and `c`
-  - A `\k<name>` after every declaration of a duplicated name no longer rejects a partly typed value
-  - Matching a backreference pattern is faster, by about 20x on a 100 kB input
+- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; for everyone else there is a [migration report](../codemods/reports/v3-v4/README.md)
+- **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
+- Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
+- Updated `regex-partial-match` to `^2.0.1` (for `hitEnd()` and `features()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
+
+### Fixed
+
+- Fixed chunk-dependent matches in the regex search strategy ([#54](https://github.com/TomStrepsil/replace-content-transformer/issues/54)): premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
+- Fixed lookahead confirmation in the regex search strategy: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
+- Fixed `flush()` stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
+- Fixed `AsyncLookaheadTransformEngine` leaking concurrency slots after an error or `cancel()`, which could stall later replacements or hang `write()`
+- Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at `flush`, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
+- Documented that input must be decoded with a `TextDecoder`/`TextDecoderStream` so surrogate pairs are never split. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks)
+- Removed regex strategy tests that should have gone with [#53](https://github.com/TomStrepsil/replace-content-transformer/pull/53)
+
+### Added
+
+- Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
+- Tests for engine cancellation and for settling a deferred match on abort
+- `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files
+- `SearchStrategy`, `MatchResult`, `StreamIndices`, `StringBufferStrategyBase` and `StringBufferState` are exported from the package root
 
 ## [3.0.2] - 2026-08-27
 

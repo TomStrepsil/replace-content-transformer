@@ -146,7 +146,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toEqual(expected);
       });
@@ -172,7 +172,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -196,7 +196,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(1);
@@ -220,7 +220,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
         const result = [...outputs, flushed].join("");
 
         expect(result).toBe("NAME and PLACE and THING");
@@ -247,7 +247,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
         const result = [...outputs, flushed].join("");
 
         expect(matchCount).toBe(0);
@@ -274,7 +274,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(matchCount).toBe(30);
       });
@@ -297,7 +297,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe("FIRSTSECONDTHIRD");
         expect(matchCount).toBe(3);
@@ -323,7 +323,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe("Before REPLACED after");
         expect(matchCount).toBe(1);
@@ -348,7 +348,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(matchCount).toBe(25);
       });
@@ -382,7 +382,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
         const result = [...outputs, flushed].join("");
 
         expect(result).toBe(
@@ -408,7 +408,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(
           "text before REPLACED text after"
@@ -433,7 +433,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect([...outputs].join("")).toBe("text before REPLACED text after");
         expect(matchCount).toBe(1);
@@ -457,7 +457,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -485,7 +485,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -508,7 +508,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(1);
@@ -537,7 +537,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -564,7 +564,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(1);
@@ -591,7 +591,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(1);
@@ -614,7 +614,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -642,7 +642,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -671,7 +671,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(2);
@@ -697,7 +697,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        const flushed = transformer.flush(controller);
+        const flushed = await transformer.flush(controller);
 
         expect([...outputs, flushed].join("")).toBe(expected);
         expect(matchCount).toBe(1);
@@ -723,7 +723,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(capturedIndices).toHaveLength(1);
         const [startIndex, endIndex] = capturedIndices[0].streamIndices;
@@ -755,7 +755,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(capturedMatches).toHaveLength(3);
         
@@ -790,7 +790,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(capturedIndices).toHaveLength(1);
         const [startIndex, endIndex] = capturedIndices[0].streamIndices;
@@ -821,7 +821,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(capturedMatches).toHaveLength(3);
         
@@ -859,7 +859,7 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         for await (const chunk of chunks) {
           await transformer.transform(chunk, controller);
         }
-        transformer.flush(controller);
+        await transformer.flush(controller);
 
         expect(capturedMatches).toHaveLength(2);
 

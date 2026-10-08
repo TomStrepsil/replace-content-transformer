@@ -182,6 +182,19 @@ async function settleMicrotasks(times = 2): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+/**
+ * A `flush()` implementation for mocked strategies: yields each non-empty text
+ * as one non-match result, matching the generator signature `SearchStrategy`
+ * requires.
+ */
+function flushesText<TMatch = string>(...contents: string[]) {
+  return function* (): Generator<MatchResult<TMatch>, void, undefined> {
+    for (const content of contents) {
+      if (content) yield { isMatch: false, content };
+    }
+  };
+}
+
 function mockSearchStrategyFactory<TMatch = string>(
   ...results: MatchResult<TMatch>[]
 ): Mocked<SearchStrategy<object, TMatch>> {
@@ -192,7 +205,7 @@ function mockSearchStrategyFactory<TMatch = string>(
         yield result;
       }
     }),
-    flush: vi.fn().mockReturnValue(""),
+    flush: vi.fn().mockImplementation(flushesText<TMatch>()),
     matchToString: vi.fn().mockImplementation((match: TMatch) => String(match))
   };
 }
@@ -208,33 +221,6 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
     error: vi.fn(),
     terminate: vi.fn()
   };
-}
-
-function collectSearchStrategyResults<TState, TMatch = string>(
-  strategy: SearchStrategy<TState, TMatch>,
-  chunks: string[],
-  maxResults = 10_000
-): { results: MatchResult<TMatch>[]; flush: string; output: string } {
-  const state = strategy.createState();
-  const results: MatchResult<TMatch>[] = [];
-  for (const chunk of chunks) {
-    for (const result of strategy.processChunk(chunk, state)) {
-      results.push(result);
-      if (results.length > maxResults) {
-        throw new Error(
-          `processChunk did not advance: exceeded ${maxResults} results`
-        );
-      }
-    }
-  }
-  const flush = strategy.flush(state);
-  const output =
-    results
-      .map((result) =>
-        result.isMatch ? strategy.matchToString(result.content) : result.content
-      )
-      .join("") + flush;
-  return { results, flush, output };
 }
 
 function collectEngineSink(): {
@@ -284,9 +270,17 @@ function mockAsyncEngine() {
   } satisfies AsyncTransformEngine & { cancel: () => void };
 }
 
+export type { CanonicalSegment } from "./search-strategy-results.ts";
+
 export {
-  collectEngineSink,
+  collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
+  flushToString
+} from "./search-strategy-results.ts";
+
+export {
+  flushesText,
+  collectEngineSink,
   collectWritable,
   asyncIterable,
   createIterableSlotNode,

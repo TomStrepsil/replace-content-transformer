@@ -1,15 +1,18 @@
-import type { SearchStrategy } from "../search-strategies/types.ts";
+import type {
+  MatchResult,
+  SearchStrategy
+} from "../search-strategies/types.ts";
 import type { EngineSink } from "./types.ts";
 
 /**
  * Abstract base for all transform engines.
  *
  * Holds the shared state (`searchStrategy`, `state`, `sink`, `matchIndex`) and
- * provides default implementations of `start`, `end`, and the abort-flush
- * helper used by the sync and async-serial engines.
+ * provides `start` plus the abort-flush helper used by the sync and
+ * async-serial engines.
  *
- * Subclasses that need async `end` semantics (e.g. the lookahead engine)
- * should override `end()`.
+ * `end()` is abstract: each engine routes settled results through its own
+ * replacement path.
  *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
@@ -36,15 +39,24 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
     this._sink = sink;
   }
 
-  end(): void | Promise<void> {
-    const tail = this._searchStrategy.flush(this._state);
-    if (tail) this._sink.enqueue(tail);
+  abstract end(): void | Promise<void>;
+
+  protected _flush(): Iterable<MatchResult<TMatch>> {
+    return this._searchStrategy.flush(this._state);
+  }
+
+  protected _renderVerbatim(result: MatchResult<TMatch>): string {
+    return result.isMatch
+      ? this._searchStrategy.matchToString(result.content)
+      : result.content;
   }
 
   protected _flushAfterAbortIfNeeded(): void {
     if (this.#didFlushAfterAbort) return;
     this.#didFlushAfterAbort = true;
-    const tail = this._searchStrategy.flush(this._state);
-    if (tail) this._sink.enqueue(tail);
+    for (const result of this._flush()) {
+      const tail = this._renderVerbatim(result);
+      if (tail) this._sink.enqueue(tail);
+    }
   }
 }

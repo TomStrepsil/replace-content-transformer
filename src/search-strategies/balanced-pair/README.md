@@ -123,19 +123,20 @@ interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
 | Opening found, no inner opens     | `0` (after `--` + 0)  | accumulated → cleared      | Yield as complete match                |
 | Opening found, inner opens exist  | `> 0`                 | accumulating               | Set `currentNeedleIndex = 1`, continue |
 | Subsequent close balances depth   | decrements toward `0` | accumulating               | Continue or yield when reaching `0`    |
-| Flush mid-match                   | reset to `0`          | cleared (returned as-is)   | Return buffered content unflushed      |
+| Flush mid-match                   | reset to `0`          | cleared (yielded as-is)    | Yield buffered content as a non-match  |
 
 **Flush behaviour:**
 
-If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` returns all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer:
+If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` yields all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer, as non-match results:
 
 ```typescript
-flush(state: BalancedPairSearchState): string {
+*flush(state: BalancedPairSearchState): Generator<MatchResult, void, undefined> {
   const flushed = state.balancedBuffer;
   state.balancedBuffer = "";
   state.balancedBufferStart = 0;
   state.nestingLevel = 0;
-  return flushed + this.anchorStringSearchStrategy.flush(state);
+  if (flushed) yield { isMatch: false, content: flushed };
+  yield* this.anchorStringSearchStrategy.flush(state);
 }
 ```
 

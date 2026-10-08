@@ -8,6 +8,21 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   currentNeedleIndex: number;
 };
 
+const partialMatchLength = (
+  haystack: string,
+  needle: string,
+  unreportedLength: number
+): number => {
+  let partialLength = Math.min(needle.length - 1, unreportedLength);
+  while (
+    partialLength >= 1 &&
+    !haystack.endsWith(needle.slice(0, partialLength))
+  ) {
+    partialLength--;
+  }
+  return partialLength;
+};
+
 const validateNeedles = (needles: string[]): void => {
   if (needles.length === 0) {
     throw new Error("at least one anchor is required");
@@ -39,6 +54,8 @@ const validateNeedles = (needles: string[]): void => {
  * - Avoids unnecessary buffering when no partial matches exist
  * - Minimal overhead for partial match detection
  * - Optimal for streams with sparse or no matches
+ *
+ * @throws If `needles` is empty, or any needle is an empty string.
  */
 export class LoopedIndexOfAnchoredSearchStrategy
   extends StringBufferStrategyBase
@@ -68,42 +85,24 @@ export class LoopedIndexOfAnchoredSearchStrategy
     let matchStartPosition = 0;
     try {
       while (position < length) {
+        const searchingFirstNeedle = state.currentNeedleIndex === 0;
         const currentNeedle = this.needles[state.currentNeedleIndex];
         const index = haystack.indexOf(currentNeedle, position);
-        if (index === -1) {
-          if (state.currentNeedleIndex === 0) {
-            const unreportedLength = length - position;
-            for (
-              let partialLength = Math.min(
-                currentNeedle.length - 1,
-                unreportedLength
-              );
-              partialLength >= 1;
-              partialLength--
-            ) {
-              const haystackSuffix = haystack.slice(-partialLength);
-              const needlePrefix = currentNeedle.slice(0, partialLength);
-              if (haystackSuffix === needlePrefix) {
-                const beforePartial = haystack.slice(position, -partialLength);
-                position = length - partialLength;
-                if (beforePartial) {
-                  yield {
-                    isMatch: false,
-                    content: beforePartial
-                  };
-                }
-                return;
-              }
-            }
 
-            const nonMatch = haystack.slice(position);
-            position = length;
-            yield { isMatch: false, content: nonMatch };
+        if (index === -1) {
+          if (searchingFirstNeedle) {
+            const unreportedLength = length - position;
+            const resumeAt =
+              length -
+              partialMatchLength(haystack, currentNeedle, unreportedLength);
+            const nonMatch = haystack.slice(position, resumeAt);
+            position = resumeAt;
+            if (nonMatch) yield { isMatch: false, content: nonMatch };
           }
           return;
         }
 
-        if (state.currentNeedleIndex === 0) {
+        if (searchingFirstNeedle) {
           if (index > position) {
             const nonMatch = haystack.slice(position, index);
             position = index;
@@ -116,13 +115,13 @@ export class LoopedIndexOfAnchoredSearchStrategy
         state.currentNeedleIndex =
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
-          const content = haystack.slice(matchStartPosition, position);
-          const startIndex = baseOffset + matchStartPosition;
-          const endIndex = baseOffset + position;
           yield {
             isMatch: true,
-            content,
-            streamIndices: [startIndex, endIndex]
+            content: haystack.slice(matchStartPosition, position),
+            streamIndices: [
+              baseOffset + matchStartPosition,
+              baseOffset + position
+            ]
           };
         }
       }
@@ -133,8 +132,10 @@ export class LoopedIndexOfAnchoredSearchStrategy
     }
   }
 
-  flush(state: LoopedIndexOfAnchoredSearchState): string {
+  *flush(
+    state: LoopedIndexOfAnchoredSearchState
+  ): Generator<MatchResult, void, undefined> {
     state.currentNeedleIndex = 0;
-    return super.flush(state);
+    yield* super.flush(state);
   }
 }

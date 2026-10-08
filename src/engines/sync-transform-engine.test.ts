@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
+import type { MatchResult } from "../search-strategies/types.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
 import {
   collectEngineSink,
-  mockSearchStrategyFactory
+  mockSearchStrategyFactory,
+  flushesText
 } from "../../test/utilities.ts";
 
 function runEngine<TState>(
@@ -76,7 +78,7 @@ describe("SyncTransformEngine", () => {
           };
           call++;
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockReturnValue("R");
@@ -153,7 +155,7 @@ describe("SyncTransformEngine", () => {
             yield { isMatch: false, content: " end" };
           }
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new SyncReplacementTransformEngine({
@@ -231,7 +233,7 @@ describe("SyncTransformEngine", () => {
         isMatch: false,
         content: "a"
       });
-      strategy.flush.mockReturnValue("TAIL");
+      strategy.flush.mockImplementation(flushesText("TAIL"));
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: strategy,
         replacement: "R"
@@ -244,12 +246,130 @@ describe("SyncTransformEngine", () => {
         isMatch: false,
         content: "a"
       });
-      strategy.flush.mockReturnValue("");
+      strategy.flush.mockImplementation(flushesText(""));
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: strategy,
         replacement: "R"
       });
       expect(runEngine(engine, ["a"])).toEqual(["a"]);
+    });
+  });
+
+  describe("settling a deferred match after abort", () => {
+    function flushYielding(
+      ...results: MatchResult<string>[]
+    ): () => Generator<MatchResult<string>, void, undefined> {
+      return function* () {
+        yield* results;
+      };
+    }
+
+    it("emits a buffered match verbatim when the first aborted chunk flushes the strategy", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "unused"
+      });
+      strategy.flush
+        .mockImplementationOnce(
+          flushYielding(
+            { isMatch: false, content: "before " },
+            { isMatch: true, content: "MATCH", streamIndices: [7, 12] }
+          )
+        )
+        .mockImplementation(flushesText());
+
+      const replacement = vi.fn().mockReturnValue("R");
+      const ac = new AbortController();
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      ac.abort();
+      engine.write("passthrough");
+      engine.end();
+
+      expect(chunks).toEqual(["before ", "MATCH", "passthrough"]);
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("emits a match settled by end() verbatim when the signal aborted after the last chunk", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      strategy.flush.mockImplementation(
+        flushYielding(
+          { isMatch: false, content: "x" },
+          { isMatch: true, content: "MATCH", streamIndices: [1, 6] }
+        )
+      );
+
+      const replacement = vi.fn().mockReturnValue("R");
+      const ac = new AbortController();
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("a");
+      ac.abort();
+      engine.end();
+
+      expect(chunks).toEqual(["a", "x", "MATCH"]);
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("applies the replacement to a match settled by end() when nothing aborted", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      strategy.flush.mockImplementation(
+        flushYielding({
+          isMatch: true,
+          content: "MATCH",
+          streamIndices: [1, 6]
+        })
+      );
+
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R"
+      });
+
+      expect(runEngine(engine, ["a"])).toEqual(["a", "R"]);
+    });
+
+    it("drops an empty result rather than enqueuing an empty chunk", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      strategy.flush
+        .mockImplementationOnce(flushYielding({ isMatch: false, content: "" }))
+        .mockImplementation(flushesText());
+
+      const ac = new AbortController();
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R",
+        stopReplacingSignal: ac.signal
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      ac.abort();
+      engine.write("passthrough");
+      engine.end();
+
+      expect(chunks).toEqual(["passthrough"]);
     });
   });
 
@@ -278,7 +398,7 @@ describe("SyncTransformEngine", () => {
         content: "a"
       });
       // Real strategy: returns buffer on first flush, then "" once consumed.
-      strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
+      strategy.flush.mockImplementationOnce(flushesText("BUF")).mockImplementation(flushesText());
       const ac = new AbortController();
       ac.abort();
       const engine = new SyncReplacementTransformEngine({
@@ -312,7 +432,7 @@ describe("SyncTransformEngine", () => {
             streamIndices: [1, 2] as [number, number]
           };
         }),
-        flush: vi.fn().mockReturnValue(""),
+        flush: vi.fn().mockImplementation(flushesText()),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockImplementation(() => {

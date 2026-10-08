@@ -349,7 +349,9 @@ for (const result of iterator) {
 }
 
 // finally block has executed, buffered content preserved
-const buffered = strategy.flush(state); // Returns any buffered partial match
+for (const result of strategy.flush(state)) {
+  // one non-match result carrying the buffered partial match
+}
 ```
 
 ## Related Strategies
