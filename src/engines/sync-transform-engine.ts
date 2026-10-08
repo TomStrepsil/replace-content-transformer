@@ -69,7 +69,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   }
 
   override end(): void {
-    this.#emit(this._searchStrategy.flush(this._state));
+    this.#emit(this._flush());
   }
 
   #emit(results: Iterable<MatchResult<TMatch>>): void {

@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
 import {
   collectEngineSink,
+  deferred,
   mockSearchStrategyFactory,
+  settleMicrotasks,
   flushesText
 } from "../../test/utilities.ts";
 
@@ -13,7 +15,7 @@ async function runEngine<TState>(
   const { sink, chunks } = collectEngineSink();
   engine.start(sink);
   for (const input of inputs) await engine.write(input);
-  engine.end();
+  await engine.end();
   return chunks;
 }
 
@@ -210,6 +212,45 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       strategy.flush.mockImplementation(flushesText("TAIL"));
       const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: async () => "R" });
       expect(await runEngine(engine, ["a"])).toEqual(["a", "TAIL"]);
+    });
+
+    it("resolves end() only after a match held until flush has been replaced", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      strategy.flush.mockImplementation(function* () {
+        yield { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] };
+      });
+      const gate = deferred<string>();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: () => gate.promise });
+      engine.start(sink);
+      await engine.write("a");
+
+      let ended = false;
+      const endPromise = engine.end().then(() => {
+        ended = true;
+      });
+      await settleMicrotasks(10);
+      expect(ended).toBe(false);
+
+      gate.resolve("R");
+      await endPromise;
+      expect(chunks).toEqual(["a", "R"]);
+    });
+
+    it("rejects end() when replacing a match held until flush fails", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      strategy.flush.mockImplementation(function* () {
+        yield { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] };
+      });
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => {
+          throw new Error("flush boom");
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("a");
+      await expect(engine.end()).rejects.toThrow("flush boom");
     });
   });
 

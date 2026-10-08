@@ -203,7 +203,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     if (this._stopReplacingSignal?.aborted) {
       if (!this.#flushedAfterAbort) {
         this.#flushedAfterAbort = true;
-        await this.#enqueue(this._searchStrategy.flush(this._state));
+        await this.#enqueue(this._flush());
         if (this.#cancelled) return;
       }
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
@@ -244,7 +244,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       return;
     }
     if (!this.#flushedAfterAbort) {
-      await this.#enqueue(this._searchStrategy.flush(this._state));
+      await this.#enqueue(this._flush());
     }
     this.#queue.close();
     await this.#drainDone;

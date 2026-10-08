@@ -74,7 +74,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
 
   override async end(): Promise<void> {
     if (this.#cancelled) return;
-    await this.#emit(this._searchStrategy.flush(this._state));
+    await this.#emit(this._flush());
   }
 
   async #emit(results: Iterable<MatchResult<TMatch>>): Promise<void> {

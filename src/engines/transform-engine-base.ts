@@ -41,7 +41,10 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
 
   abstract end(): void | Promise<void>;
 
-  /** A result rendered as the raw text it stands for, replacement not applied. */
+  protected _flush(): Iterable<MatchResult<TMatch>> {
+    return this._searchStrategy.flush(this._state);
+  }
+
   protected _renderVerbatim(result: MatchResult<TMatch>): string {
     return result.isMatch
       ? this._searchStrategy.matchToString(result.content)
@@ -51,7 +54,7 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _flushAfterAbortIfNeeded(): void {
     if (this.#didFlushAfterAbort) return;
     this.#didFlushAfterAbort = true;
-    for (const result of this._searchStrategy.flush(this._state)) {
+    for (const result of this._flush()) {
       const tail = this._renderVerbatim(result);
       if (tail) this._sink.enqueue(tail);
     }

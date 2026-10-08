@@ -91,6 +91,27 @@ describe("AsyncLookaheadTransformEngine", () => {
       await runEngine(engine, sink, ["only"]);
       expect(chunks).toEqual(["only"]);
     });
+
+    it("enqueues every flushed result before closing the queue on end()", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      strategy.flush.mockImplementation(flushesText("T1", "T2", "T3"));
+      const gate = deferred<AsyncIterable<string>>();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        highWaterMark: 1
+      });
+      engine.start(sink);
+      await engine.write("M");
+
+      const endPromise = engine.end();
+      await settleMicrotasks(10);
+      gate.resolve(asyncIterable("R"));
+      await endPromise;
+      expect(chunks).toEqual(["R", "T1", "T2", "T3"]);
+    });
   });
 
   describe("match slots", () => {
@@ -506,6 +527,31 @@ describe("AsyncLookaheadTransformEngine", () => {
       await engine.write("Y");
       await engine.end();
       expect(chunks).toEqual(["BUF", "X", "Y"]);
+    });
+
+    it("enqueues every flushed result before the first passthrough chunk", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      strategy.flush.mockImplementationOnce(flushesText("B1", "B2", "B3")).mockImplementation(flushesText());
+      const gate = deferred<AsyncIterable<string>>();
+      const ac = new AbortController();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal,
+        highWaterMark: 1
+      });
+      engine.start(sink);
+      await engine.write("M");
+      ac.abort();
+
+      const writePromise = engine.write("X");
+      await settleMicrotasks(10);
+      gate.resolve(asyncIterable("R"));
+      await writePromise;
+      await engine.end();
+      expect(chunks).toEqual(["R", "B1", "B2", "B3", "X"]);
     });
 
     it("calls flush() exactly once across multiple writes and end() when the signal is pre-aborted", async () => {
