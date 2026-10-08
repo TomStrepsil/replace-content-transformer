@@ -32,8 +32,24 @@
  */
 
 const FLUSH = "flush";
-const STRATEGY_NAME = /SearchStrategy|StrategyBase/;
-const GENERIC_BASE = /StrategyBase$/;
+const STRATEGY_INTERFACE = "SearchStrategy";
+const CONCRETE_STRATEGIES = new Set([
+  "AnchorSequenceSearchStrategy",
+  "BalancedPairRegexCountSearchStrategy",
+  "BalancedPairSearchStrategy",
+  "BufferedIndexOfAnchoredCallbackSearchStrategy",
+  "BufferedIndexOfAnchoredSearchStrategy",
+  "BufferedIndexOfCallbackSearchStrategy",
+  "BufferedIndexOfCancellableSearchStrategy",
+  "BufferedIndexOfCanonicalAsGeneratorSearchStrategy",
+  "IndexOfKnuthMorrisPrattSearchStrategy",
+  "LoopedIndexOfAnchoredSearchStrategy",
+  "LoopedIndexOfCallbackSearchStrategy",
+  "LoopedIndexOfCancellableSearchStrategy",
+  "RegexCallbackSearchStrategy",
+  "RegexSearchStrategy"
+]);
+const GENERIC_BASE = "StringBufferStrategyBase";
 const MATCH_RESULT = "MatchResult";
 const PACKAGE = "replace-content-transformer";
 
@@ -99,12 +115,12 @@ function strategyClause(classNode, importedNames, foreignNames, packageNamespace
     return foreignNames.has(name) ? "" : (importedNames.get(name) ?? name);
   };
   for (const clause of classNode.implements) {
-    if (STRATEGY_NAME.test(resolve(clause))) {
+    if (resolve(clause) === STRATEGY_INTERFACE) {
       return { isInterface: true, node: clause };
     }
   }
   const superName = resolve(classNode.superClass);
-  if (GENERIC_BASE.test(superName)) {
+  if (superName === GENERIC_BASE) {
     return {
       isInterface: false,
       node: {
@@ -114,7 +130,7 @@ function strategyClause(classNode, importedNames, foreignNames, packageNamespace
   }
   // A concrete strategy (`extends RegexSearchStrategy`) fixes its own match
   // type, which is not readable from this file — say so rather than guess.
-  if (STRATEGY_NAME.test(superName)) {
+  if (CONCRETE_STRATEGIES.has(superName)) {
     return { isInterface: false, inheritedFrom: superName };
   }
   return null;

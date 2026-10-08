@@ -378,6 +378,18 @@ describe("flush-implementation report", () => {
       expect(reportFor("class S implements Flushable<State> {")).toBe("");
     });
 
+    it("says nothing about a local interface merely named like SearchStrategy", () => {
+      expect(reportFor("class S implements CacheSearchStrategy<State, Foo> {")).toBe("");
+    });
+
+    it("says nothing about a local base merely named like StringBufferStrategyBase", () => {
+      expect(reportFor("class S extends CacheStrategyBase<Key> {")).toBe("");
+    });
+
+    it("says nothing about a local class merely named like a concrete strategy", () => {
+      expect(reportFor("class S extends MyRegexSearchStrategy {")).toBe("");
+    });
+
     it("says nothing about a class that implements nothing and extends nothing", () => {
       expect(reportFor("class S {")).toBe("");
     });
