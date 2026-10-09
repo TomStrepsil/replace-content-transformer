@@ -305,6 +305,22 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         expect(outputs.every(o => o.length > 0)).toBe(true);
       });
 
+      it.skipIf(harness.skipScenario?.({ noEmptyChunks: true }))("Chunks that are only an anchor prefix", async () => {
+        const chunks = ["before ", "{", "{name", "}", "} after"];
+
+        const outputs: string[] = [];
+        const transformer = setupTransformer(["{{", "}}"], () => "VALUE");
+        const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+        for await (const chunk of chunks) {
+          await transformer.transform(chunk, controller);
+        }
+        const flushed = await transformer.flush(controller);
+
+        expect([...outputs, flushed].join("")).toBe("before VALUE after");
+        expect(outputs.every(o => o.length > 0)).toBe(true);
+      });
+
       // Scenario 7: Long pattern content
       it("Long content between anchors", async () => {
         const longContent = "a".repeat(100);

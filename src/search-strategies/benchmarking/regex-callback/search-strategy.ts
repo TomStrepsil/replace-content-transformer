@@ -39,7 +39,7 @@ export class RegexCallbackSearchStrategy {
       this.partialChunk = chunk.substring(match.index);
       chunk = chunk.substring(0, match.index);
     }
-    enqueue(chunk);
+    if (chunk) enqueue(chunk);
     this.totalStreamOffset += originalLength - bufferLength;
   }
 
