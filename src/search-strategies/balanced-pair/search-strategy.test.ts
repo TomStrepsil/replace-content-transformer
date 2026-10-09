@@ -1,6 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { describe, it, expect } from "vitest";
-import { flushToString } from "../../../test/utilities.js";
+import {
+  collectCanonicalSearchStrategyResults,
+  collectSearchStrategyResults,
+  flushToString
+} from "../../../test/utilities.js";
+import {
+  characterBySplit,
+  everyThreeWaySplit,
+  everyTwoWaySplit
+} from "../../../test/splits.js";
 import { BalancedPairSearchStrategy } from "./search-strategy.js";
 
 describe("BalancedPairSearchStrategy", () => {
@@ -341,6 +350,55 @@ describe("BalancedPairSearchStrategy", () => {
       const match = results.find((r) => r.isMatch)!;
 
       expect(strategy.matchToString(match.content)).toBe("(content)");
+    });
+  });
+
+  describe("chunk invariance", () => {
+    const run = (opening: string, closing: string, chunks: string[]) =>
+      collectCanonicalSearchStrategyResults(
+        new BalancedPairSearchStrategy(opening, closing),
+        chunks
+      );
+
+    it.each([
+      ["an opening anchor containing the closing anchor", "**", "*", "**a**"],
+      ["an opening anchor overlapping its predecessor", "((", "(", "x((y((z"]
+    ])(
+      "yields the same result however the input is split, with %s",
+      (_label, opening, closing, input) => {
+        const unsplit = run(opening, closing, [input]);
+
+        for (const chunks of [
+          ...everyTwoWaySplit(input),
+          ...everyThreeWaySplit(input),
+          characterBySplit(input)
+        ]) {
+          expect(run(opening, closing, chunks), chunks.join("|")).toEqual(
+            unsplit
+          );
+        }
+      }
+    );
+
+    it("resumes at the start of the buffer when a chunk ends mid-nesting", () => {
+      const strategy = new BalancedPairSearchStrategy("(", ")");
+      const state = strategy.createState();
+
+      [...strategy.processChunk("((inner)", state)];
+
+      expect(state.matchConsumedLength).toBe(0);
+      expect(state.buffer).toBe("");
+    });
+
+    it("matches an opening anchor that contains the closing anchor, split inside the opening", () => {
+      const { results } = collectSearchStrategyResults(
+        new BalancedPairSearchStrategy("**", "*"),
+        ["*", "*a**"]
+      );
+
+      expect(results).toEqual([
+        { isMatch: true, content: "**a*", streamIndices: [0, 4] }
+      ]);
     });
   });
 });

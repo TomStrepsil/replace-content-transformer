@@ -6,6 +6,9 @@ import { RegexReplaceContentTransformer } from "../../src/search-strategies/benc
 export const RegexCanonicalHarness = {
   name: "Regex Canonical",
   isAsync: false,
+  // faithful to the WHATWG lipfuzz example, which enqueues every chunk without checking it is empty
+  skipScenario: ({ noEmptyChunks }: { noEmptyChunks?: boolean }) =>
+    noEmptyChunks === true,
   createSearchStrategy: ({ tokens }: { tokens: string[] }) => ({
     // contrived, to ensure one-time construction overhead of regexes
     openRegex: new RegExp(

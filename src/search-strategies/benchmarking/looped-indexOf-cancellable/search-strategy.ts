@@ -71,10 +71,8 @@ export class LoopedIndexOfCancellableSearchStrategy
             const haystackSuffix = nonMatch.slice(-partialLength);
             const needlePrefix = this.needle.slice(0, partialLength);
             if (haystackSuffix === needlePrefix) {
-              yield {
-                isMatch: false,
-                content: nonMatch.slice(0, -partialLength)
-              };
+              const unmatched = nonMatch.slice(0, -partialLength);
+              if (unmatched) yield { isMatch: false, content: unmatched };
               state.buffer = nonMatch.slice(-partialLength);
               state.needleIndex = partialLength;
               return;

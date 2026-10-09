@@ -20,5 +20,8 @@ export type BaseHarness = {
     flush: (controller: unknown) => void;
   };
   /** When defined, a test scenario is skipped if this returns true. */
-  skipScenario?: (meta: { balanced?: boolean }) => boolean;
+  skipScenario?: (meta: {
+    balanced?: boolean;
+    noEmptyChunks?: boolean;
+  }) => boolean;
 };

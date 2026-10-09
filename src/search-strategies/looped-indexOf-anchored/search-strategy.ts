@@ -6,6 +6,8 @@ import StringBufferStrategyBase, {
 export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
+  /** Length of the buffered partial match already consumed by earlier anchors */
+  matchConsumedLength: number;
 };
 
 const partialMatchLength = (
@@ -70,7 +72,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {
-    return { ...super.createState(), currentNeedleIndex: 0 };
+    return { ...super.createState(), currentNeedleIndex: 0, matchConsumedLength: 0 };
   }
 
   *processChunk(
@@ -81,7 +83,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
     const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
-    let position = 0;
+    let position = state.matchConsumedLength;
     let matchStartPosition = 0;
     try {
       while (position < length) {
@@ -127,6 +129,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
       }
     } finally {
       const isMidMatch = state.currentNeedleIndex > 0;
+      state.matchConsumedLength = isMidMatch ? position - matchStartPosition : 0;
       state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
       state.streamOffset += haystack.length - bufferLength;
     }
@@ -136,6 +139,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
     state: LoopedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
     state.currentNeedleIndex = 0;
+    state.matchConsumedLength = 0;
     yield* super.flush(state);
   }
 }
