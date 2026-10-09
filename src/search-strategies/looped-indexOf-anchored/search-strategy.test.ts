@@ -4,6 +4,11 @@ import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
 import { collectSearchStrategyResults } from "../../../test/utilities.js";
+import {
+  characterBySplit,
+  everyThreeWaySplit,
+  everyTwoWaySplit
+} from "../../../test/splits.js";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
@@ -637,4 +642,49 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
   });
 
+  describe("resuming mid-match", () => {
+    const matchesOf = (needles: string[], chunks: string[]) => {
+      const { results, output } = collectSearchStrategyResults(
+        new LoopedIndexOfAnchoredSearchStrategy(needles),
+        chunks
+      );
+      return { matches: results.filter(({ isMatch }) => isMatch), output };
+    };
+
+    it.each([
+      ["a later anchor inside an earlier one", ["/*", "*"], "/*x*"],
+      ["a match starting after a non-match", ["<<", "<"], "x<<y<"],
+      ["a three-anchor sequence", ["<a", "a", "a"], "<aaaa<aaa"],
+      ["an anchor repeating its predecessor", ["ab", "b"], "abab"],
+      ["ordinary anchors", ["{{", "name", "}}"], "{{name}} {{name}}"]
+    ])(
+      "matches the same whatever the chunking, with %s",
+      (_label, needles, input) => {
+        const unsplit = matchesOf(needles, [input]);
+
+        for (const chunks of [
+          ...everyTwoWaySplit(input),
+          ...everyThreeWaySplit(input),
+          characterBySplit(input)
+        ]) {
+          expect(matchesOf(needles, chunks), chunks.join("|")).toEqual(unsplit);
+        }
+        expect(unsplit.output).toBe(input);
+      }
+    );
+
+    it("matches the same whatever the chunking, for balanced pairs", () => {
+      const run = (chunks: string[]) =>
+        collectSearchStrategyResults(
+          new BalancedPairSearchStrategy("**", "*"),
+          chunks
+        );
+      const input = "**a**";
+      const unsplit = run([input]);
+
+      for (const chunks of everyTwoWaySplit(input)) {
+        expect(run(chunks).output, chunks.join("|")).toBe(unsplit.output);
+      }
+    });
+  });
 });

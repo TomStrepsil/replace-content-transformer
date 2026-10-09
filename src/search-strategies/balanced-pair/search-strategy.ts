@@ -80,6 +80,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
     }
     if (state.nestingLevel > 0) {
       state.buffer = state.buffer.slice(state.balancedBuffer.length);
+      state.matchConsumedLength = 0;
     }
   }
 
