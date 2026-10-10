@@ -5,6 +5,9 @@ import StringBufferStrategyBase, {
   type StringBufferState
 } from "../string-buffer-strategy-base.js";
 
+const DEFAULT_MIN_CANDIDATE_LENGTH_TO_BACK_OFF = 1024;
+const DEFAULT_BUFFER_GROWTH_FACTOR_BETWEEN_EVALUATIONS = 2;
+
 function updateIndices(indices: RegExpIndicesArray, offset: number) {
   for (const entry of indices) {
     if (entry === undefined) continue;
@@ -52,6 +55,21 @@ function toMatchResult(
     streamIndices: [startIndex, startIndex + match[0].length]
   };
 }
+
+export type RegexSearchState = StringBufferState & {
+  evaluatedBufferLength: number;
+};
+
+export type GuardExceededInfo = {
+  bufferLength: number;
+};
+
+export type RegexSearchStrategyOptions = {
+  maxBufferLength?: number;
+  minCandidateLengthToBackOff?: number;
+  bufferGrowthFactorBetweenEvaluations?: number;
+  onGuardExceeded?: (info: GuardExceededInfo) => void;
+};
 
 type ScanCursor = { reportedUpTo: number };
 
@@ -116,15 +134,27 @@ function takeMatch(
  */
 export class RegexSearchStrategy
   extends StringBufferStrategyBase<RegExpExecArray>
-  implements SearchStrategy<StringBufferState, RegExpExecArray>
+  implements SearchStrategy<RegexSearchState, RegExpExecArray>
 {
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
   private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
+  private readonly maxBufferLength: number;
+  private readonly minCandidateLengthToBackOff: number;
+  private readonly bufferGrowthFactorBetweenEvaluations: number;
+  private readonly onGuardExceeded: RegexSearchStrategyOptions["onGuardExceeded"];
 
-  constructor(needle: RegExp) {
+  constructor(needle: RegExp, options: RegexSearchStrategyOptions = {}) {
     super();
+    this.maxBufferLength = options.maxBufferLength ?? Infinity;
+    this.minCandidateLengthToBackOff =
+      options.minCandidateLengthToBackOff ??
+      DEFAULT_MIN_CANDIDATE_LENGTH_TO_BACK_OFF;
+    this.bufferGrowthFactorBetweenEvaluations =
+      options.bufferGrowthFactorBetweenEvaluations ??
+      DEFAULT_BUFFER_GROWTH_FACTOR_BETWEEN_EVALUATIONS;
+    this.onGuardExceeded = options.onGuardExceeded;
     const partialMatchRegex = new PartialMatchRegExp(needle);
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
@@ -137,6 +167,22 @@ export class RegexSearchStrategy
     this.lookaheadConfirmationRegex = patternFeatures.has("lookahead")
       ? new RegExp(needle.source, `${needle.flags}y`)
       : null;
+  }
+
+  override createState(): RegexSearchState {
+    return { ...super.createState(), evaluatedBufferLength: 0 };
+  }
+
+  private canSkipEvaluation(
+    state: RegexSearchState,
+    bufferedLength: number
+  ): boolean {
+    return (
+      state.evaluatedBufferLength >= this.minCandidateLengthToBackOff &&
+      bufferedLength <=
+        state.evaluatedBufferLength * this.bufferGrowthFactorBetweenEvaluations &&
+      bufferedLength <= this.maxBufferLength
+    );
   }
 
   private settledMatch(
@@ -159,9 +205,14 @@ export class RegexSearchStrategy
 
   *processChunk(
     haystack: string,
-    state: StringBufferState
+    state: RegexSearchState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const bufferLength = state.buffer.length;
+    if (this.canSkipEvaluation(state, bufferLength + haystack.length)) {
+      state.buffer += haystack;
+      state.streamOffset += haystack.length;
+      return;
+    }
     const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
@@ -174,14 +225,27 @@ export class RegexSearchStrategy
         const settledMatch = this.settledMatch(partialMatch, remainingHaystack);
 
         if (settledMatch === null) {
+          const heldBackFrom = cursor.reportedUpTo + matchStart;
+          const heldBack = haystack.slice(heldBackFrom);
+          const exceedsGuard = heldBack.length > this.maxBufferLength;
           cursor.reportedUpTo = length;
-          state.buffer = remainingHaystack.slice(matchStart);
+          state.buffer = exceedsGuard ? "" : heldBack;
+          state.evaluatedBufferLength = state.buffer.length;
           if (matchStart > 0)
             yield nonMatch(remainingHaystack.slice(0, matchStart));
+          if (exceedsGuard) {
+            this.onGuardExceeded?.({ bufferLength: heldBack.length });
+            for (const result of this.settle(
+              heldBack,
+              baseOffset + heldBackFrom
+            ))
+              yield result;
+          }
           return;
         }
 
         state.buffer = "";
+        state.evaluatedBufferLength = 0;
         if (settledMatch[0].length === 0) {
           yield skipOneCodeUnitPastZeroLengthMatch(
             haystack,
@@ -203,13 +267,21 @@ export class RegexSearchStrategy
   }
 
   *flush(
-    state: StringBufferState
+    state: RegexSearchState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const buffer = state.buffer;
     const baseOffset = state.streamOffset - buffer.length;
     state.buffer = "";
     state.streamOffset = 0;
+    state.evaluatedBufferLength = 0;
+    for (const result of this.settle(buffer, baseOffset)) yield result;
+  }
 
+  private settle(
+    buffer: string,
+    baseOffset: number
+  ): MatchResult<RegExpExecArray>[] {
+    const settled: MatchResult<RegExpExecArray>[] = [];
     const cursor: ScanCursor = { reportedUpTo: 0 };
     while (cursor.reportedUpTo < buffer.length) {
       const finalMatch = this.completeMatchRegex.exec(
@@ -218,21 +290,20 @@ export class RegexSearchStrategy
       if (finalMatch === null) break;
 
       if (finalMatch[0].length === 0) {
-        yield skipOneCodeUnitPastZeroLengthMatch(
-          buffer,
-          cursor,
-          finalMatch.index
+        settled.push(
+          skipOneCodeUnitPastZeroLengthMatch(buffer, cursor, finalMatch.index)
         );
         continue;
       }
       const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
-      if (precedingContent) yield precedingContent;
-      yield takeMatch(finalMatch, cursor, baseOffset);
+      if (precedingContent) settled.push(precedingContent);
+      settled.push(takeMatch(finalMatch, cursor, baseOffset));
     }
 
     if (cursor.reportedUpTo < buffer.length) {
-      yield nonMatch(buffer.slice(cursor.reportedUpTo));
+      settled.push(nonMatch(buffer.slice(cursor.reportedUpTo)));
     }
+    return settled;
   }
 
   override matchToString(match: RegExpExecArray): string {

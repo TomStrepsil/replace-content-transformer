@@ -2191,4 +2191,168 @@ describe("RegexSearchStrategy", () => {
       expect(reassemble(results, flush)).toBe("a {{name}} b");
     });
   });
+
+  describe("re-evaluating a growing candidate", () => {
+    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
+      results.filter((r) => r.isMatch).map((r) => r.content[0]);
+    const CHUNK_LENGTH = 64;
+    const unbrokenRun = "a".repeat(20_000);
+
+    function chunksOf(haystack: string): string[] {
+      return haystack.match(new RegExp(`[^]{1,${CHUNK_LENGTH}}`, "g")) ?? [];
+    }
+
+    it("scans the buffer a logarithmic number of times, not once per chunk", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      try {
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/),
+          chunksOf(unbrokenRun)
+        );
+        expect(exec.mock.calls.length).toBeLessThan(
+          chunksOf(unbrokenRun).length / 4
+        );
+      } finally {
+        exec.mockRestore();
+      }
+    });
+
+    it("emits the same matches and stream indices as the unsplit input", () => {
+      const haystack = `${unbrokenRun} tail ${unbrokenRun}`;
+      expect(matchDetailsOf(/\S+/, chunksOf(haystack))).toEqual(
+        matchDetailsOf(/\S+/, [haystack])
+      );
+    });
+
+    it("settles a candidate completed while evaluation was being skipped, at the latest on flush", () => {
+      const haystack = `${unbrokenRun} next`;
+      const { results, flushResults, output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\S+/),
+        chunksOf(haystack)
+      );
+      expect(output).toBe(haystack);
+      expect(
+        [...results, ...flushResults]
+          .filter((result) => result.isMatch)
+          .map((result) => getValue(result).length)
+      ).toEqual([unbrokenRun.length, "next".length]);
+    });
+
+    it("backs off sooner when given a lower threshold", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      const scansWith = (minCandidateLengthToBackOff: number) => {
+        exec.mockClear();
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/, { minCandidateLengthToBackOff }),
+          chunksOf(unbrokenRun)
+        );
+        return exec.mock.calls.length;
+      };
+      try {
+        expect(scansWith(CHUNK_LENGTH)).toBeLessThan(scansWith(8192));
+      } finally {
+        exec.mockRestore();
+      }
+    });
+
+    it("scans less often when given a larger growth factor", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      const scansWith = (bufferGrowthFactorBetweenEvaluations: number) => {
+        exec.mockClear();
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/, {
+            bufferGrowthFactorBetweenEvaluations
+          }),
+          chunksOf(unbrokenRun)
+        );
+        return exec.mock.calls.length;
+      };
+      try {
+        expect(scansWith(4)).toBeLessThan(scansWith(2));
+      } finally {
+        exec.mockRestore();
+      }
+    });
+
+    it("still evaluates every chunk for a short pending candidate", () => {
+      const { results } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{[^{}]*\}\}/),
+        ["{{na", "me}} b"]
+      );
+      expect(matchesOf(results)).toEqual(["{{name}}"]);
+    });
+  });
+
+  describe("buffer ceiling", () => {
+    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
+      results.filter((r) => r.isMatch).map((r) => r.content[0]);
+    const MAX_BUFFER_LENGTH = 100;
+    const unbrokenRun = "a".repeat(250);
+    const chunks = [
+      unbrokenRun.slice(0, 64),
+      unbrokenRun.slice(64, 128),
+      unbrokenRun.slice(128, 192),
+      unbrokenRun.slice(192)
+    ];
+
+    it("holds the whole run when no ceiling is set", () => {
+      const onGuardExceeded = vi.fn();
+      const strategy = new RegexSearchStrategy(/\S+/, { onGuardExceeded });
+      const state = strategy.createState();
+      for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
+      expect(state.buffer).toBe(unbrokenRun);
+      expect(onGuardExceeded).not.toHaveBeenCalled();
+    });
+
+    it("stops deferring once the buffer exceeds the ceiling, and reports it", () => {
+      const onGuardExceeded = vi.fn();
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: MAX_BUFFER_LENGTH,
+        onGuardExceeded
+      });
+      const state = strategy.createState();
+      let peakBuffer = 0;
+      for (const chunk of chunks) {
+        Array.from(strategy.processChunk(chunk, state));
+        peakBuffer = Math.max(peakBuffer, state.buffer.length);
+      }
+      expect(peakBuffer).toBeLessThanOrEqual(MAX_BUFFER_LENGTH);
+      expect(onGuardExceeded).toHaveBeenCalledWith({ bufferLength: 128 });
+    });
+
+    it("keeps the output lossless and stream indices true", () => {
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: MAX_BUFFER_LENGTH
+      });
+      const { results, flushResults, output } =
+        collectSearchStrategyResults(strategy, chunks);
+      expect(output).toBe(unbrokenRun);
+      for (const result of [...results, ...flushResults]) {
+        if (!result.isMatch) continue;
+        const [start, end] = result.streamIndices;
+        expect(unbrokenRun.slice(start, end)).toBe(result.content[0]);
+      }
+    });
+
+    it("leaves a pattern that settles within the ceiling unchanged", () => {
+      const onGuardExceeded = vi.fn();
+      const { results } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{[^{}]*\}\}/, {
+          maxBufferLength: MAX_BUFFER_LENGTH,
+          onGuardExceeded
+        }),
+        ["a {{na", "me}} b"]
+      );
+      expect(matchesOf(results)).toEqual(["{{name}}"]);
+      expect(onGuardExceeded).not.toHaveBeenCalled();
+    });
+
+    it("resets the ceiling's bookkeeping on flush", () => {
+      const strategy = new RegexSearchStrategy(/\S+/);
+      const state = strategy.createState();
+      for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
+      Array.from(strategy.flush(state));
+      expect(state).toEqual(strategy.createState());
+    });
+  });
 });
