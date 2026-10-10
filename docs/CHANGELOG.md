@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. Strategies extending `StringBufferStrategyBase` without overriding `flush` need no change; for everyone else there is a [migration report](../codemods/reports/v3-v4/README.md)
+- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. There is a [migration report](../codemods/reports/v3-v4/README.md)
 - **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
 - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
 - Tests for engine cancellation and for settling a deferred match on abort
 - `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files
-- `SearchStrategy`, `MatchResult`, `StreamIndices`, `StringBufferStrategyBase` and `StringBufferState` are exported from the package root
+- `SearchStrategy`, `MatchResult` and `StreamIndices` are exported from the package root
 
 ## [3.0.2] - 2026-08-27
 

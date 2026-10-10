@@ -21,7 +21,9 @@ export type AsyncSerialReplacementFn<TMatch> = (
   | Promise<string | AsyncIterable<string>>;
 
 export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
+  /** Search strategy used to locate matches in the input stream. */
   searchStrategy: SearchStrategy<TState, TMatch>;
+  /** Function invoked for every match; its result is streamed in place of the match. */
   replacement: AsyncSerialReplacementFn<TMatch>;
   /**
    * When aborted, the engine stops calling the replacement function and
@@ -34,10 +36,8 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
 /**
  * Async serial transform engine.
  *
- * Absorbs `AsyncFunctionReplacementProcessor` and
- * `AsyncIterableFunctionReplacementProcessor`. Each replacement is fully
- * consumed before the engine scans for the next match; this guarantees
- * in-order output without a concurrency strategy.
+ * Each replacement is fully consumed before the engine scans for the next
+ * match; this guarantees in-order output without a concurrency strategy.
  *
  * For concurrent lookahead scheduling, use {@link AsyncLookaheadTransformEngine}.
  *

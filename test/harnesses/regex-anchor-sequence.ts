@@ -2,7 +2,7 @@ import { SyncReplacementTransformEngine } from "../../src/engines/sync-transform
 import { syncHarnessTransformer } from "./engine-harness.ts";
 import { RegexSearchStrategy } from "../../src/search-strategies/regex/search-strategy.ts";
 import { AnchorSequenceSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
-import type { StringBufferState } from "../../src/search-strategies/string-buffer-strategy-base.ts";
+import type { StringBufferState } from "../../src/search-strategies/types.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
 
 export const RegexAnchorSequenceHarness = {

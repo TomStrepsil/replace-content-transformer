@@ -1,8 +1,9 @@
-import type { MatchResult, SearchStrategy } from "../types.js";
-import StringBufferStrategyBase, {
-  type StringBufferState
-} from "../string-buffer-strategy-base.js";
+import type { MatchResult, SearchStrategy, StringBufferState } from "../types.js";
+import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
+import partialMatchLength from "./partial-match-length.js";
+import validateNeedles from "./validate-needles.js";
 
+/** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}. */
 export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
@@ -10,52 +11,16 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
   matchConsumedLength: number;
 };
 
-const partialMatchLength = (
-  haystack: string,
-  needle: string,
-  unreportedLength: number
-): number => {
-  let partialLength = Math.min(needle.length - 1, unreportedLength);
-  while (
-    partialLength >= 1 &&
-    !haystack.endsWith(needle.slice(0, partialLength))
-  ) {
-    partialLength--;
-  }
-  return partialLength;
-};
-
-const validateNeedles = (needles: string[]): void => {
-  if (needles.length === 0) {
-    throw new Error("at least one anchor is required");
-  }
-
-  const emptyNeedleIndex = needles.indexOf("");
-  if (emptyNeedleIndex !== -1) {
-    throw new Error(`empty anchors are not supported (index ${emptyNeedleIndex})`);
-  }
-};
-
 /**
- * A high-performance search strategy for finding sequential string patterns (anchor sequences)
- * using smart partial matching to avoid unnecessary buffering.
+ * A search strategy for finding sequences of strings (anchors) that must appear
+ * in order, separated by any content. For example, `['{{', 'name', '}}']`
+ * matches `{{name}}` or `{{  name  }}`. A single anchor matches that string.
  *
- * Similar to the buffered indexOf anchored strategy
- * (https://github.com/TomStrepsil/replace-content-transformer/blob/64c8d74ea8651401375bf01c00372fcdf2dbfcbb/src/search-strategies/benchmarking/buffered-indexOf-anchored/README.md)
- * but uses intelligent partial matching at chunk boundaries - only buffering when there's 
- * actually a potential partial match, rather than blindly buffering the maximum possible 
- * partial match length.
+ * Matches may span chunk boundaries. Content is only held back when the end
+ * of a chunk could be the start of the first anchor, or while a match is
+ * part-way through its sequence.
  *
- * This strategy efficiently searches for sequences of strings that must appear in order,
- * separated by any content. For example, `['{{', 'name', '}}']` matches `{{name}}` or
- * `{{  name  }}`. The implementation uses `String.indexOf()` for optimal performance
- * and only buffers when a partial match is detected at a chunk boundary.
- *
- * **Performance characteristics**:
- * - Faster than BufferedIndexOfAnchored in "no matches" scenarios (~27% improvement)
- * - Avoids unnecessary buffering when no partial matches exist
- * - Minimal overhead for partial match detection
- * - Optimal for streams with sparse or no matches
+ * Exposed publicly as `StringAnchorSearchStrategy`.
  *
  * @throws If `needles` is empty, or any needle is an empty string.
  */

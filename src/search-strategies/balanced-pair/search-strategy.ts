@@ -4,12 +4,40 @@ import {
 } from "../looped-indexOf-anchored/search-strategy.js";
 import type { MatchResult, SearchStrategy } from "../types.js";
 
+/** Per-stream state for {@link BalancedPairSearchStrategy}. */
 export interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
+  /** Number of opening delimiters currently awaiting a closing delimiter. */
   nestingLevel: number;
+  /** Content of the pair accumulated so far, from its first opening delimiter. */
   balancedBuffer: string;
+  /** Stream offset at which the pair being accumulated began. */
   balancedBufferStart: number;
 }
 
+/**
+ * A search strategy for matching balanced delimiter pairs, including nested
+ * occurrences. A match completes only when every opening delimiter inside it
+ * has a corresponding closing delimiter, so `(` and `)` match the whole of
+ * `((a) b)` rather than stopping at the first `)`.
+ *
+ * Matches may span chunk boundaries. Unbalanced content is emitted verbatim
+ * at end of stream. The match content is the matched string, delimiters
+ * included.
+ *
+ * See [README](./README.md) for the algorithm.
+ *
+ * @throws If `opening` or `closing` is an empty string.
+ *
+ * @example
+ * ```typescript
+ * import { BalancedPairSearchStrategy, SyncReplacementTransformEngine } from 'replace-content-transformer';
+ *
+ * const engine = new SyncReplacementTransformEngine({
+ *   searchStrategy: new BalancedPairSearchStrategy('{{', '}}'),
+ *   replacement: (match) => match.toUpperCase()
+ * });
+ * ```
+ */
 export class BalancedPairSearchStrategy implements SearchStrategy<
   BalancedPairSearchState,
   string
@@ -17,6 +45,10 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
   private anchorStringSearchStrategy: LoopedIndexOfAnchoredSearchStrategy;
   private readonly opening: string;
 
+  /**
+   * @param opening - String that opens a pair. Each occurrence inside a match increases the nesting level.
+   * @param closing - String that closes a pair. The match ends at the closing string that returns the nesting level to zero.
+   */
   constructor(opening: string, closing: string) {
     this.opening = opening;
     this.anchorStringSearchStrategy = new LoopedIndexOfAnchoredSearchStrategy([

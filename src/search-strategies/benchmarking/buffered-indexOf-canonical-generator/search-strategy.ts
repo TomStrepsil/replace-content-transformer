@@ -1,7 +1,5 @@
-import type { MatchResult } from "../../types.ts";
-import StringBufferStrategyBase, {
-  type StringBufferState
-} from "../../string-buffer-strategy-base.ts";
+import type { MatchResult, StringBufferState } from "../../types.ts";
+import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
 import type { ReplacementContext } from "../../../engines/types.ts";
 
 export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy

@@ -75,3 +75,8 @@ export interface SearchStrategy<TState, TMatch = string> {
    */
   matchToString(match: TMatch): string;
 }
+
+export type StringBufferState = {
+  buffer: string;
+  streamOffset: number;
+};

@@ -3,4 +3,4 @@ export type {
   GuardExceededInfo,
   RegexSearchState,
   RegexSearchStrategyOptions
-} from "./search-strategy.js";
+} from "./types.js";

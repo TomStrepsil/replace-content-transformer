@@ -1,109 +1,25 @@
 import type { MatchResult, SearchStrategy } from "../types.js";
 import PartialMatchRegExp, { features, hitEnd } from "regex-partial-match";
+import { DEFAULT_OPTIONS } from "./default-options.js";
 import validateInput from "./input-validation.js";
-import StringBufferStrategyBase, {
-  type StringBufferState
-} from "../string-buffer-strategy-base.js";
-
-const DEFAULT_MIN_CANDIDATE_LENGTH_TO_BACK_OFF = 1024;
-const DEFAULT_BUFFER_GROWTH_FACTOR_BETWEEN_EVALUATIONS = 2;
-
-function updateIndices(indices: RegExpIndicesArray, offset: number) {
-  for (const entry of indices) {
-    if (entry === undefined) continue;
-    entry[0] += offset;
-    entry[1] += offset;
-  }
-}
-
-function sameCaptures(
-  candidate: RegExpExecArray,
-  confirmed: RegExpExecArray
-): boolean {
-  return (
-    candidate.length === confirmed.length &&
-    candidate.every((capture, group) => capture === confirmed[group])
-  );
-}
+import advanceToMatch from "./advance-to-match.js";
+import endsAtHaystackEnd from "./ends-at-haystack-end.js";
+import nonMatch from "./non-match.js";
+import sameCaptures from "./same-captures.js";
+import skipOneCodeUnitPastZeroLengthMatch from "./skip-one-code-unit-past-zero-length-match.js";
+import takeMatch from "./take-match.js";
+import type {
+  RegexSearchState,
+  RegexSearchStrategyOptions,
+  ScanCursor
+} from "./types.js";
+import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
 
 const FEATURES_NEEDING_PROBE_BEFORE_END = [
   "backreference",
   "namedBackreference",
   "lookahead"
 ] as const;
-
-function endsAtHaystackEnd(
-  match: RegExpExecArray,
-  haystack: string
-): boolean {
-  return match.index + match[0].length === haystack.length;
-}
-
-function nonMatch(content: string): MatchResult<RegExpExecArray> {
-  return { isMatch: false, content };
-}
-
-function toMatchResult(
-  match: RegExpExecArray,
-  startIndex: number
-): MatchResult<RegExpExecArray> {
-  const indices = match.indices;
-  if (indices) updateIndices(indices, startIndex - match.index);
-  return {
-    isMatch: true,
-    content: match,
-    streamIndices: [startIndex, startIndex + match[0].length]
-  };
-}
-
-export type RegexSearchState = StringBufferState & {
-  evaluatedBufferLength: number;
-};
-
-export type GuardExceededInfo = {
-  bufferLength: number;
-};
-
-export type RegexSearchStrategyOptions = {
-  maxBufferLength?: number;
-  minCandidateLengthToBackOff?: number;
-  bufferGrowthFactorBetweenEvaluations?: number;
-  onGuardExceeded?: (info: GuardExceededInfo) => void;
-};
-
-type ScanCursor = { reportedUpTo: number };
-
-function skipOneCodeUnitPastZeroLengthMatch(
-  haystack: string,
-  cursor: ScanCursor,
-  matchIndex: number
-): MatchResult<RegExpExecArray> {
-  const skippedFrom = cursor.reportedUpTo;
-  cursor.reportedUpTo = Math.min(skippedFrom + matchIndex + 1, haystack.length);
-  return nonMatch(haystack.slice(skippedFrom, cursor.reportedUpTo));
-}
-
-function advanceToMatch(
-  match: RegExpExecArray,
-  haystack: string,
-  cursor: ScanCursor
-): MatchResult<RegExpExecArray> | null {
-  const precedingContentFrom = cursor.reportedUpTo;
-  cursor.reportedUpTo = precedingContentFrom + match.index;
-  return match.index > 0
-    ? nonMatch(haystack.slice(precedingContentFrom, cursor.reportedUpTo))
-    : null;
-}
-
-function takeMatch(
-  match: RegExpExecArray,
-  cursor: ScanCursor,
-  baseOffset: number
-): MatchResult<RegExpExecArray> {
-  const matchStart = cursor.reportedUpTo;
-  cursor.reportedUpTo = matchStart + match[0].length;
-  return toMatchResult(match, baseOffset + matchStart);
-}
 
 /**
  * A search strategy for finding patterns using regular expressions.
@@ -119,16 +35,14 @@ function takeMatch(
  *
  * @example Basic regex search
  * ```typescript
- * import { searchStrategyFactory, FunctionReplacementProcessor } from 'replace-content-transformer';
+ * import { searchStrategyFactory, SyncReplacementTransformEngine } from 'replace-content-transformer';
  *
  * // Factory automatically creates RegexSearchStrategy for RegExp input
  * const strategy = searchStrategyFactory(/\{\{(\w+)\}\}/);
  *
- * const processor = new FunctionReplacementProcessor({
+ * const engine = new SyncReplacementTransformEngine({
  *   searchStrategy: strategy,
- *   replacement: (match) => {
- *     return `Value: ${match[1]}`;
- *   }
+ *   replacement: (match) => `Value: ${match[1]}`
  * });
  * ```
  */
@@ -140,21 +54,14 @@ export class RegexSearchStrategy
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
   private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
-  private readonly maxBufferLength: number;
-  private readonly minCandidateLengthToBackOff: number;
-  private readonly bufferGrowthFactorBetweenEvaluations: number;
+  private readonly maxBufferLength!: number;
+  private readonly minCandidateLengthToBackOff!: number;
+  private readonly bufferGrowthFactorBetweenEvaluations!: number;
   private readonly onGuardExceeded: RegexSearchStrategyOptions["onGuardExceeded"];
 
-  constructor(needle: RegExp, options: RegexSearchStrategyOptions = {}) {
+  constructor(needle: RegExp, options?: RegexSearchStrategyOptions) {
     super();
-    this.maxBufferLength = options.maxBufferLength ?? Infinity;
-    this.minCandidateLengthToBackOff =
-      options.minCandidateLengthToBackOff ??
-      DEFAULT_MIN_CANDIDATE_LENGTH_TO_BACK_OFF;
-    this.bufferGrowthFactorBetweenEvaluations =
-      options.bufferGrowthFactorBetweenEvaluations ??
-      DEFAULT_BUFFER_GROWTH_FACTOR_BETWEEN_EVALUATIONS;
-    this.onGuardExceeded = options.onGuardExceeded;
+    Object.assign(this, DEFAULT_OPTIONS, options);
     const partialMatchRegex = new PartialMatchRegExp(needle);
     validateInput(partialMatchRegex);
     this.completeMatchRegex = needle;
