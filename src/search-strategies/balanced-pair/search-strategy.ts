@@ -79,7 +79,13 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
       }
     }
     if (state.nestingLevel > 0) {
-      state.buffer = state.buffer.slice(state.balancedBuffer.length);
+      const bufferStreamStart = state.streamOffset - state.buffer.length;
+      const absorbedEnd = state.balancedBufferStart + state.balancedBuffer.length;
+      const absorbed = Math.min(
+        state.buffer.length,
+        Math.max(0, absorbedEnd - bufferStreamStart)
+      );
+      state.buffer = state.buffer.slice(absorbed);
       state.matchConsumedLength = 0;
     }
   }

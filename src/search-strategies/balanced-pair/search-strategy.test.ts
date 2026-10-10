@@ -400,5 +400,20 @@ describe("BalancedPairSearchStrategy", () => {
         { isMatch: true, content: "**a*", streamIndices: [0, 4] }
       ]);
     });
+
+    it("keeps text after a nested match when a chunk ends inside the outer pair", () => {
+      const strategy = new BalancedPairSearchStrategy("(", ")");
+      const state = strategy.createState();
+
+      const results = [
+        ...strategy.processChunk("(((a)b)", state),
+        ...strategy.processChunk(" tail", state)
+      ];
+      const text =
+        results.map(({ content }) => content).join("") +
+        flushToString(strategy, state);
+
+      expect(text).toBe("(((a)b) tail");
+    });
   });
 });
