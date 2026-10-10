@@ -50,7 +50,7 @@ export class RegexSearchStrategy
   extends StringBufferStrategyBase<RegExpExecArray>
   implements SearchStrategy<RegexSearchState, RegExpExecArray>
 {
-  private readonly completeMatchRegex: RegExp;
+  private readonly completeMatchRegex!: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
   private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
@@ -61,10 +61,9 @@ export class RegexSearchStrategy
 
   constructor(needle: RegExp, options?: RegexSearchStrategyOptions) {
     super();
-    Object.assign(this, DEFAULT_OPTIONS, options);
+    Object.assign(this, DEFAULT_OPTIONS, options, { completeMatchRegex: needle });
     const partialMatchRegex = new PartialMatchRegExp(needle);
     validateInput(partialMatchRegex);
-    this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
     const patternFeatures = features(partialMatchRegex);
     this.probesCandidatesEndingBeforeHaystackEnd =
