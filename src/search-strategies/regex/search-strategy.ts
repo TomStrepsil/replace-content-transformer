@@ -5,7 +5,6 @@ import validateInput from "./input-validation.js";
 import advanceToMatch from "./advance-to-match.js";
 import endsAtHaystackEnd from "./ends-at-haystack-end.js";
 import nonMatch from "./non-match.js";
-import omitUndefined from "./omit-undefined.js";
 import sameCaptures from "./same-captures.js";
 import skipOneCodeUnitPastZeroLengthMatch from "./skip-one-code-unit-past-zero-length-match.js";
 import takeMatch from "./take-match.js";
@@ -51,20 +50,31 @@ export class RegexSearchStrategy
   extends StringBufferStrategyBase<RegExpExecArray>
   implements SearchStrategy<RegexSearchState, RegExpExecArray>
 {
-  private readonly completeMatchRegex!: RegExp;
+  private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
   private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
-  private readonly maxBufferLength!: number;
-  private readonly minCandidateLengthToBackOff!: number;
-  private readonly bufferGrowthFactorBetweenEvaluations!: number;
+  private readonly maxBufferLength: number;
+  private readonly minCandidateLengthToBackOff: number;
+  private readonly bufferGrowthFactorBetweenEvaluations: number;
   private readonly onGuardExceeded: RegexSearchStrategyOptions["onGuardExceeded"];
 
-  constructor(needle: RegExp, options?: RegexSearchStrategyOptions) {
+  constructor(
+    needle: RegExp,
+    {
+      maxBufferLength = DEFAULT_OPTIONS.maxBufferLength,
+      minCandidateLengthToBackOff = DEFAULT_OPTIONS.minCandidateLengthToBackOff,
+      bufferGrowthFactorBetweenEvaluations = DEFAULT_OPTIONS.bufferGrowthFactorBetweenEvaluations,
+      onGuardExceeded
+    }: RegexSearchStrategyOptions = {}
+  ) {
     super();
-    Object.assign(this, DEFAULT_OPTIONS, omitUndefined(options), {
-      completeMatchRegex: needle
-    });
+    this.completeMatchRegex = needle;
+    this.maxBufferLength = maxBufferLength;
+    this.minCandidateLengthToBackOff = minCandidateLengthToBackOff;
+    this.bufferGrowthFactorBetweenEvaluations =
+      bufferGrowthFactorBetweenEvaluations;
+    this.onGuardExceeded = onGuardExceeded;
     const partialMatchRegex = new PartialMatchRegExp(needle);
     validateInput(partialMatchRegex);
     this.partialMatchRegex = partialMatchRegex;
