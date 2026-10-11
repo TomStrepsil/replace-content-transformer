@@ -172,7 +172,7 @@ export class RegexSearchStrategy
     }
   }
 
-  *flush(
+  flush(
     state: RegexSearchState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const buffer = state.buffer;
@@ -180,14 +180,13 @@ export class RegexSearchStrategy
     state.buffer = "";
     state.streamOffset = 0;
     state.evaluatedBufferLength = 0;
-    for (const result of this.settle(buffer, baseOffset)) yield result;
+    return this.settle(buffer, baseOffset);
   }
 
-  private settle(
+  private *settle(
     buffer: string,
     baseOffset: number
-  ): MatchResult<RegExpExecArray>[] {
-    const settled: MatchResult<RegExpExecArray>[] = [];
+  ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const cursor: ScanCursor = { reportedUpTo: 0 };
     while (cursor.reportedUpTo < buffer.length) {
       const finalMatch = this.completeMatchRegex.exec(
@@ -196,20 +195,21 @@ export class RegexSearchStrategy
       if (finalMatch === null) break;
 
       if (finalMatch[0].length === 0) {
-        settled.push(
-          skipOneCodeUnitPastZeroLengthMatch(buffer, cursor, finalMatch.index)
+        yield skipOneCodeUnitPastZeroLengthMatch(
+          buffer,
+          cursor,
+          finalMatch.index
         );
         continue;
       }
       const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
-      if (precedingContent) settled.push(precedingContent);
-      settled.push(takeMatch(finalMatch, cursor, baseOffset));
+      if (precedingContent) yield precedingContent;
+      yield takeMatch(finalMatch, cursor, baseOffset);
     }
 
     if (cursor.reportedUpTo < buffer.length) {
-      settled.push(nonMatch(buffer.slice(cursor.reportedUpTo)));
+      yield nonMatch(buffer.slice(cursor.reportedUpTo));
     }
-    return settled;
   }
 
   override matchToString(match: RegExpExecArray): string {
