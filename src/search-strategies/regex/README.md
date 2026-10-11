@@ -378,7 +378,9 @@ new RegexSearchStrategy(/\S+/, {
 });
 ```
 
-Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called. Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default is `Infinity`.
+Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied). 
+
+Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default value is `Infinity`.
 
 > [!TIP]
 > Give the pattern a terminator its own body cannot consume:
