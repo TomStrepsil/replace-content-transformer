@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. There is a [migration report](../codemods/reports/v3-v4/README.md)
 - **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
-- Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
 - Updated `regex-partial-match` to `^2.0.1` (for `hitEnd()` and `features()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for engine cancellation and for settling a deferred match on abort
 - `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files
 - `SearchStrategy`, `MatchResult` and `StreamIndices` are exported from the package root
+- `RegexSearchStrategy` options `maxBufferLength` (ceiling on held-back content, default `Infinity`), `onGuardExceeded` (called when the ceiling is exceeded), `minCandidateLengthToBackOff` (default `1024`) and `bufferGrowthFactorBetweenEvaluations` (default `2`) ([#74](https://github.com/TomStrepsil/replace-content-transformer/issues/74), [#75](https://github.com/TomStrepsil/replace-content-transformer/issues/75)). See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 
 ## [3.0.2] - 2026-08-27
 
