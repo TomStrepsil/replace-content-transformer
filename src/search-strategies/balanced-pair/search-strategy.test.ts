@@ -362,7 +362,10 @@ describe("BalancedPairSearchStrategy", () => {
 
     it.each([
       ["an opening anchor containing the closing anchor", "**", "*", "**a**"],
-      ["an opening anchor overlapping its predecessor", "((", "(", "x((y((z"]
+      ["an opening anchor overlapping its predecessor", "((", "(", "x((y((z"],
+      ["a chunk ending inside the outer pair after a nested match", "(", ")", "(((a)b) tail"],
+      ["text between nested pairs inside an open outer pair", "(", ")", "((a) x (b) y"],
+      ["text after an inner match that closes in a later chunk", "(", ")", "(a(b)c) d(e)"]
     ])(
       "yields the same result however the input is split, with %s",
       (_label, opening, closing, input) => {
