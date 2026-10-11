@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { RegexSearchStrategy } from "./search-strategy.js";
+import type { RegexSearchStrategyOptions } from "./types.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
@@ -2253,6 +2254,26 @@ describe("RegexSearchStrategy", () => {
         exec.mockRestore();
       }
     });
+
+    it.each(["minCandidateLengthToBackOff", "bufferGrowthFactorBetweenEvaluations"])(
+      "keeps the default when %s is passed as undefined",
+      (option) => {
+        const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+        const scansWith = (options: RegexSearchStrategyOptions) => {
+          exec.mockClear();
+          collectSearchStrategyResults(
+            new RegexSearchStrategy(/\S+/, options),
+            chunksOf(unbrokenRun)
+          );
+          return exec.mock.calls.length;
+        };
+        try {
+          expect(scansWith({ [option]: undefined })).toBe(scansWith({}));
+        } finally {
+          exec.mockRestore();
+        }
+      }
+    );
 
     it("scans less often when given a larger growth factor", () => {
       const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");

@@ -5,6 +5,7 @@ import validateInput from "./input-validation.js";
 import advanceToMatch from "./advance-to-match.js";
 import endsAtHaystackEnd from "./ends-at-haystack-end.js";
 import nonMatch from "./non-match.js";
+import omitUndefined from "./omit-undefined.js";
 import sameCaptures from "./same-captures.js";
 import skipOneCodeUnitPastZeroLengthMatch from "./skip-one-code-unit-past-zero-length-match.js";
 import takeMatch from "./take-match.js";
@@ -61,7 +62,9 @@ export class RegexSearchStrategy
 
   constructor(needle: RegExp, options?: RegexSearchStrategyOptions) {
     super();
-    Object.assign(this, DEFAULT_OPTIONS, options, { completeMatchRegex: needle });
+    Object.assign(this, DEFAULT_OPTIONS, omitUndefined(options), {
+      completeMatchRegex: needle
+    });
     const partialMatchRegex = new PartialMatchRegExp(needle);
     validateInput(partialMatchRegex);
     this.partialMatchRegex = partialMatchRegex;
