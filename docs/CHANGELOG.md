@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed regex strategy tests that should have gone with [#53](https://github.com/TomStrepsil/replace-content-transformer/pull/53)
 - Fixed `LoopedIndexOfAnchoredSearchStrategy` and `BalancedPairSearchStrategy` re-scanning anchors already consumed when a chunk boundary falls mid-match, which could match the wrong text
 - Fixed benchmarking `looped-indexOf-cancellable` and `regex-callback` enqueuing empty chunks
+- Fixed some nits in `docs/CONTRIBUTING.md`
 
 ### Added
 
