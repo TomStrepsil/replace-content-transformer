@@ -2375,6 +2375,31 @@ describe("RegexSearchStrategy", () => {
       expect(onGuardExceeded).toHaveBeenCalledWith({ streamIndices: [3, 131] });
     });
 
+    it.each([
+      ["pending content", ["abc", "def"]],
+      ["content preceding the held-back span", ["x ab", "cdef"]]
+    ])(
+      "keeps the unconsumed input exactly once when the callback throws, with %s",
+      (_label, [first, second]) => {
+        const strategy = new RegexSearchStrategy(/\S+/, {
+          maxBufferLength: 5,
+          onGuardExceeded: () => {
+            throw new Error("callback failed");
+          }
+        });
+        const state = strategy.createState();
+        let reported = "";
+        const drain = (chunk: string) => {
+          for (const result of strategy.processChunk(chunk, state)) {
+            reported += getValue(result);
+          }
+        };
+        drain(first);
+        expect(() => drain(second)).toThrow("callback failed");
+        expect(reported + flushToString(strategy, state)).toBe(first + second);
+      }
+    );
+
     it("keeps the output lossless and stream indices true", () => {
       const strategy = new RegexSearchStrategy(/\S+/, {
         maxBufferLength: MAX_BUFFER_LENGTH

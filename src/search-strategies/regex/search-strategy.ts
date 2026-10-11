@@ -162,19 +162,17 @@ export class RegexSearchStrategy
           const heldBackFrom = cursor.reportedUpTo + matchStart;
           const heldBack = haystack.slice(heldBackFrom);
           const exceedsGuard = heldBack.length > this.maxBufferLength;
-          if (exceedsGuard) {
-            settling = true;
-            this.onGuardExceeded?.({
-              streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
-            });
-          }
           cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
           state.buffer = exceedsGuard ? "" : heldBack;
           state.evaluatedBufferLength = state.buffer.length;
           if (matchStart > 0)
             yield nonMatch(remainingHaystack.slice(0, matchStart));
-          if (exceedsGuard) continue;
-          return;
+          if (!exceedsGuard) return;
+          settling = true;
+          this.onGuardExceeded?.({
+            streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
+          });
+          continue;
         }
 
         state.buffer = "";
