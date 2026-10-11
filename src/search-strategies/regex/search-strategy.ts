@@ -136,30 +136,32 @@ export class RegexSearchStrategy
     haystack = state.buffer + haystack;
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
+    let settling = false;
     try {
       while (cursor.reportedUpTo < length) {
         const remainingHaystack = haystack.substring(cursor.reportedUpTo);
-        const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
-        const matchStart = partialMatch?.index ?? remainingHaystack.length;
-        const settledMatch = this.settledMatch(partialMatch, remainingHaystack);
+        const candidate = (
+          settling ? this.completeMatchRegex : this.partialMatchRegex
+        ).exec(remainingHaystack);
+        const matchStart = candidate?.index ?? remainingHaystack.length;
+        const settledMatch = settling
+          ? candidate
+          : this.settledMatch(candidate, remainingHaystack);
 
         if (settledMatch === null) {
           const heldBackFrom = cursor.reportedUpTo + matchStart;
           const heldBack = haystack.slice(heldBackFrom);
           const exceedsGuard = heldBack.length > this.maxBufferLength;
-          cursor.reportedUpTo = length;
+          if (exceedsGuard) {
+            settling = true;
+            this.onGuardExceeded?.({ bufferLength: heldBack.length });
+          }
+          cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
           state.buffer = exceedsGuard ? "" : heldBack;
           state.evaluatedBufferLength = state.buffer.length;
           if (matchStart > 0)
             yield nonMatch(remainingHaystack.slice(0, matchStart));
-          if (exceedsGuard) {
-            this.onGuardExceeded?.({ bufferLength: heldBack.length });
-            for (const result of this.settle(
-              heldBack,
-              baseOffset + heldBackFrom
-            ))
-              yield result;
-          }
+          if (exceedsGuard) continue;
           return;
         }
 

@@ -2365,6 +2365,21 @@ describe("RegexSearchStrategy", () => {
       expect(onGuardExceeded).not.toHaveBeenCalled();
     });
 
+    it("keeps what a consumer abandoned mid-settlement, for flush to report", () => {
+      const input = "aXXbXXXXXXXX";
+      const strategy = new RegexSearchStrategy(/a.*b/, {
+        maxBufferLength: 5
+      });
+      const state = strategy.createState();
+      let reported = "";
+      for (const result of strategy.processChunk(input, state)) {
+        reported += getValue(result);
+        if (result.isMatch) break;
+      }
+      expect(reported).toBe("aXXb");
+      expect(reported + flushToString(strategy, state)).toBe(input);
+    });
+
     it("resets the ceiling's bookkeeping on flush", () => {
       const strategy = new RegexSearchStrategy(/\S+/);
       const state = strategy.createState();
