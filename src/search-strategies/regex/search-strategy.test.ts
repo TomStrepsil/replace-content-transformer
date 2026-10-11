@@ -21,6 +21,10 @@ function getValue(result: MatchResult<RegExpExecArray>): string {
   return result.isMatch ? result.content[0] : result.content;
 }
 
+function matchesOf(results: MatchResult<RegExpExecArray>[]): string[] {
+  return results.filter((r) => r.isMatch).map((r) => r.content[0]);
+}
+
 function everySplitOf(haystack: string): string[][] {
   return [
     ...everyTwoWaySplit(haystack),
@@ -1988,9 +1992,6 @@ describe("RegexSearchStrategy", () => {
       results.map((r) => (r.isMatch ? r.content[0] : r.content)).join("") +
       flush;
 
-    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
-      results.filter((r) => r.isMatch).map((r) => r.content[0]);
-
     const emptyPattern = new RegExp("");
 
     const zeroLengthPatterns: [name: string, pattern: RegExp][] = [
@@ -2193,8 +2194,6 @@ describe("RegexSearchStrategy", () => {
   });
 
   describe("re-evaluating a growing candidate", () => {
-    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
-      results.filter((r) => r.isMatch).map((r) => r.content[0]);
     const CHUNK_LENGTH = 64;
     const unbrokenRun = "a".repeat(20_000);
 
@@ -2284,8 +2283,6 @@ describe("RegexSearchStrategy", () => {
   });
 
   describe("buffer ceiling", () => {
-    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
-      results.filter((r) => r.isMatch).map((r) => r.content[0]);
     const MAX_BUFFER_LENGTH = 100;
     const unbrokenRun = "a".repeat(250);
     const chunks = [
