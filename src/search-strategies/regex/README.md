@@ -411,10 +411,10 @@ The practical effect is that a nullable pattern matches only where it matches so
 /(ab)*/; // matches like /(ab)+/
 ```
 
-Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked [^11].
+Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked [^10].
 
 > [!WARNING]
-> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^12]
+> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^11]
 >
 > ```js
 > new RegExp(""); //  never matches
@@ -443,7 +443,7 @@ Chunks must not split a surrogate pair. Only whole astral characters are support
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
 - 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
-- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^13]: `/foo/d`
+- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^12]: `/foo/d`
 
 ## Credits
 
@@ -467,8 +467,8 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^9]: `/(ab)\1|(abc)\2/` fed `"ab"`, `"ca"`, `"bc"` yields the single non-match `"abcabc"` instead of the match `"abcabc"` a non-chunked `exec()` finds. The partial regex returns `"a"` at index 3 for `"abca"` rather than the partial match at 0.
 
-[^11]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
+[^10]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
 
-[^12]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
+[^11]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
 
-[^13]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
+[^12]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
