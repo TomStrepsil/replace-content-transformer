@@ -20,8 +20,8 @@ resolves #_ISSUE_ID_
 
 ## Checklist
 
+- [ ] PR starts with [_ISSUE_ID_]
 - [ ] I have added an entry to the `[Unreleased]` section in [`CHANGELOG.md`](../docs/CHANGELOG.md)
-- [ ] My code follows the style guidelines of this project
 - [ ] I have performed a self-review of my own code
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
