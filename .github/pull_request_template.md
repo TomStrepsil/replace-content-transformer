@@ -20,7 +20,7 @@ resolves #_ISSUE_ID_
 
 ## Checklist
 
-- [ ] PR starts with [_ISSUE_ID_]
+- [ ] PR starts with [_ISSUE_ID_], or `[NO ISSUE]`
 - [ ] I have added an entry to the `[Unreleased]` section in [`CHANGELOG.md`](../docs/CHANGELOG.md)
 - [ ] I have performed a self-review of my own code
 - [ ] I have added tests that prove my fix is effective or that my feature works
