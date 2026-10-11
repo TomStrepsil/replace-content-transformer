@@ -2357,7 +2357,22 @@ describe("RegexSearchStrategy", () => {
         peakBuffer = Math.max(peakBuffer, state.buffer.length);
       }
       expect(peakBuffer).toBeLessThanOrEqual(MAX_BUFFER_LENGTH);
-      expect(onGuardExceeded).toHaveBeenCalledWith({ bufferLength: 128 });
+      expect(onGuardExceeded).toHaveBeenCalledWith({ streamIndices: [0, 128] });
+    });
+
+    it("reports the stream span it settled, after any preceding content", () => {
+      const onGuardExceeded = vi.fn();
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: MAX_BUFFER_LENGTH,
+        onGuardExceeded
+      });
+      collectSearchStrategyResults(strategy, [
+        "ab ",
+        unbrokenRun.slice(0, 64),
+        unbrokenRun.slice(64, 128)
+      ]);
+      expect(onGuardExceeded).toHaveBeenCalledTimes(1);
+      expect(onGuardExceeded).toHaveBeenCalledWith({ streamIndices: [3, 131] });
     });
 
     it("keeps the output lossless and stream indices true", () => {

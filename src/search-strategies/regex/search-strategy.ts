@@ -164,7 +164,9 @@ export class RegexSearchStrategy
           const exceedsGuard = heldBack.length > this.maxBufferLength;
           if (exceedsGuard) {
             settling = true;
-            this.onGuardExceeded?.({ bufferLength: heldBack.length });
+            this.onGuardExceeded?.({
+              streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
+            });
           }
           cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
           state.buffer = exceedsGuard ? "" : heldBack;

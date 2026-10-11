@@ -1,5 +1,5 @@
 import type { DEFAULT_OPTIONS } from "./default-options.js";
-import type { StringBufferState } from "../types.js";
+import type { StreamIndices, StringBufferState } from "../types.js";
 
 /** Per-stream state for `RegexSearchStrategy`. */
 export type RegexSearchState = StringBufferState & {
@@ -9,8 +9,11 @@ export type RegexSearchState = StringBufferState & {
 
 /** Passed to `onGuardExceeded` when held-back content exceeds `maxBufferLength`. */
 export type GuardExceededInfo = {
-  /** Length, in code units, of the content that was settled early. */
-  bufferLength: number;
+  /**
+   * Absolute stream offsets, as [startIndex, endIndex] with endIndex exclusive,
+   * of the held-back content that is settled early.
+   */
+  streamIndices: StreamIndices;
 };
 
 export type ScanCursor = { reportedUpTo: number };

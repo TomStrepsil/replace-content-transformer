@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for engine cancellation and for settling a deferred match on abort
 - `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files
 - `SearchStrategy`, `MatchResult` and `StreamIndices` are exported from the package root
-- `RegexSearchStrategy` options `maxBufferLength` (ceiling on held-back content, default `Infinity`), `onGuardExceeded` (called when the ceiling is exceeded), `minCandidateLengthToBackOff` (default `1024`) and `bufferGrowthFactorBetweenEvaluations` (default `2`). See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- `RegexSearchStrategy` options `maxBufferLength` (ceiling on held-back content, default `Infinity`), `onGuardExceeded` (called with the `streamIndices` of the span settled early when the ceiling is exceeded), `minCandidateLengthToBackOff` (default `1024`) and `bufferGrowthFactorBetweenEvaluations` (default `2`). See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 
 ## [3.0.2] - 2026-08-27
 

@@ -374,11 +374,12 @@ To bound memory, set a ceiling:
 ```js
 new RegexSearchStrategy(/\S+/, {
   maxBufferLength: 64 * 1024,
-  onGuardExceeded: ({ bufferLength }) => console.warn(bufferLength)
+  onGuardExceeded: ({ streamIndices: [start, end] }) =>
+    console.warn(`settled ${end - start} code units early, from offset ${start}`)
 });
 ```
 
-Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied). 
+Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive. 
 
 Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default value is `Infinity`.
 
