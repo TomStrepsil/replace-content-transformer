@@ -2,6 +2,7 @@ import type { MatchResult, SearchStrategy } from "../types.js";
 import PartialMatchRegExp, { features, hitEnd } from "regex-partial-match";
 import { DEFAULT_OPTIONS } from "./default-options.js";
 import validateInput from "./input-validation.js";
+import validateOptions from "./options-validation.js";
 import advanceToMatch from "./advance-to-match.js";
 import endsAtHaystackEnd from "./ends-at-haystack-end.js";
 import nonMatch from "./non-match.js";
@@ -32,6 +33,10 @@ const FEATURES_NEEDING_PROBE_BEFORE_END = [
  * @throws If `needle` uses a construct whose truth a streaming scan cannot decide
  * at a chunk boundary — negative lookaheads, lookbehinds, word boundaries, the
  * `^`/`$` anchors — or the `g`, `y` or `m` flags. See [Limitations](./README.md#limitations).
+ *
+ * @throws {RangeError} If `maxBufferLength` or `minCandidateLengthToBackOff` is
+ * not a number of at least 0, or `bufferGrowthFactorBetweenEvaluations` is not a
+ * number of at least 1. `Infinity` is allowed; `undefined` selects the default.
  *
  * @example Basic regex search
  * ```typescript
@@ -69,6 +74,11 @@ export class RegexSearchStrategy
     }: RegexSearchStrategyOptions = {}
   ) {
     super();
+    validateOptions({
+      maxBufferLength,
+      minCandidateLengthToBackOff,
+      bufferGrowthFactorBetweenEvaluations
+    });
     this.completeMatchRegex = needle;
     this.maxBufferLength = maxBufferLength;
     this.minCandidateLengthToBackOff = minCandidateLengthToBackOff;

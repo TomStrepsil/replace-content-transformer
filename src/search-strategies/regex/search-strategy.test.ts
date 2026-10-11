@@ -3,6 +3,7 @@ import { RegexSearchStrategy } from "./search-strategy.js";
 import type { RegexSearchStrategyOptions } from "./types.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
+import optionsValidation from "./options-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
 import {
   collectCanonicalSearchStrategyResults,
@@ -17,6 +18,7 @@ import {
 } from "../../../test/splits.js";
 
 vi.mock("./input-validation.js");
+vi.mock("./options-validation.js");
 
 function getValue(result: MatchResult<RegExpExecArray>): string {
   return result.isMatch ? result.content[0] : result.content;
@@ -181,6 +183,26 @@ describe("RegexSearchStrategy", () => {
     expect(validateInput).toHaveBeenCalledWith(
       expect.objectContaining({ source: someRegex.source })
     );
+  });
+
+  describe("option validation", () => {
+    it("should validate the options, with defaults filled in", () => {
+      new RegexSearchStrategy(/test-regex/, { maxBufferLength: 100 });
+      expect(optionsValidation).toHaveBeenCalledWith({
+        maxBufferLength: 100,
+        minCandidateLengthToBackOff: 1024,
+        bufferGrowthFactorBetweenEvaluations: 2
+      });
+    });
+
+    it("should validate the defaults when an option is explicitly undefined", () => {
+      new RegexSearchStrategy(/test-regex/, { maxBufferLength: undefined });
+      expect(optionsValidation).toHaveBeenLastCalledWith({
+        maxBufferLength: Infinity,
+        minCandidateLengthToBackOff: 1024,
+        bufferGrowthFactorBetweenEvaluations: 2
+      });
+    });
   });
 
   describe("complete matches", () => {
