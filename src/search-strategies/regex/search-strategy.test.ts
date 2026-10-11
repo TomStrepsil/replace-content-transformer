@@ -1318,6 +1318,23 @@ describe("RegexSearchStrategy", () => {
       expect(content.indices?.groups?.name).toEqual([9, 14]);
     });
 
+    it("reports match.index as a stream offset and omits match.input when the match is in a later chunk", () => {
+      const { results, flushResults } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
+        ["some longer prefix text ", "and then {{value}}"]
+      );
+
+      const match = [...results, ...flushResults].find((result) => result.isMatch) as {
+        content: RegExpExecArray;
+        streamIndices: [number, number];
+      };
+      const offset = "some longer prefix text and then ".length;
+      expect(match.streamIndices).toEqual([offset, offset + 9]);
+      expect(match.content.index).toBe(offset);
+      expect(match.content.index).toBe(match.content.indices?.[0][0]);
+      expect(match.content).not.toHaveProperty("input");
+    });
+
     it("emits content that never became a match as one trailing non-match segment", () => {
       const { results, flushResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{\w+\}\}/),
