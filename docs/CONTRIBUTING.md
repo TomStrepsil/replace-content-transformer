@@ -50,16 +50,17 @@ Wait for feedback before starting significant work to ensure your contribution a
 ### 1. Create a Branch
 
 ```bash
-git checkout -b [<issue number>]_description-of-contribution
+git checkout -b issue-number_description-of-contribution
 # or
 git checkout -b NO-ISSUE_description-of-contribution
 ```
 
-Use descriptive branch names:
+e.g.
 
 - `11_add-unicode-normalization`
 - `22_handle-empty-patterns`
 - `34_improve-readme-examples`
+- `NO-ISSUE_some-minor-thing`
 
 ### 2. Make Your Changes
 
