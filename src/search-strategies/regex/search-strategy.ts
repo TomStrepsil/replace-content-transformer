@@ -1,91 +1,26 @@
 import type { MatchResult, SearchStrategy } from "../types.js";
 import PartialMatchRegExp, { features, hitEnd } from "regex-partial-match";
+import { DEFAULT_OPTIONS } from "./default-options.js";
 import validateInput from "./input-validation.js";
-import StringBufferStrategyBase, {
-  type StringBufferState
-} from "../string-buffer-strategy-base.js";
-
-function updateIndices(indices: RegExpIndicesArray, offset: number) {
-  for (const entry of indices) {
-    if (entry === undefined) continue;
-    entry[0] += offset;
-    entry[1] += offset;
-  }
-}
-
-function sameCaptures(
-  candidate: RegExpExecArray,
-  confirmed: RegExpExecArray
-): boolean {
-  return (
-    candidate.length === confirmed.length &&
-    candidate.every((capture, group) => capture === confirmed[group])
-  );
-}
+import validateOptions from "./options-validation.js";
+import advanceToMatch from "./advance-to-match.js";
+import endsAtHaystackEnd from "./ends-at-haystack-end.js";
+import nonMatch from "./non-match.js";
+import sameCaptures from "./same-captures.js";
+import skipOneCodeUnitPastZeroLengthMatch from "./skip-one-code-unit-past-zero-length-match.js";
+import takeMatch from "./take-match.js";
+import type {
+  RegexSearchState,
+  RegexSearchStrategyOptions,
+  ScanCursor
+} from "./types.js";
+import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
 
 const FEATURES_NEEDING_PROBE_BEFORE_END = [
   "backreference",
   "namedBackreference",
   "lookahead"
 ] as const;
-
-function endsAtHaystackEnd(
-  match: RegExpExecArray,
-  haystack: string
-): boolean {
-  return match.index + match[0].length === haystack.length;
-}
-
-function nonMatch(content: string): MatchResult<RegExpExecArray> {
-  return { isMatch: false, content };
-}
-
-function toMatchResult(
-  match: RegExpExecArray,
-  startIndex: number
-): MatchResult<RegExpExecArray> {
-  const indices = match.indices;
-  if (indices) updateIndices(indices, startIndex - match.index);
-  return {
-    isMatch: true,
-    content: match,
-    streamIndices: [startIndex, startIndex + match[0].length]
-  };
-}
-
-type ScanCursor = { reportedUpTo: number };
-
-function skipOneCodeUnitPastZeroLengthMatch(
-  haystack: string,
-  cursor: ScanCursor,
-  matchIndex: number
-): MatchResult<RegExpExecArray> {
-  const skippedFrom = cursor.reportedUpTo;
-  cursor.reportedUpTo = Math.min(skippedFrom + matchIndex + 1, haystack.length);
-  return nonMatch(haystack.slice(skippedFrom, cursor.reportedUpTo));
-}
-
-function advanceToMatch(
-  match: RegExpExecArray,
-  haystack: string,
-  cursor: ScanCursor
-): MatchResult<RegExpExecArray> | null {
-  const precedingContentFrom = cursor.reportedUpTo;
-  cursor.reportedUpTo = precedingContentFrom + match.index;
-  return match.index > 0
-    ? nonMatch(haystack.slice(precedingContentFrom, cursor.reportedUpTo))
-    : null;
-}
-
-function takeMatch(
-  match: RegExpExecArray,
-  cursor: ScanCursor,
-  baseOffset: number
-): MatchResult<RegExpExecArray> {
-  const matchStart = cursor.reportedUpTo;
-  cursor.reportedUpTo = matchStart + match[0].length;
-  return toMatchResult(match, baseOffset + matchStart);
-}
 
 /**
  * A search strategy for finding patterns using regular expressions.
@@ -99,35 +34,59 @@ function takeMatch(
  * at a chunk boundary — negative lookaheads, lookbehinds, word boundaries, the
  * `^`/`$` anchors — or the `g`, `y` or `m` flags. See [Limitations](./README.md#limitations).
  *
+ * @throws {RangeError} If `maxBufferLength` or `minCandidateLengthToBackOff` is
+ * not a number of at least 0, or `bufferGrowthFactorBetweenEvaluations` is not a
+ * number of at least 1. `Infinity` is allowed; `undefined` selects the default.
+ *
  * @example Basic regex search
  * ```typescript
- * import { searchStrategyFactory, FunctionReplacementProcessor } from 'replace-content-transformer';
+ * import { searchStrategyFactory, SyncReplacementTransformEngine } from 'replace-content-transformer';
  *
  * // Factory automatically creates RegexSearchStrategy for RegExp input
  * const strategy = searchStrategyFactory(/\{\{(\w+)\}\}/);
  *
- * const processor = new FunctionReplacementProcessor({
+ * const engine = new SyncReplacementTransformEngine({
  *   searchStrategy: strategy,
- *   replacement: (match) => {
- *     return `Value: ${match[1]}`;
- *   }
+ *   replacement: (match) => `Value: ${match[1]}`
  * });
  * ```
  */
 export class RegexSearchStrategy
   extends StringBufferStrategyBase<RegExpExecArray>
-  implements SearchStrategy<StringBufferState, RegExpExecArray>
+  implements SearchStrategy<RegexSearchState, RegExpExecArray>
 {
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
   private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
+  private readonly maxBufferLength: number;
+  private readonly minCandidateLengthToBackOff: number;
+  private readonly bufferGrowthFactorBetweenEvaluations: number;
+  private readonly onGuardExceeded: RegexSearchStrategyOptions["onGuardExceeded"];
 
-  constructor(needle: RegExp) {
+  constructor(
+    needle: RegExp,
+    {
+      maxBufferLength = DEFAULT_OPTIONS.maxBufferLength,
+      minCandidateLengthToBackOff = DEFAULT_OPTIONS.minCandidateLengthToBackOff,
+      bufferGrowthFactorBetweenEvaluations = DEFAULT_OPTIONS.bufferGrowthFactorBetweenEvaluations,
+      onGuardExceeded
+    }: RegexSearchStrategyOptions = {}
+  ) {
     super();
+    validateOptions({
+      maxBufferLength,
+      minCandidateLengthToBackOff,
+      bufferGrowthFactorBetweenEvaluations
+    });
+    this.completeMatchRegex = needle;
+    this.maxBufferLength = maxBufferLength;
+    this.minCandidateLengthToBackOff = minCandidateLengthToBackOff;
+    this.bufferGrowthFactorBetweenEvaluations =
+      bufferGrowthFactorBetweenEvaluations;
+    this.onGuardExceeded = onGuardExceeded;
     const partialMatchRegex = new PartialMatchRegExp(needle);
     validateInput(partialMatchRegex);
-    this.completeMatchRegex = needle;
     this.partialMatchRegex = partialMatchRegex;
     const patternFeatures = features(partialMatchRegex);
     this.probesCandidatesEndingBeforeHaystackEnd =
@@ -137,6 +96,22 @@ export class RegexSearchStrategy
     this.lookaheadConfirmationRegex = patternFeatures.has("lookahead")
       ? new RegExp(needle.source, `${needle.flags}y`)
       : null;
+  }
+
+  override createState(): RegexSearchState {
+    return { ...super.createState(), evaluatedBufferLength: 0 };
+  }
+
+  private canSkipEvaluation(
+    state: RegexSearchState,
+    bufferedLength: number
+  ): boolean {
+    return (
+      state.evaluatedBufferLength >= this.minCandidateLengthToBackOff &&
+      bufferedLength <=
+        state.evaluatedBufferLength * this.bufferGrowthFactorBetweenEvaluations &&
+      bufferedLength <= this.maxBufferLength
+    );
   }
 
   private settledMatch(
@@ -159,29 +134,49 @@ export class RegexSearchStrategy
 
   *processChunk(
     haystack: string,
-    state: StringBufferState
+    state: RegexSearchState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const bufferLength = state.buffer.length;
+    if (this.canSkipEvaluation(state, bufferLength + haystack.length)) {
+      state.buffer += haystack;
+      state.streamOffset += haystack.length;
+      return;
+    }
     const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
+    let settling = false;
     try {
       while (cursor.reportedUpTo < length) {
         const remainingHaystack = haystack.substring(cursor.reportedUpTo);
-        const partialMatch = this.partialMatchRegex.exec(remainingHaystack);
-        const matchStart = partialMatch?.index ?? remainingHaystack.length;
-        const settledMatch = this.settledMatch(partialMatch, remainingHaystack);
+        const candidate = (
+          settling ? this.completeMatchRegex : this.partialMatchRegex
+        ).exec(remainingHaystack);
+        const matchStart = candidate?.index ?? remainingHaystack.length;
+        const settledMatch = settling
+          ? candidate
+          : this.settledMatch(candidate, remainingHaystack);
 
         if (settledMatch === null) {
-          cursor.reportedUpTo = length;
-          state.buffer = remainingHaystack.slice(matchStart);
+          const heldBackFrom = cursor.reportedUpTo + matchStart;
+          const heldBack = haystack.slice(heldBackFrom);
+          const exceedsGuard = heldBack.length > this.maxBufferLength;
+          cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
+          state.buffer = exceedsGuard ? "" : heldBack;
+          state.evaluatedBufferLength = state.buffer.length;
           if (matchStart > 0)
             yield nonMatch(remainingHaystack.slice(0, matchStart));
-          return;
+          if (!exceedsGuard) return;
+          settling = true;
+          this.onGuardExceeded?.({
+            streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
+          });
+          continue;
         }
 
         state.buffer = "";
+        state.evaluatedBufferLength = 0;
         if (settledMatch[0].length === 0) {
           yield skipOneCodeUnitPastZeroLengthMatch(
             haystack,
@@ -202,14 +197,21 @@ export class RegexSearchStrategy
     }
   }
 
-  *flush(
-    state: StringBufferState
+  flush(
+    state: RegexSearchState
   ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const buffer = state.buffer;
     const baseOffset = state.streamOffset - buffer.length;
     state.buffer = "";
     state.streamOffset = 0;
+    state.evaluatedBufferLength = 0;
+    return this.settle(buffer, baseOffset);
+  }
 
+  private *settle(
+    buffer: string,
+    baseOffset: number
+  ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
     const cursor: ScanCursor = { reportedUpTo: 0 };
     while (cursor.reportedUpTo < buffer.length) {
       const finalMatch = this.completeMatchRegex.exec(

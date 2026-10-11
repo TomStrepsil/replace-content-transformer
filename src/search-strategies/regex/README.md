@@ -365,7 +365,23 @@ The cost is decided by whether the pattern can _settle_:
 
 A terminator the body cannot consume **bounds** the buffer without emptying it: a match in progress when a chunk ends is held, so the peak is the longest pending match (8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md)) and does not grow with the stream.
 
-`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. The buffer is also re-scanned from position 0 every chunk, so the cost is **quadratic** in stream length [^10].
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length. 
+
+Both the 1024-character threshold and the growth factor of 2 can be changed with the `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` options. The price is latency: a match that completes just after a scan is released at the next one, or at end of stream.
+
+To bound memory, set a ceiling:
+
+```js
+new RegexSearchStrategy(/\S+/, {
+  maxBufferLength: 64 * 1024,
+  onGuardExceeded: ({ streamIndices: [start, end] }) =>
+    console.warn(`settled ${end - start} code units early, from offset ${start}`)
+});
+```
+
+Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive. 
+
+Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default value is `Infinity`.
 
 > [!TIP]
 > Give the pattern a terminator its own body cannot consume:
@@ -400,10 +416,10 @@ The practical effect is that a nullable pattern matches only where it matches so
 /(ab)*/; // matches like /(ab)+/
 ```
 
-Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked [^11].
+Output stays lossless — skipped positions are passed through as ordinary non-matching content — and the same matches are produced however the stream is chunked [^10].
 
 > [!WARNING]
-> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^12]
+> A pattern that can **only** match empty therefore never matches **anything**, and does so silently: [^11]
 >
 > ```js
 > new RegExp(""); //  never matches
@@ -432,7 +448,7 @@ Chunks must not split a surrogate pair. Only whole astral characters are support
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`
 - 🔙 [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) (numbered and named): `/(.+?) \1/`, `/(?<foo>.)\k<foo>/` (see [caveats](#limitations) above)
-- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^13]: `/foo/d`
+- 🗂️ [Indices](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Groups_and_backreferences#using_groups_and_match_indices) [^12]: `/foo/d`
 
 ## Credits
 
@@ -456,10 +472,8 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^9]: `/(ab)\1|(abc)\2/` fed `"ab"`, `"ca"`, `"bc"` yields the single non-match `"abcabc"` instead of the match `"abcabc"` a non-chunked `exec()` finds. The partial regex returns `"a"` at index 3 for `"abca"` rather than the partial match at 0.
 
-[^10]: Measured 23 µs at 1.5 KB, 323 µs at 6 KB and 4.99 ms at 24 KB, roughly 4× per doubling.
+[^10]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
 
-[^11]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
+[^11]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
 
-[^12]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
-
-[^13]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
+[^12]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.

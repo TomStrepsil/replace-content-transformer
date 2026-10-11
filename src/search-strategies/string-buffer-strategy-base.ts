@@ -1,9 +1,4 @@
-import type { MatchResult } from "./types.js";
-
-export type StringBufferState = {
-  buffer: string;
-  streamOffset: number;
-};
+import type { MatchResult, StringBufferState } from "./types.js";
 
 abstract class StringBufferStrategyBase<TMatch = string> {
   createState(): StringBufferState {

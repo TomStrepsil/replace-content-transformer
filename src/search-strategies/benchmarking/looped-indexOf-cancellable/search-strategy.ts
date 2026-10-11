@@ -1,7 +1,5 @@
-import type { SearchStrategy, MatchResult } from "../../types.ts";
-import StringBufferStrategyBase, {
-  type StringBufferState
-} from "../../string-buffer-strategy-base.ts";
+import type { SearchStrategy, MatchResult, StringBufferState } from "../../types.ts";
+import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
 
 export interface LoopedIndexOfCancellableSearchState extends StringBufferState {
   needleIndex: number;

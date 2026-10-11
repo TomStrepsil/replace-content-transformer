@@ -17,11 +17,11 @@ import {
  * 
  * @example
  * ```typescript
- * import { searchStrategyFactory, StaticReplacementProcessor } from 'replace-content-transformer';
+ * import { searchStrategyFactory, SyncReplacementTransformEngine } from 'replace-content-transformer';
  * 
  * // String search
  * const stringStrategy = searchStrategyFactory('{{placeholder}}');
- * const processor = new StaticReplacementProcessor({
+ * const engine = new SyncReplacementTransformEngine({
  *   searchStrategy: stringStrategy,
  *   replacement: 'value'
  * });

@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { RegexSearchStrategy } from "./search-strategy.js";
+import type { RegexSearchStrategyOptions } from "./types.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
+import optionsValidation from "./options-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
 import {
   collectCanonicalSearchStrategyResults,
@@ -16,9 +18,14 @@ import {
 } from "../../../test/splits.js";
 
 vi.mock("./input-validation.js");
+vi.mock("./options-validation.js");
 
 function getValue(result: MatchResult<RegExpExecArray>): string {
   return result.isMatch ? result.content[0] : result.content;
+}
+
+function matchesOf(results: MatchResult<RegExpExecArray>[]): string[] {
+  return results.filter((r) => r.isMatch).map((r) => r.content[0]);
 }
 
 function everySplitOf(haystack: string): string[][] {
@@ -176,6 +183,26 @@ describe("RegexSearchStrategy", () => {
     expect(validateInput).toHaveBeenCalledWith(
       expect.objectContaining({ source: someRegex.source })
     );
+  });
+
+  describe("option validation", () => {
+    it("should validate the options, with defaults filled in", () => {
+      new RegexSearchStrategy(/test-regex/, { maxBufferLength: 100 });
+      expect(optionsValidation).toHaveBeenCalledWith({
+        maxBufferLength: 100,
+        minCandidateLengthToBackOff: 1024,
+        bufferGrowthFactorBetweenEvaluations: 2
+      });
+    });
+
+    it("should validate the defaults when an option is explicitly undefined", () => {
+      new RegexSearchStrategy(/test-regex/, { maxBufferLength: undefined });
+      expect(optionsValidation).toHaveBeenLastCalledWith({
+        maxBufferLength: Infinity,
+        minCandidateLengthToBackOff: 1024,
+        bufferGrowthFactorBetweenEvaluations: 2
+      });
+    });
   });
 
   describe("complete matches", () => {
@@ -1988,9 +2015,6 @@ describe("RegexSearchStrategy", () => {
       results.map((r) => (r.isMatch ? r.content[0] : r.content)).join("") +
       flush;
 
-    const matchesOf = (results: MatchResult<RegExpExecArray>[]): string[] =>
-      results.filter((r) => r.isMatch).map((r) => r.content[0]);
-
     const emptyPattern = new RegExp("");
 
     const zeroLengthPatterns: [name: string, pattern: RegExp][] = [
@@ -2189,6 +2213,241 @@ describe("RegexSearchStrategy", () => {
       );
       expect(matchesOf(results)).toEqual(["{{name}}"]);
       expect(reassemble(results, flush)).toBe("a {{name}} b");
+    });
+  });
+
+  describe("re-evaluating a growing candidate", () => {
+    const CHUNK_LENGTH = 64;
+    const unbrokenRun = "a".repeat(20_000);
+
+    function chunksOf(haystack: string): string[] {
+      return haystack.match(new RegExp(`[^]{1,${CHUNK_LENGTH}}`, "g")) ?? [];
+    }
+
+    it("scans the buffer a logarithmic number of times, not once per chunk", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      try {
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/),
+          chunksOf(unbrokenRun)
+        );
+        expect(exec.mock.calls.length).toBeLessThan(
+          chunksOf(unbrokenRun).length / 4
+        );
+      } finally {
+        exec.mockRestore();
+      }
+    });
+
+    it("emits the same matches and stream indices as the unsplit input", () => {
+      const haystack = `${unbrokenRun} tail ${unbrokenRun}`;
+      expect(matchDetailsOf(/\S+/, chunksOf(haystack))).toEqual(
+        matchDetailsOf(/\S+/, [haystack])
+      );
+    });
+
+    it("settles a candidate completed while evaluation was being skipped, at the latest on flush", () => {
+      const haystack = `${unbrokenRun} next`;
+      const { results, flushResults, output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\S+/),
+        chunksOf(haystack)
+      );
+      expect(output).toBe(haystack);
+      expect(
+        [...results, ...flushResults]
+          .filter((result) => result.isMatch)
+          .map((result) => getValue(result).length)
+      ).toEqual([unbrokenRun.length, "next".length]);
+    });
+
+    it("backs off sooner when given a lower threshold", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      const scansWith = (minCandidateLengthToBackOff: number) => {
+        exec.mockClear();
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/, { minCandidateLengthToBackOff }),
+          chunksOf(unbrokenRun)
+        );
+        return exec.mock.calls.length;
+      };
+      try {
+        expect(scansWith(CHUNK_LENGTH)).toBeLessThan(scansWith(8192));
+      } finally {
+        exec.mockRestore();
+      }
+    });
+
+    it.each(["minCandidateLengthToBackOff", "bufferGrowthFactorBetweenEvaluations"])(
+      "keeps the default when %s is passed as undefined",
+      (option) => {
+        const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+        const scansWith = (options: RegexSearchStrategyOptions) => {
+          exec.mockClear();
+          collectSearchStrategyResults(
+            new RegexSearchStrategy(/\S+/, options),
+            chunksOf(unbrokenRun)
+          );
+          return exec.mock.calls.length;
+        };
+        try {
+          expect(scansWith({ [option]: undefined })).toBe(scansWith({}));
+        } finally {
+          exec.mockRestore();
+        }
+      }
+    );
+
+    it("scans less often when given a larger growth factor", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      const scansWith = (bufferGrowthFactorBetweenEvaluations: number) => {
+        exec.mockClear();
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/, {
+            bufferGrowthFactorBetweenEvaluations
+          }),
+          chunksOf(unbrokenRun)
+        );
+        return exec.mock.calls.length;
+      };
+      try {
+        expect(scansWith(4)).toBeLessThan(scansWith(2));
+      } finally {
+        exec.mockRestore();
+      }
+    });
+
+    it("still evaluates every chunk for a short pending candidate", () => {
+      const { results } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{[^{}]*\}\}/),
+        ["{{na", "me}} b"]
+      );
+      expect(matchesOf(results)).toEqual(["{{name}}"]);
+    });
+  });
+
+  describe("buffer ceiling", () => {
+    const MAX_BUFFER_LENGTH = 100;
+    const unbrokenRun = "a".repeat(250);
+    const chunks = [
+      unbrokenRun.slice(0, 64),
+      unbrokenRun.slice(64, 128),
+      unbrokenRun.slice(128, 192),
+      unbrokenRun.slice(192)
+    ];
+
+    it("holds the whole run when no ceiling is set", () => {
+      const onGuardExceeded = vi.fn();
+      const strategy = new RegexSearchStrategy(/\S+/, { onGuardExceeded });
+      const state = strategy.createState();
+      for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
+      expect(state.buffer).toBe(unbrokenRun);
+      expect(onGuardExceeded).not.toHaveBeenCalled();
+    });
+
+    it("stops deferring once the buffer exceeds the ceiling, and reports it", () => {
+      const onGuardExceeded = vi.fn();
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: MAX_BUFFER_LENGTH,
+        onGuardExceeded
+      });
+      const state = strategy.createState();
+      let peakBuffer = 0;
+      for (const chunk of chunks) {
+        Array.from(strategy.processChunk(chunk, state));
+        peakBuffer = Math.max(peakBuffer, state.buffer.length);
+      }
+      expect(peakBuffer).toBeLessThanOrEqual(MAX_BUFFER_LENGTH);
+      expect(onGuardExceeded).toHaveBeenCalledWith({ streamIndices: [0, 128] });
+    });
+
+    it("reports the stream span it settled, after any preceding content", () => {
+      const onGuardExceeded = vi.fn();
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: MAX_BUFFER_LENGTH,
+        onGuardExceeded
+      });
+      collectSearchStrategyResults(strategy, [
+        "ab ",
+        unbrokenRun.slice(0, 64),
+        unbrokenRun.slice(64, 128)
+      ]);
+      expect(onGuardExceeded).toHaveBeenCalledTimes(1);
+      expect(onGuardExceeded).toHaveBeenCalledWith({ streamIndices: [3, 131] });
+    });
+
+    it.each([
+      ["pending content", ["abc", "def"]],
+      ["content preceding the held-back span", ["x ab", "cdef"]]
+    ])(
+      "keeps the unconsumed input exactly once when the callback throws, with %s",
+      (_label, [first, second]) => {
+        const strategy = new RegexSearchStrategy(/\S+/, {
+          maxBufferLength: 5,
+          onGuardExceeded: () => {
+            throw new Error("callback failed");
+          }
+        });
+        const state = strategy.createState();
+        let reported = "";
+        const drain = (chunk: string) => {
+          for (const result of strategy.processChunk(chunk, state)) {
+            reported += getValue(result);
+          }
+        };
+        drain(first);
+        expect(() => drain(second)).toThrow("callback failed");
+        expect(reported + flushToString(strategy, state)).toBe(first + second);
+      }
+    );
+
+    it("keeps the output lossless and stream indices true", () => {
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: MAX_BUFFER_LENGTH
+      });
+      const { results, flushResults, output } =
+        collectSearchStrategyResults(strategy, chunks);
+      expect(output).toBe(unbrokenRun);
+      for (const result of [...results, ...flushResults]) {
+        if (!result.isMatch) continue;
+        const [start, end] = result.streamIndices;
+        expect(unbrokenRun.slice(start, end)).toBe(result.content[0]);
+      }
+    });
+
+    it("leaves a pattern that settles within the ceiling unchanged", () => {
+      const onGuardExceeded = vi.fn();
+      const { results } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{[^{}]*\}\}/, {
+          maxBufferLength: MAX_BUFFER_LENGTH,
+          onGuardExceeded
+        }),
+        ["a {{na", "me}} b"]
+      );
+      expect(matchesOf(results)).toEqual(["{{name}}"]);
+      expect(onGuardExceeded).not.toHaveBeenCalled();
+    });
+
+    it("keeps what a consumer abandoned mid-settlement, for flush to report", () => {
+      const input = "aXXbXXXXXXXX";
+      const strategy = new RegexSearchStrategy(/a.*b/, {
+        maxBufferLength: 5
+      });
+      const state = strategy.createState();
+      let reported = "";
+      for (const result of strategy.processChunk(input, state)) {
+        reported += getValue(result);
+        if (result.isMatch) break;
+      }
+      expect(reported).toBe("aXXb");
+      expect(reported + flushToString(strategy, state)).toBe(input);
+    });
+
+    it("resets the ceiling's bookkeeping on flush", () => {
+      const strategy = new RegexSearchStrategy(/\S+/);
+      const state = strategy.createState();
+      for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
+      Array.from(strategy.flush(state));
+      expect(state).toEqual(strategy.createState());
     });
   });
 });

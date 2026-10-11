@@ -16,6 +16,7 @@ export type SyncReplacementFn<TMatch> = (
 ) => string | Iterable<string>;
 
 export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
+  /** Search strategy used to locate matches in the input stream. */
   searchStrategy: SearchStrategy<TState, TMatch>;
   /**
    * Replacement value or function. Pass a plain `string` for a static
@@ -33,9 +34,9 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
 /**
  * Synchronous transform engine.
  *
- * Absorbs the former `StaticReplacementProcessor`, `FunctionReplacementProcessor`,
- * and `IterableFunctionReplacementProcessor`. The adapter calls {@link start}
- * once, then {@link write} per chunk, then {@link end}.
+ * Replaces each match with a static string, or with the string or iterable of
+ * strings returned by a function. The adapter calls {@link start} once, then
+ * {@link write} per chunk, then {@link end}.
  *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)

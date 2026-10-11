@@ -1,5 +1,4 @@
 import { RegexSearchStrategy } from "../../../src/search-strategies/regex/search-strategy.ts";
-import type { StringBufferState } from "../../../src/search-strategies/string-buffer-strategy-base.ts";
 import type { MatchResult } from "../../../src/search-strategies/types.ts";
 
 type Span = [number, number] | undefined;
@@ -57,7 +56,7 @@ export function drive(
   strategy: RegexSearchStrategy,
   chunks: string[]
 ): DriveResult {
-  const state: StringBufferState = strategy.createState();
+  const state = strategy.createState();
   const matches: EmittedMatch[] = [];
   const flushMatches: EmittedMatch[] = [];
   let output = "";
