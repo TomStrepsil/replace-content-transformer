@@ -117,7 +117,7 @@ git push origin issue-number_your-feature-name
 1. **Push your branch** to your fork on GitHub
 2. **Open a pull request** from your branch to `TomStrepsil/regex-partial-match:main`
 3. **Fill out the PR template** with:
-   - Issue number prefix to title (where resolving an issue)
+   - Issue number prefix (or `[NO ISSUE]`) in the title
    - Description of changes
    - Related issue number(s)
    - Testing performed
