@@ -10,7 +10,7 @@ Please be respectful and constructive in all interactions. We aim to maintain a 
 
 ### Prerequisites
 
-- Node.js >= 23
+- Node.js >= 24
 - git
 
 ### Setting Up Your Development Environment
@@ -50,16 +50,16 @@ Wait for feedback before starting significant work to ensure your contribution a
 ### 1. Create a Branch
 
 ```bash
-git checkout -b feature/your-feature-name
+git checkout -b [<issue number>]_description-of-contribution
 # or
-git checkout -b fix/your-bug-fix
+git checkout -b NO-ISSUE_description-of-contribution
 ```
 
 Use descriptive branch names:
 
-- `feature/add-unicode-normalization`
-- `fix/handle-empty-patterns`
-- `docs/improve-readme-examples`
+- `11_add-unicode-normalization`
+- `22_handle-empty-patterns`
+- `34_improve-readme-examples`
 
 ### 2. Make Your Changes
 
@@ -70,7 +70,7 @@ Use descriptive branch names:
 
 ### 3. Document your changes
 
-- Add an entry to the `[Unreleased]` section in `docs/CHANGELOG.md`
+- Add an entry to the `[Unreleased]` section in `docs/CHANGELOG.md`, following [keepachangelog](https://keepachangelog.com/) style
 
 ### 4. Run Tests
 
@@ -109,7 +109,7 @@ git merge upstream/main
 ### 8. Push to Your Fork
 
 ```bash
-git push origin feature/your-feature-name
+git push origin issue-number_your-feature-name
 ```
 
 ## Submitting a Pull Request
@@ -117,6 +117,7 @@ git push origin feature/your-feature-name
 1. **Push your branch** to your fork on GitHub
 2. **Open a pull request** from your branch to `TomStrepsil/regex-partial-match:main`
 3. **Fill out the PR template** with:
+   - Issue number prefix (or `[NO ISSUE]`) in the title
    - Description of changes
    - Related issue number(s)
    - Testing performed
