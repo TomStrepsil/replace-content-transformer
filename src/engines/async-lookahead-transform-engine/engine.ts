@@ -43,6 +43,8 @@ function textSlot(siblingIndex: number, value: string): TextSlotNode {
 
 const isDefinedSignal = (s?: AbortSignal): s is AbortSignal => s !== undefined;
 
+const ABANDONED = Symbol("abandoned");
+
 /**
  * Async function called for each match to produce its replacement content.
  *
@@ -276,7 +278,17 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     matchIndex: number,
     streamIndices: StreamIndices
   ): Promise<AsyncIterableIterator<string> | Nested> {
-    const release = await this.#options.concurrencyStrategy.acquire(node);
+    const acquired = await this.#options.concurrencyStrategy.acquire(node);
+    // Free the permit as soon as the slot is abandoned, even if the
+    // replacement never settles. Safe to call more than once.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.#abandonSignal.removeEventListener("abort", release);
+      acquired();
+    };
+    this.#abandonSignal.addEventListener("abort", release, { once: true });
     const releaseAndThrow = (err: unknown): never => {
       release();
       throw err;
@@ -333,13 +345,10 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       if (!this.#cancelled) this._sink.enqueue(slot.value);
       return;
     }
-    const result = await slot.iterable!;
-    if (this.#abandonSignal.aborted) {
-      if (!(result instanceof Nested)) {
-        const iter = result[Symbol.asyncIterator]();
-        await iter.next();
-        await iter.return?.();
-      }
+    const result = await this.#untilSignal(slot.iterable!, this.#abandonSignal);
+    if (result === ABANDONED || this.#abandonSignal.aborted) {
+      const settled = result === ABANDONED ? slot.iterable! : Promise.resolve(result);
+      void settled.then((r) => this.#closeReplacement(r)).catch(() => {});
       if (slot.getOriginalContent !== undefined && !this.#cancelled) {
         this._sink.enqueue(slot.getOriginalContent());
       }
@@ -347,9 +356,52 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     }
     const iterable =
       result instanceof Nested ? this.#runNested(result.source, slot) : result;
-    for await (const chunk of iterable) {
-      this._sink.enqueue(chunk);
+    const iter = iterable[Symbol.asyncIterator]();
+    // Stop reading on cancel() even if the replacement stops producing.
+    // A replacement already being streamed still runs to completion when
+    // only abandonPendingSignal fires.
+    for (;;) {
+      const step = await this.#untilSignal(
+        iter.next(),
+        this.#cancelAbortController.signal
+      );
+      if (step === ABANDONED) {
+        void iter.return?.().catch(() => {});
+        return;
+      }
+      if (step.done) return;
+      this._sink.enqueue(step.value);
     }
+  }
+
+  /**
+   * Resolve with the promise's value, or with {@link ABANDONED} as soon as
+   * `signal` fires, so a slow replacement cannot hold up cancel/end.
+   */
+  #untilSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | typeof ABANDONED> {
+    if (signal.aborted) return Promise.resolve(ABANDONED);
+    return new Promise((resolve, reject) => {
+      const onAbort = () => resolve(ABANDONED);
+      signal.addEventListener("abort", onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(err);
+        }
+      );
+    });
+  }
+
+  /** Start and close an abandoned replacement so its `finally` can run. */
+  async #closeReplacement(result: AsyncIterableIterator<string> | Nested): Promise<void> {
+    if (result instanceof Nested) return;
+    const iter = result[Symbol.asyncIterator]();
+    await iter.next();
+    await iter.return?.();
   }
 
   /**

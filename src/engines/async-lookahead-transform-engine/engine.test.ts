@@ -1192,11 +1192,51 @@ describe("AsyncLookaheadTransformEngine", () => {
       engine.cancel();
       gate.resolve();
       await engine.end();
+      await settleMicrotasks(10);
 
       expect(returnCalled).toBe(true);
       expect(chunks).toEqual([]);
     });
 
+    it("cancel() does not wait for a replacement whose first item never arrives", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () =>
+          (async function* () {
+            await new Promise(() => {});
+            yield "R";
+          })(),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      await engine.write("M");
+      await settleMicrotasks(5);
+
+      engine.cancel();
+      await expect(engine.end()).resolves.toBeUndefined();
+    });
+
+    it("cancel() does not wait for a replacement promise that never settles", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => new Promise(() => {}),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      await engine.write("M");
+      await settleMicrotasks(5);
+
+      engine.cancel();
+      await expect(engine.end()).resolves.toBeUndefined();
+    });
     it("cancel() does not emit original text even when abandonPendingSignal is configured", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
