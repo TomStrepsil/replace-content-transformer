@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. There is a [migration report](../codemods/reports/v3-v4/README.md)
 - **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
+- **BREAKING:** Regex replacement callbacks receive `StreamRegexMatch`, which omits the unavailable chunk-local `input` property. Callbacks annotated as `RegExpExecArray` must update their parameter type, and code reading `match.input` must be changed.
 - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
 - Updated `regex-partial-match` to `^2.0.1` (for `hitEnd()` and `features()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
@@ -18,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Exposed a stream-specific regex match type that omits the unavailable chunk-local `input` property
 - Fixed `BalancedPairSearchStrategy` dropping text after a nested match when a chunk ends inside the outer pair, e.g. `"(((a)b)"` followed by `" tail"` lost `" tail"`
 - Fixed chunk-dependent matches in the regex search strategy: premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
 - Fixed lookahead confirmation in the regex search strategy: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
