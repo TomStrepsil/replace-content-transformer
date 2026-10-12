@@ -279,16 +279,39 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     streamIndices: StreamIndices
   ): Promise<AsyncIterableIterator<string> | Nested> {
     const acquired = await this.#options.concurrencyStrategy.acquire(node);
-    // Free the permit as soon as the slot is abandoned, even if the
-    // replacement never settles. Safe to call more than once.
+    let streaming = false;
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      this.#abandonSignal.removeEventListener("abort", release);
+      this.#abandonSignal.removeEventListener("abort", releaseWhenAbandoned);
+      this.#cancelAbortController.signal.removeEventListener("abort", release);
       acquired();
     };
-    this.#abandonSignal.addEventListener("abort", release, { once: true });
+    // A queued slot can release immediately when abandoned. Once the drain
+    // loop starts consuming it, keep its permit until completion. cancel()
+    // still releases immediately so a stalled iterator cannot block shutdown.
+    const releaseWhenAbandoned = () => {
+      if (!streaming) release();
+    };
+    this.#abandonSignal.addEventListener("abort", releaseWhenAbandoned, {
+      once: true
+    });
+    this.#cancelAbortController.signal.addEventListener("abort", release, {
+      once: true
+    });
+    if (this.#abandonSignal.aborted) {
+      release();
+      const emptyIterator: AsyncIterableIterator<string> = {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next() {
+          return { done: true, value: undefined };
+        }
+      };
+      return emptyIterator;
+    }
     const releaseAndThrow = (err: unknown): never => {
       release();
       throw err;
@@ -309,6 +332,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
         return this;
       },
       next() {
+        streaming = true;
         try {
           return iterator.next().then((step) => {
             if (step.done) release();
@@ -413,14 +437,26 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     source: AsyncIterable<string>,
     parent: IterableSlotNode
   ): AsyncGenerator<string> {
+    const sourceIterator = source[Symbol.asyncIterator]();
     const buffer: string[] = [];
+    const stopSource = new AbortController();
     let childErr: unknown = null;
     let childDone = false;
+    let sourceClosed = false;
     let notify: (() => void) | null = null;
     const wake = () => {
       const pendingNotify = notify;
       notify = null;
       pendingNotify?.();
+    };
+    const closeSource = () => {
+      if (sourceClosed) return;
+      sourceClosed = true;
+      try {
+        void Promise.resolve(sourceIterator.return?.()).catch(() => {});
+      } catch {
+        // Closing an abandoned source is best-effort; cancellation must stay prompt.
+      }
     };
 
     const child = new AsyncLookaheadTransformEngine<TState, TMatch>(
@@ -435,32 +471,59 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       },
       error: (e) => {
         childErr = e;
-        childDone = true;
+        stopSource.abort();
+        closeSource();
         wake();
       }
     });
 
+    const cancelNested = () => {
+      child.cancel();
+      stopSource.abort();
+      closeSource();
+      wake();
+    };
+    this.#cancelAbortController.signal.addEventListener("abort", cancelNested, {
+      once: true
+    });
+
     void (async () => {
       try {
-        for await (const chunk of source) {
-          await child.write(chunk);
+        for (;;) {
+          const next = await this.#untilSignal(
+            Promise.resolve(sourceIterator.next()),
+            stopSource.signal
+          );
+          if (next === ABANDONED || next.done) break;
+          await child.write(next.value);
         }
-        await child.end();
       } catch (err) {
-        childErr ??= err;
+        if (!this.#cancelAbortController.signal.aborted) childErr ??= err;
       } finally {
+        try {
+          await child.end();
+        } catch (err) {
+          if (!this.#cancelAbortController.signal.aborted) childErr ??= err;
+        }
         childDone = true;
         wake();
       }
     })();
 
-    while (true) {
-      while (buffer.length > 0) yield buffer.shift()!;
-      if (childErr) throw childErr;
-      if (childDone) return;
-      await new Promise<void>((resolve) => {
-        notify = resolve;
-      });
+    try {
+      while (true) {
+        while (buffer.length > 0) yield buffer.shift()!;
+        if (childDone) {
+          if (childErr) throw childErr;
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+      }
+    } finally {
+      this.#cancelAbortController.signal.removeEventListener("abort", cancelNested);
+      if (this.#cancelAbortController.signal.aborted) cancelNested();
     }
   }
 }

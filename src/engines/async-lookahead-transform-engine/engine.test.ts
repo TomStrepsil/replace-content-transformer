@@ -1237,6 +1237,86 @@ describe("AsyncLookaheadTransformEngine", () => {
       engine.cancel();
       await expect(engine.end()).resolves.toBeUndefined();
     });
+
+    it("does not start a queued replacement after it acquires a permit following cancel()", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] }
+      );
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      let replacementCalls = 0;
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => {
+          replacementCalls++;
+          return new Promise(() => {});
+        },
+        concurrencyStrategy,
+        highWaterMark: 2
+      });
+      engine.start(sink);
+
+      const writePromise = engine.write("MM");
+      await settleMicrotasks(10);
+      expect(replacementCalls).toBe(1);
+
+      engine.cancel();
+      await writePromise;
+      await engine.end();
+      await settleMicrotasks(10);
+
+      expect(replacementCalls).toBe(1);
+      expect(held()).toBe(0);
+    });
+
+    it("retains a permit for a replacement already streaming when pending slots are abandoned", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] }
+      );
+      const nextGate = deferred<void>();
+      const abandon = new AbortController();
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      let replacementCalls = 0;
+      let firstStarted = false;
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => {
+          replacementCalls++;
+          if (replacementCalls > 1) return asyncIterable("second");
+          return (async function* () {
+            firstStarted = true;
+            await nextGate.promise;
+            yield "first";
+          })();
+        },
+        concurrencyStrategy,
+        abandonPendingSignal: abandon.signal,
+        highWaterMark: 2
+      });
+      engine.start(sink);
+
+      const writePromise = engine.write("MM");
+      await settleMicrotasks(10);
+      expect(firstStarted).toBe(true);
+      expect(replacementCalls).toBe(1);
+
+      abandon.abort();
+      await settleMicrotasks(10);
+      expect(replacementCalls).toBe(1);
+      expect(held()).toBe(1);
+
+      nextGate.resolve();
+      await writePromise;
+      await engine.end();
+
+      expect(replacementCalls).toBe(1);
+      expect(held()).toBe(0);
+      expect(chunks.join("")).toBe("firstM");
+    });
+
     it("cancel() does not emit original text even when abandonPendingSignal is configured", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
@@ -1296,6 +1376,52 @@ describe("AsyncLookaheadTransformEngine", () => {
       await engine.end();
 
       expect(chunks).toEqual([]);
+    });
+
+    it("stops a nested source pump and closes its source on cancel()", async () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "match",
+        streamIndices: [0, 5]
+      });
+      const pendingNext = deferred<IteratorResult<string>>();
+      let nextCalls = 0;
+      let returnCalls = 0;
+      const source: AsyncIterableIterator<string> = {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        next() {
+          nextCalls++;
+          if (nextCalls === 1) {
+            return Promise.resolve({ done: false, value: "nested" });
+          }
+          return pendingNext.promise;
+        },
+        return() {
+          returnCalls++;
+          pendingNext.resolve({ done: true, value: undefined });
+          return Promise.resolve({ done: true, value: undefined });
+        }
+      };
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (_match, context) =>
+          context.depth === 0 ? nested(source) : asyncIterable("child"),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      await engine.write("outer");
+      await settleMicrotasks(20);
+      expect(nextCalls).toBe(2);
+      expect(chunks).toContain("child");
+
+      engine.cancel();
+      await engine.end();
+
+      expect(returnCalls).toBe(1);
+      expect(nextCalls).toBe(2);
     });
   });
 
