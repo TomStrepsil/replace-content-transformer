@@ -1406,6 +1406,121 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(pulled).toBe(settled);
     });
 
+    it("cancel() requests closure of a replacement whose next() is stalled", async () => {
+      let nextCalls = 0;
+      let closed = false;
+      const replacement: AsyncIterable<string> = {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              nextCalls++;
+              if (nextCalls === 1) {
+                return Promise.resolve({ done: false, value: "first" });
+              }
+              return never<IteratorResult<string>>();
+            },
+            return() {
+              closed = true;
+              return Promise.resolve({ done: true, value: undefined });
+            }
+          };
+        }
+      };
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "match",
+        streamIndices: [0, 5]
+      });
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => replacement,
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+
+      await engine.write("match");
+      await settleMicrotasks(10);
+      expect(nextCalls).toBeGreaterThanOrEqual(2);
+
+      engine.cancel();
+      await expect(engine.end()).resolves.toBeUndefined();
+
+      expect(closed).toBe(true);
+    });
+
+    it("cancel() closes a stalled nested source and its active child replacement", async () => {
+      let sourceNextCalls = 0;
+      let sourceClosed = false;
+      const source: AsyncIterable<string> = {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              sourceNextCalls++;
+              if (sourceNextCalls === 1) {
+                return Promise.resolve({ done: false, value: "inner" });
+              }
+              return never<IteratorResult<string>>();
+            },
+            return() {
+              sourceClosed = true;
+              return Promise.resolve({ done: true, value: undefined });
+            }
+          };
+        }
+      };
+      let childNextCalls = 0;
+      let childReplacementClosed = false;
+      const childReplacement: AsyncIterable<string> = {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              childNextCalls++;
+              if (childNextCalls === 1) {
+                return Promise.resolve({ done: false, value: "child-output" });
+              }
+              return never<IteratorResult<string>>();
+            },
+            return() {
+              childReplacementClosed = true;
+              return Promise.resolve({ done: true, value: undefined });
+            }
+          };
+        }
+      };
+      const strategy = {
+        createState: vi.fn().mockReturnValue({}),
+        processChunk: vi.fn().mockImplementation(function* (chunk: string) {
+          if (chunk === "outer") {
+            yield { isMatch: true, content: "outer", streamIndices: [0, 5] };
+          } else if (chunk === "inner") {
+            yield { isMatch: true, content: "inner", streamIndices: [0, 5] };
+          }
+        }),
+        flush: vi.fn().mockImplementation(flushesText()),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
+      };
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (_match, context) =>
+          context.depth === 0 ? nested(source) : childReplacement,
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      });
+      engine.start(sink);
+
+      await engine.write("outer");
+      await settleMicrotasks(30);
+      expect(sourceNextCalls).toBeGreaterThanOrEqual(2);
+      expect(childNextCalls).toBeGreaterThanOrEqual(2);
+
+      engine.cancel();
+      await expect(engine.end()).resolves.toBeUndefined();
+
+      expect(sourceClosed).toBe(true);
+      expect(childReplacementClosed).toBe(true);
+    });
+
     it("cancel() does not emit original text even when abandonPendingSignal is configured", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
