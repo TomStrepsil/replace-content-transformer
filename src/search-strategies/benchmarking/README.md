@@ -48,7 +48,7 @@ Pattern matching using **regular expressions**, with partial match detection for
 Composable strategy for sequential pattern matching across multiple sub-strategies.
 
 - **[anchor-sequence](./anchor-sequence/README.md)** - Composes multiple "cancellable" strategies for sequential matching.
- - **[balanced-pair-regex-count](./balanced-pair-regex-count/README.md)** - Like the publicly exported [`balanced-pair`](../balanced-pair/README.md) strategy, this composes the [`looped-indexof-anchored`](../looped-indexOf-anchored/README.md) and delays completion by tracking nesting level: decrementing on closing delimiters and incrementing by counting opening delimiters found within a match. This benchmarking strategy uses [`String.prototype.match()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match#regexp) to count thes
+- **[balanced-pair-regex-count](./balanced-pair-regex-count/README.md)** - Like the publicly exported [`balanced-pair`](../balanced-pair/README.md) strategy, this composes the [`looped-indexof-anchored`](../looped-indexOf-anchored/README.md) and delays completion by tracking nesting level: decrementing on closing delimiters and incrementing by counting opening delimiters found within a match. This benchmarking strategy uses [`String.prototype.match()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match#regexp) to count thes
 
 ## 📊 Algorithm Comparison
 
@@ -65,6 +65,7 @@ Pre-emptive optimisation via initial implementation of [Knuth-Morris-Pratt](http
 | **anchor-sequence**            | Delegates to sub-strategies | Varies            | Sequential multi-pattern matching               |
 
 [^1]: Probably due to [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) optimisations in the underlying runtime, not afforded to event loop Javascript.
+
 [^2]: More suitable than Boyer-Moore-Horspool for streaming scenarios since does not need to "peek" / look ahead & avoids holding or re-checking characters that are skipped, which would imply more complex buffering requirement.
 
 ## 🏃‍♂️ Execution Patterns
@@ -102,3 +103,9 @@ The implementations in this directory have revealed several key performance insi
 4. **Smart buffering trade-offs** - Smart buffering (looped-indexOf) yields earlier and reduces memory use between chunks, but adds marginal CPU overhead vs blind buffering
 
 See [`test/benchmarks/`](../../../test/benchmarks/README.md) for detailed performance measurements.
+
+## 🧪 Testing
+
+These strategies are reference implementations: the fastest reasonable code for a given approach, kept as a yardstick for the production strategies. They don't need full test coverage or defensive hardening, since guards for behaviour no shipped strategy exhibits would distort the comparison.
+
+They must still produce correct output on the happy path. Each one has a [harness](../../../test/harnesses/README.md) that runs through the shared validation scenarios; scenarios a strategy isn't designed for are skipped through the harness rather than special-cased in the strategy.
