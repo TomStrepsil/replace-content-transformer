@@ -16,7 +16,7 @@ function assertStreamRegexMatchType() {
   new SyncReplacementTransformEngine({
     searchStrategy,
     replacement: (match) => {
-      // @ts-expect-error Stream regex matches do not expose the chunk-local input string.
+      // @ts-expect-error Stream matches do not provide the chunk-local RegExp input.
       acceptString(match.input);
       return match.groups?.name ?? "";
     }
@@ -25,7 +25,7 @@ function assertStreamRegexMatchType() {
   new AsyncSerialReplacementTransformEngine({
     searchStrategy,
     replacement: async (match) => {
-      // @ts-expect-error Stream regex matches do not expose the chunk-local input string.
+      // @ts-expect-error Stream matches do not provide the chunk-local RegExp input.
       acceptString(match.input);
       return match.groups?.name ?? "";
     }
@@ -34,7 +34,7 @@ function assertStreamRegexMatchType() {
   new AsyncLookaheadTransformEngine({
     searchStrategy,
     replacement: async (match) => {
-      // @ts-expect-error Stream regex matches do not expose the chunk-local input string.
+      // @ts-expect-error Stream matches do not provide the chunk-local RegExp input.
       acceptString(match.input);
       return (async function* () { yield match.groups?.name ?? ""; })();
     },

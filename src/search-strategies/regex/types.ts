@@ -1,7 +1,7 @@
 import type { DEFAULT_OPTIONS } from "./default-options.js";
 import type { StreamIndices, StringBufferState } from "../types.js";
 
-/** A streamed regex match; no single input string represents a match across chunks. */
+/** A regex match whose index is measured from the start of the complete input stream. */
 export type StreamRegexMatch = Omit<RegExpExecArray, "input">;
 
 /** Per-stream state for `RegexSearchStrategy`. */

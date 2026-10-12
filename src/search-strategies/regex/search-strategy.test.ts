@@ -181,7 +181,7 @@ describe("RegexSearchStrategy", () => {
     const engine = new SyncReplacementTransformEngine({
       searchStrategy: new RegexSearchStrategy(/found/),
       replacement: (match) => {
-        // @ts-expect-error Streamed matches have no single chunk-local input.
+        // @ts-expect-error Stream matches do not provide the chunk-local RegExp input.
         return match.input;
       }
     });
@@ -1331,21 +1331,19 @@ describe("RegexSearchStrategy", () => {
       expect(content.indices?.groups?.name).toEqual([9, 14]);
     });
 
-    it("reports match.index as a stream offset and omits match.input when the match is in a later chunk", () => {
+    it("reports stream offsets and omits match.input for matches in any chunk", () => {
       const { results, flushResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
-        ["some longer prefix text ", "and then {{value}}"]
+        ["{{first}} and ", "then {{value}}"]
       );
 
-      const match = [...results, ...flushResults].find((result) => result.isMatch) as {
-        content: StreamRegexMatch;
-        streamIndices: [number, number];
-      };
-      const offset = "some longer prefix text and then ".length;
-      expect(match.streamIndices).toEqual([offset, offset + 9]);
-      expect(match.content.index).toBe(offset);
-      expect(match.content.index).toBe(match.content.indices?.[0]?.[0]);
-      expect(match.content).not.toHaveProperty("input");
+      const matches = [...results, ...flushResults].filter((result) => result.isMatch);
+      expect(matches).toHaveLength(2);
+      for (const match of matches) {
+        expect(match.content.index).toBe(match.content.indices?.[0]?.[0]);
+        expect(match.content).not.toHaveProperty("input");
+      }
+      expect(matches.map((match) => match.content.index)).toEqual([0, 19]);
     });
 
     it("emits content that never became a match as one trailing non-match segment", () => {

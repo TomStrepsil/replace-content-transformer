@@ -12,9 +12,6 @@ export default function takeMatch(
   const startIndex = baseOffset + matchStart;
   const indices = match.indices;
   if (indices) updateIndices(indices, startIndex - match.index);
-  // The match is reported with stream-relative positions: index is the offset into the
-  // whole stream (equal to indices[0] when "d" is used), and the chunk it was found in
-  // is not handed out as input. Both are changed in place, so no copy is made.
   match.index = startIndex;
   delete (match as Partial<RegExpExecArray>).input;
   return {
