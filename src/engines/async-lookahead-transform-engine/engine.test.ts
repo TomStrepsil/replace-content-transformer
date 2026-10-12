@@ -1317,6 +1317,41 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("firstM");
     });
 
+    it("cancel() stops pulling a nested source that never ends", async () => {
+      let pulled = 0;
+      async function* endless() {
+        while (true) {
+          pulled++;
+          yield "x";
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+      }
+      // The strategy is shared with the child engine, so only the first chunk may match.
+      const strategy = mockSearchStrategyFactory<string>();
+      strategy.processChunk
+        .mockImplementationOnce(function* () {
+          yield { isMatch: true, content: "M", streamIndices: [0, 1] };
+        })
+        .mockImplementation(function* () {});
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => nested(endless()),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      await engine.write("M");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      engine.cancel();
+      await expect(engine.end()).resolves.toBeUndefined();
+      // The pump may take one more pull before it sees the cancel; after that it must stop.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const settled = pulled;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(pulled).toBe(settled);
+    });
+
     it("cancel() does not emit original text even when abandonPendingSignal is configured", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
