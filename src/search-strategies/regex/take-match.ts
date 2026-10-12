@@ -1,12 +1,12 @@
 import type { MatchResult } from "../types.js";
-import type { ScanCursor } from "./types.js";
+import type { ScanCursor, StreamRegexMatch } from "./types.js";
 import updateIndices from "./update-indices.js";
 
 export default function takeMatch(
   match: RegExpExecArray,
   cursor: ScanCursor,
   baseOffset: number
-): MatchResult<RegExpExecArray> {
+): MatchResult<StreamRegexMatch> {
   const matchStart = cursor.reportedUpTo;
   cursor.reportedUpTo = matchStart + match[0].length;
   const startIndex = baseOffset + matchStart;
