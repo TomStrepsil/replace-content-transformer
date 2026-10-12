@@ -42,7 +42,7 @@ import type { Nested } from "../nested.ts";
  *
  * The `iterable` promise is resolved by the engine once the
  * `ConcurrencyStrategy` has granted a slot and the replacement function
- * has returned. The slot itself is held through the iterator's
+ * has returned. The slot itself is held through the iterable's
  * production (released when the producer pulls `done: true`), or
  * released immediately on `Nested` handoff or replacement-fn rejection.
  */
@@ -56,7 +56,7 @@ export interface IterableSlotNode extends SlotTreeNode {
    * reference is needed to wire the promise that depends on it). Never
    * read before assignment.
    */
-  iterable: Promise<AsyncIterableIterator<string> | Nested> | undefined;
+  iterable: Promise<AsyncIterable<string> | Nested> | undefined;
 }
 
 export type SlotNode = TextSlotNode | IterableSlotNode;

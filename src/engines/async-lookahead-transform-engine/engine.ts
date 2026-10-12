@@ -44,6 +44,28 @@ function textSlot(siblingIndex: number, value: string): TextSlotNode {
 const isDefinedSignal = (s?: AbortSignal): s is AbortSignal => s !== undefined;
 
 const ABANDONED = Symbol("abandoned");
+const ignore = () => {};
+
+function untilAborted<T>(
+  promise: Promise<T>,
+  signal: AbortSignal
+): Promise<T | typeof ABANDONED> {
+  if (signal.aborted) return Promise.resolve(ABANDONED);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(ABANDONED);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+async function closeAbandoned(result: AsyncIterable<string> | Nested): Promise<void> {
+  if (result instanceof Nested) return;
+  const iter = result[Symbol.asyncIterator]();
+  await iter.next();
+  await iter.return?.();
+}
 
 /**
  * Async function called for each match to produce its replacement content.
@@ -279,39 +301,22 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     streamIndices: StreamIndices
   ): Promise<AsyncIterableIterator<string> | Nested> {
     const acquired = await this.#options.concurrencyStrategy.acquire(node);
+    if (this.#abandonSignal.aborted) {
+      acquired();
+      return (async function* () {})();
+    }
     let streaming = false;
-    let released = false;
     const release = () => {
-      if (released) return;
-      released = true;
       this.#abandonSignal.removeEventListener("abort", releaseWhenAbandoned);
       this.#cancelAbortController.signal.removeEventListener("abort", release);
       acquired();
     };
-    // A queued slot can release immediately when abandoned. Once the drain
-    // loop starts consuming it, keep its permit until completion. cancel()
-    // still releases immediately so a stalled iterator cannot block shutdown.
     const releaseWhenAbandoned = () => {
       if (!streaming) release();
     };
-    this.#abandonSignal.addEventListener("abort", releaseWhenAbandoned, {
-      once: true
-    });
-    this.#cancelAbortController.signal.addEventListener("abort", release, {
-      once: true
-    });
-    if (this.#abandonSignal.aborted) {
-      release();
-      const emptyIterator: AsyncIterableIterator<string> = {
-        [Symbol.asyncIterator]() {
-          return this;
-        },
-        async next() {
-          return { done: true, value: undefined };
-        }
-      };
-      return emptyIterator;
-    }
+    const cancelSignal = this.#cancelAbortController.signal;
+    this.#abandonSignal.addEventListener("abort", releaseWhenAbandoned);
+    cancelSignal.addEventListener("abort", release);
     const releaseAndThrow = (err: unknown): never => {
       release();
       throw err;
@@ -369,10 +374,9 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       if (!this.#cancelled) this._sink.enqueue(slot.value);
       return;
     }
-    const result = await this.#untilSignal(slot.iterable!, this.#abandonSignal);
+    const result = await untilAborted(slot.iterable!, this.#abandonSignal);
     if (result === ABANDONED || this.#abandonSignal.aborted) {
-      const settled = result === ABANDONED ? slot.iterable! : Promise.resolve(result);
-      void settled.then((r) => this.#closeReplacement(r)).catch(() => {});
+      void slot.iterable!.then(closeAbandoned).catch(ignore);
       if (slot.getOriginalContent !== undefined && !this.#cancelled) {
         this._sink.enqueue(slot.getOriginalContent());
       }
@@ -380,52 +384,14 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     }
     const iterable =
       result instanceof Nested ? this.#runNested(result.source, slot) : result;
-    const iter = iterable[Symbol.asyncIterator]();
-    // Stop reading on cancel() even if the replacement stops producing.
-    // A replacement already being streamed still runs to completion when
-    // only abandonPendingSignal fires.
-    for (;;) {
-      const step = await this.#untilSignal(
-        iter.next(),
-        this.#cancelAbortController.signal
-      );
-      if (step === ABANDONED) {
-        void iter.return?.().catch(() => {});
-        return;
-      }
-      if (step.done) return;
-      this._sink.enqueue(step.value);
+    await untilAborted(this.#stream(iterable), this.#cancelAbortController.signal);
+  }
+
+  async #stream(iterable: AsyncIterable<string>): Promise<void> {
+    for await (const chunk of iterable) {
+      if (this.#cancelled) return;
+      this._sink.enqueue(chunk);
     }
-  }
-
-  /**
-   * Resolve with the promise's value, or with {@link ABANDONED} as soon as
-   * `signal` fires, so a slow replacement cannot hold up cancel/end.
-   */
-  #untilSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | typeof ABANDONED> {
-    if (signal.aborted) return Promise.resolve(ABANDONED);
-    return new Promise((resolve, reject) => {
-      const onAbort = () => resolve(ABANDONED);
-      signal.addEventListener("abort", onAbort, { once: true });
-      promise.then(
-        (value) => {
-          signal.removeEventListener("abort", onAbort);
-          resolve(value);
-        },
-        (err) => {
-          signal.removeEventListener("abort", onAbort);
-          reject(err);
-        }
-      );
-    });
-  }
-
-  /** Start and close an abandoned replacement so its `finally` can run. */
-  async #closeReplacement(result: AsyncIterableIterator<string> | Nested): Promise<void> {
-    if (result instanceof Nested) return;
-    const iter = result[Symbol.asyncIterator]();
-    await iter.next();
-    await iter.return?.();
   }
 
   /**
@@ -437,26 +403,14 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     source: AsyncIterable<string>,
     parent: IterableSlotNode
   ): AsyncGenerator<string> {
-    const sourceIterator = source[Symbol.asyncIterator]();
     const buffer: string[] = [];
-    const stopSource = new AbortController();
     let childErr: unknown = null;
     let childDone = false;
-    let sourceClosed = false;
     let notify: (() => void) | null = null;
     const wake = () => {
       const pendingNotify = notify;
       notify = null;
       pendingNotify?.();
-    };
-    const closeSource = () => {
-      if (sourceClosed) return;
-      sourceClosed = true;
-      try {
-        void Promise.resolve(sourceIterator.return?.()).catch(() => {});
-      } catch {
-        // Closing an abandoned source is best-effort; cancellation must stay prompt.
-      }
     };
 
     const child = new AsyncLookaheadTransformEngine<TState, TMatch>(
@@ -471,59 +425,33 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       },
       error: (e) => {
         childErr = e;
-        stopSource.abort();
-        closeSource();
+        childDone = true;
         wake();
       }
     });
 
-    const cancelNested = () => {
-      child.cancel();
-      stopSource.abort();
-      closeSource();
-      wake();
-    };
-    this.#cancelAbortController.signal.addEventListener("abort", cancelNested, {
-      once: true
-    });
-
     void (async () => {
       try {
-        for (;;) {
-          const next = await this.#untilSignal(
-            Promise.resolve(sourceIterator.next()),
-            stopSource.signal
-          );
-          if (next === ABANDONED || next.done) break;
-          await child.write(next.value);
+        for await (const chunk of source) {
+          if (this.#cancelled) break;
+          await child.write(chunk);
         }
+        await child.end();
       } catch (err) {
-        if (!this.#cancelAbortController.signal.aborted) childErr ??= err;
+        childErr ??= err;
       } finally {
-        try {
-          await child.end();
-        } catch (err) {
-          if (!this.#cancelAbortController.signal.aborted) childErr ??= err;
-        }
         childDone = true;
         wake();
       }
     })();
 
-    try {
-      while (true) {
-        while (buffer.length > 0) yield buffer.shift()!;
-        if (childDone) {
-          if (childErr) throw childErr;
-          return;
-        }
-        await new Promise<void>((resolve) => {
-          notify = resolve;
-        });
-      }
-    } finally {
-      this.#cancelAbortController.signal.removeEventListener("abort", cancelNested);
-      if (this.#cancelAbortController.signal.aborted) cancelNested();
+    while (true) {
+      while (buffer.length > 0) yield buffer.shift()!;
+      if (childErr) throw childErr;
+      if (childDone) return;
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+      });
     }
   }
 }
