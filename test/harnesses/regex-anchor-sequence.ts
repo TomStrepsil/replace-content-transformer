@@ -4,6 +4,7 @@ import { RegexSearchStrategy } from "../../src/search-strategies/regex/search-st
 import { AnchorSequenceSearchStrategy } from "../../src/search-strategies/benchmarking/index.ts";
 import type { StringBufferState } from "../../src/search-strategies/types.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
+import type { StreamRegexMatch } from "../../src/search-strategies/regex/types.ts";
 
 export const RegexAnchorSequenceHarness = {
   name: "Regex + Anchor Sequence",
@@ -14,7 +15,7 @@ export const RegexAnchorSequenceHarness = {
     tokens: string[];
     replacement?: (match: string, context: ReplacementContext) => string;
   }) =>
-    new AnchorSequenceSearchStrategy<StringBufferState, RegExpExecArray>(
+    new AnchorSequenceSearchStrategy<StringBufferState, StreamRegexMatch>(
       tokens.map(
         (token) => new RegexSearchStrategy(new RegExp(RegExp.escape(token)))
       )
@@ -23,7 +24,7 @@ export const RegexAnchorSequenceHarness = {
     strategy,
     replacement
   }: {
-    strategy: AnchorSequenceSearchStrategy<StringBufferState, RegExpExecArray>;
+    strategy: AnchorSequenceSearchStrategy<StringBufferState, StreamRegexMatch>;
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     syncHarnessTransformer(

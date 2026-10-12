@@ -1,5 +1,6 @@
 import { RegexSearchStrategy } from "../../../src/search-strategies/regex/search-strategy.ts";
 import type { MatchResult } from "../../../src/search-strategies/types.ts";
+import type { StreamRegexMatch } from "../../../src/search-strategies/regex/types.ts";
 
 type Span = [number, number] | undefined;
 
@@ -17,7 +18,7 @@ export interface EmittedMatch {
 const copySpan = (span: Span): Span => span && [span[0], span[1]];
 
 function spansOf(
-  match: RegExpExecArray
+  match: StreamRegexMatch
 ): Pick<EmittedMatch, "indices" | "groupIndices"> {
   const { indices } = match;
   if (!indices) return {};
@@ -63,7 +64,7 @@ export function drive(
   let peakBuffer = 0;
 
   const record = (
-    results: Iterable<MatchResult<RegExpExecArray>>,
+    results: Iterable<MatchResult<StreamRegexMatch>>,
     into: EmittedMatch[]
   ) => {
     for (const result of results) {

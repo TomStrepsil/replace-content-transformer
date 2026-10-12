@@ -173,7 +173,7 @@ const transformer = new ReplaceContentTransformer(
     searchStrategy: searchStrategyFactory(
       /class="(?<before>(?:[^"]*? )?)old-button(?<after>(?: [^"]*?)?)"/
     ),
-    replacement: (match: RegExpExecArray) => {
+    replacement: (match) => {
       const { before, after } = match.groups;
       return `class="${before}new-button${after}"`;
     }
@@ -191,7 +191,7 @@ A backreference lets a pattern tie a later part of the match back to something i
 const transformer = new ReplaceContentTransformer(
   new SyncReplacementTransformEngine({
     searchStrategy: searchStrategyFactory(/(['"`])(?:\\.|[^\\])*?\1/),
-    replacement: (match: RegExpExecArray) => {
+    replacement: (match) => {
       const quote = match[1];
       return `${quote}REDACTED${quote}`;
     }
@@ -505,7 +505,7 @@ interface SearchStrategy<TState, TMatch = string> {
 
 The `TState` type is specific to the strategy, managed by the consuming engine / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
 
-The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data (e.g., `RegExpExecArray`) that includes capture groups.
+The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data, including capture groups and stream-relative indices. Regex matches use the exported `StreamRegexMatch` type and omit the chunk-local `input` property.
 
 The `flush` is called by the engine once no further input can arrive, to settle anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. Strategies with nothing to settle yield their buffer as a single non-match result. This also re-sets the provided state parameter for re-use.
 

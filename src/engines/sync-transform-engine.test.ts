@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
 import type { MatchResult } from "../search-strategies/types.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
+import type { StreamRegexMatch } from "../search-strategies/regex/types.ts";
 import {
   collectEngineSink,
   mockSearchStrategyFactory,
@@ -457,7 +458,7 @@ describe("SyncTransformEngine", () => {
     function drive(
       pattern: RegExp,
       inputs: string[],
-      replacement: string | ((match: RegExpExecArray) => string)
+      replacement: string | ((match: StreamRegexMatch) => string)
     ): { output: string; seen: string[] } {
       const seen: string[] = [];
       const engine = new SyncReplacementTransformEngine({
@@ -465,7 +466,7 @@ describe("SyncTransformEngine", () => {
         replacement:
           typeof replacement === "string"
             ? replacement
-            : (match: RegExpExecArray) => {
+            : (match: StreamRegexMatch) => {
                 seen.push(match[0]);
                 return replacement(match);
               }
@@ -481,7 +482,7 @@ describe("SyncTransformEngine", () => {
     it.each([/a?/, /a*/, /(?:)/, /x|/, /(?=a)/, new RegExp("")])(
       "%s terminates, never calls the replacement with an empty match, and echoing each match back reproduces the input exactly",
       (pattern) => {
-        const echoMatchBack = (match: RegExpExecArray): string => match[0];
+        const echoMatchBack = (match: StreamRegexMatch): string => match[0];
         const { output, seen } = drive(pattern, ["xy", "z"], echoMatchBack);
         expect(seen).not.toContain("");
         expect(output).toBe("xyz");
