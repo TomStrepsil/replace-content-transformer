@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed `AsyncLookaheadTransformEngine` `cancel()` and `end()` hanging when an abandoned replacement never settles or never yields its first item. The slot's concurrency permit is released straight away and the replacement is closed in the background, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`
+- Fixed streamed regex match metadata: `index` and `indices` now use stream-relative offsets, and the unreliable chunk-local `input` property is omitted
 - Fixed `BalancedPairSearchStrategy` dropping text after a nested match when a chunk ends inside the outer pair, e.g. `"(((a)b)"` followed by `" tail"` lost `" tail"`
 - Fixed chunk-dependent matches in the regex search strategy: premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
 - Fixed lookahead confirmation in the regex search strategy: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
