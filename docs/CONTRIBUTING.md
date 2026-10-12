@@ -71,7 +71,7 @@ e.g.
 
 ### 3. Document your changes
 
-- Add an entry to the `[Unreleased]` section in `docs/CHANGELOG.md`, following [keepachangelog](https://keepachangelog.com/) style
+- If the published package changes (`lib/`, `README.md`, `LICENSE` or the consumer-facing fields of `package.json`), add an entry to the `[Unreleased]` section in `docs/CHANGELOG.md`, following [keepachangelog](https://keepachangelog.com/) style. Changes to tests, benchmarks, CI or other docs don't need one; CI checks which applies
 
 ### 4. Run Tests
 

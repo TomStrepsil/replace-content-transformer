@@ -69,15 +69,6 @@ jobs:
             exit 1
           fi
 
-          # Dependabot PRs are exempt from the semver checkbox
-          COMMITS=$(git log $RANGE --oneline --perl-regexp --author='^(?!.*dependabot\[bot\])')
-
-          if [ -z "$COMMITS" ]; then
-            echo "❌ Error: Only dependabot commits found since $LAST_STABLE_TAG"
-            echo "No user-facing changes have been made since the last release."
-            exit 1
-          fi
-
           # Initialize semver bump level (0=none, 1=patch, 2=minor, 3=major)
           MAX_BUMP=0
 
@@ -121,11 +112,21 @@ jobs:
               echo "Found PATCH bump in PR #$PR_NUMBER"
               if [ $MAX_BUMP -lt 1 ]; then MAX_BUMP=1; fi
             else
-              echo "❌ Error: No version bump checkbox selected in PR #$PR_NUMBER"
-              echo "Please select MAJOR, MINOR, or PATCH in the PR description"
-              exit 1
+              BEFORE_INTEGRITY=$(.github/scripts/published-package-integrity.sh "$COMMIT_HASH^" < /dev/null)
+              AFTER_INTEGRITY=$(.github/scripts/published-package-integrity.sh "$COMMIT_HASH" < /dev/null)
+              if [ "$BEFORE_INTEGRITY" != "$AFTER_INTEGRITY" ]; then
+                echo "❌ Error: No version bump checkbox selected in PR #$PR_NUMBER, which changed the published package"
+                echo "Please select MAJOR, MINOR, or PATCH in the PR description"
+                exit 1
+              fi
+              echo "Ignoring PR #$PR_NUMBER (published package unchanged, no semver checkbox)"
             fi
-          done <<< "$COMMITS"
+          done <<< "$ALL_COMMITS"
+
+          if [ "$MAX_BUMP" -eq 0 ]; then
+            echo "❌ Error: No changes to the published package since $LAST_STABLE_TAG"
+            exit 1
+          fi
 
           case $MAX_BUMP in
             3) BUMP_TYPE="major" ;;

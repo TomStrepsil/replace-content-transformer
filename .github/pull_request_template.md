@@ -12,7 +12,7 @@ resolves #_ISSUE_ID_
 
 ## Semantic Version Impact
 
-<!-- Select ONE checkbox to indicate the semver impact of this change. Learn more at https://semver.org/ -->
+<!-- Select ONE checkbox to indicate the semver impact of this change. Learn more at https://semver.org/. Leave all unchecked (or remove this section entirely) if the published package (`lib/`, `README.md`, `LICENSE` or the consumer-facing fields of `package.json`) is unchanged; CI checks this. -->
 
 - [ ] **PATCH** - Bug fixes and minor changes (backwards compatible)
 - [ ] **MINOR** - New features (backwards compatible)
@@ -21,7 +21,7 @@ resolves #_ISSUE_ID_
 ## Checklist
 
 - [ ] PR starts with [_ISSUE_ID_], or `[NO ISSUE]`
-- [ ] I have added an entry to the `[Unreleased]` section in [`CHANGELOG.md`](../docs/CHANGELOG.md)
+- [ ] I have added an entry to the `[Unreleased]` section in [`CHANGELOG.md`](../docs/CHANGELOG.md), if the published package will change
 - [ ] I have performed a self-review of my own code
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes

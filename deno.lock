@@ -9,6 +9,7 @@
     "npm:@typescript-eslint/eslint-plugin@^8.58.0": "8.59.1_@typescript-eslint+parser@8.59.1__eslint@10.3.0__typescript@6.0.3_eslint@10.3.0_typescript@6.0.3",
     "npm:@typescript-eslint/parser@^8.58.0": "8.59.1_eslint@10.3.0_typescript@6.0.3",
     "npm:@vitest/coverage-v8@^4.1.2": "4.1.5_vitest@4.1.5_@types+node@25.7.0",
+    "npm:clean-pkg-json@2": "2.0.0",
     "npm:eslint-plugin-vitest-globals@^1.6.1": "1.6.1",
     "npm:eslint@^10.1.0": "10.3.0",
     "npm:globals@^17.4.0": "17.6.0",
@@ -1102,6 +1103,10 @@
     },
     "cjs-module-lexer@1.4.3": {
       "integrity": "sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q=="
+    },
+    "clean-pkg-json@2.0.0": {
+      "integrity": "sha512-HfgaeXf7xc2xEg28rKAb6iJ7KaBU6Bu1F+wefBUEm142fYvnn+dKuBg2WEwjv7hIs1S4tu/qdLK9wek03OolBQ==",
+      "bin": true
     },
     "cli-cursor@5.0.0": {
       "integrity": "sha512-aCj4O5wKyszjMmDT4tZj93kxyydN/K5zPWSCe6/0AV/AA1pqe5ZBIw0a2ZfPQV7lL5/yb5HsUreJ6UFAF1tEQw==",
@@ -2492,6 +2497,7 @@
         "npm:@typescript-eslint/eslint-plugin@^8.58.0",
         "npm:@typescript-eslint/parser@^8.58.0",
         "npm:@vitest/coverage-v8@^4.1.2",
+        "npm:clean-pkg-json@2",
         "npm:eslint-plugin-vitest-globals@^1.6.1",
         "npm:eslint@^10.1.0",
         "npm:globals@^17.4.0",

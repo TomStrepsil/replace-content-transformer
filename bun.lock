@@ -16,6 +16,7 @@
         "@typescript-eslint/parser": "^8.58.0",
         "@typescript/lib-es2022": "file:types/lib-es2022",
         "@vitest/coverage-v8": "^4.1.2",
+        "clean-pkg-json": "^2.0.0",
         "eslint": "^10.1.0",
         "eslint-plugin-vitest-globals": "^1.6.1",
         "globals": "^17.4.0",
@@ -385,6 +386,8 @@
     "char-regex": ["char-regex@1.0.2", "", {}, "sha512-kWWXztvZ5SBQV+eRgKFeh8q5sLuZY2+8WUIzlxWVTg+oGwY14qylx1KbKzHd8P6ZYkAg0xyIDU9JMHhyJMZ1jw=="],
 
     "cjs-module-lexer": ["cjs-module-lexer@1.4.3", "", {}, "sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q=="],
+
+    "clean-pkg-json": ["clean-pkg-json@2.0.0", "", { "bin": { "clean-pkg-json": "dist/index.mjs" } }, "sha512-HfgaeXf7xc2xEg28rKAb6iJ7KaBU6Bu1F+wefBUEm142fYvnn+dKuBg2WEwjv7hIs1S4tu/qdLK9wek03OolBQ=="],
 
     "cli-cursor": ["cli-cursor@5.0.0", "", { "dependencies": { "restore-cursor": "^5.0.0" } }, "sha512-aCj4O5wKyszjMmDT4tZj93kxyydN/K5zPWSCe6/0AV/AA1pqe5ZBIw0a2ZfPQV7lL5/yb5HsUreJ6UFAF1tEQw=="],
 
