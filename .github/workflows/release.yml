@@ -27,7 +27,7 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -224,7 +224,7 @@ jobs:
 
       - name: Create Draft GitHub Release
         if: ${{ !inputs.dry_run }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const tagName = 'v${{ steps.version.outputs.version }}';
