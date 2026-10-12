@@ -9,8 +9,8 @@ import {
   flushesText
 } from "../../test/utilities.ts";
 
-function runEngine<TState>(
-  engine: SyncReplacementTransformEngine<TState>,
+function runEngine<TState, TMatch = string>(
+  engine: SyncReplacementTransformEngine<TState, TMatch>,
   inputs: string[]
 ): string[] {
   const { sink, chunks } = collectEngineSink();
@@ -498,6 +498,27 @@ describe("SyncTransformEngine", () => {
 
     it("still matches a nullable pattern split across a chunk boundary, buffering instead of passing both characters through", () => {
       expect(drive(/(ab)?/, ["a", "b"], "#").output).toBe("#");
+    });
+  });
+
+  describe("regex match metadata", () => {
+    it("does not pass the per-scan input to replacement callbacks", () => {
+      const receivedInputs: unknown[] = [];
+      const replacement = vi.fn((match: StreamRegexMatch) => {
+        // @ts-expect-error StreamRegexMatch intentionally omits RegExpExecArray.input.
+        receivedInputs.push(match.input);
+        return match[0];
+      });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
+        replacement
+      });
+
+      const output = runEngine(engine, ["{{first}} and ", "then {{second}}"]);
+
+      expect(output.join("")).toBe("{{first}} and then {{second}}");
+      expect(replacement).toHaveBeenCalledTimes(2);
+      expect(receivedInputs).toEqual([undefined, undefined]);
     });
   });
 });

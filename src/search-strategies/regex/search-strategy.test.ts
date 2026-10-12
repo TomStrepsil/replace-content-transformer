@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { SyncReplacementTransformEngine } from "../../engines/sync-transform-engine.js";
 import { RegexSearchStrategy } from "./search-strategy.js";
 import type { RegexSearchStrategyOptions, StreamRegexMatch } from "./types.js";
 import type { MatchResult } from "../types.js";
@@ -177,18 +176,6 @@ function describeChunkInvariantCases(
 }
 
 describe("RegexSearchStrategy", () => {
-  it("does not expose the chunk-local input in replacement callback types", () => {
-    const engine = new SyncReplacementTransformEngine({
-      searchStrategy: new RegexSearchStrategy(/found/),
-      replacement: (match) => {
-        // @ts-expect-error Stream matches do not provide the chunk-local RegExp input.
-        return match.input;
-      }
-    });
-
-    expect(engine).toBeDefined();
-  });
-
   it("should validate input regex", () => {
     const someRegex = /test-regex/;
     new RegexSearchStrategy(someRegex);

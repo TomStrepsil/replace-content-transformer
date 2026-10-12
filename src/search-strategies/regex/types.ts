@@ -1,7 +1,7 @@
 import type { DEFAULT_OPTIONS } from "./default-options.js";
 import type { StreamIndices, StringBufferState } from "../types.js";
 
-/** A regex match whose index is measured from the start of the complete input stream. */
+/** A stream-relative regex match without RegExpExecArray.input, which identifies only one scan buffer. */
 export type StreamRegexMatch = Omit<RegExpExecArray, "input">;
 
 /** Per-stream state for `RegexSearchStrategy`. */
