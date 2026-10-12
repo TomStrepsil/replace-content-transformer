@@ -2,5 +2,6 @@ export { RegexSearchStrategy } from "./search-strategy.js";
 export type {
   GuardExceededInfo,
   RegexSearchState,
-  RegexSearchStrategyOptions
+  RegexSearchStrategyOptions,
+  StreamRegexMatch
 } from "./types.js";

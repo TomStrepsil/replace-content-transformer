@@ -15,7 +15,7 @@ This has been chosen for simplicity and performance, with libraries such as [`in
 To enable optimistic/early yielding, certain regular expression features are unsupported, e.g. [lookbehinds](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion) and negative [lookaheads](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion). [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) are supported, but carry streaming-specific caveats. See [Limitations](#limitations) for full explanation.
 
 > [!WARNING]
-> The strategy yields an object containing `{ content: RegExpExecArray }` for matches (rather than `{ content: string }`), where the `RegExpExecArray` is the result of calling `RegExp.prototype.exec`. This provides access to capture groups via `match.content[1]`, `match.content[2]`, etc., and named groups via `match.content.groups`. The array also includes [`index`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#index) and [`input`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec#input) properties, which make little sense in a streaming scenario and should be disregarded.
+> The strategy yields an object containing `{ content: StreamRegexMatch }` for matches (rather than `{ content: string }`). This array-like value provides capture groups via `match.content[1]`, `match.content[2]`, etc., and named groups via `match.content.groups`. Its `index` is an offset into the whole stream. The native `input` property identifies the string passed to one `exec()` call; a streaming scan uses changing buffers, so that property cannot identify the complete stream and is omitted. `StreamRegexMatch` is exported from the package root.
 
 > [!NOTE]
 > Where the `d` flag is provided, indices are mapped to be offsets into the stream as a whole. The indices on the match will duplicate the `streamIndices` passed to the replacement function. However, the `groups` property on indices is also updated, which may prove more useful.
@@ -365,7 +365,7 @@ The cost is decided by whether the pattern can _settle_:
 
 A terminator the body cannot consume **bounds** the buffer without emptying it: a match in progress when a chunk ends is held, so the peak is the longest pending match (8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md)) and does not grow with the stream.
 
-`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length. 
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length.
 
 Both the 1024-character threshold and the growth factor of 2 can be changed with the `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` options. The price is latency: a match that completes just after a scan is released at the next one, or at end of stream.
 
@@ -379,7 +379,7 @@ new RegexSearchStrategy(/\S+/, {
 });
 ```
 
-Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive. 
+Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive.
 
 Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default value is `Infinity`.
 

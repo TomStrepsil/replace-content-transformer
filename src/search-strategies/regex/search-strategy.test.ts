@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { RegexSearchStrategy } from "./search-strategy.js";
-import type { RegexSearchStrategyOptions } from "./types.js";
+import type { RegexSearchStrategyOptions, StreamRegexMatch } from "./types.js";
 import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
 import optionsValidation from "./options-validation.js";
@@ -20,11 +20,11 @@ import {
 vi.mock("./input-validation.js");
 vi.mock("./options-validation.js");
 
-function getValue(result: MatchResult<RegExpExecArray>): string {
+function getValue(result: MatchResult<StreamRegexMatch>): string {
   return result.isMatch ? result.content[0] : result.content;
 }
 
-function matchesOf(results: MatchResult<RegExpExecArray>[]): string[] {
+function matchesOf(results: MatchResult<StreamRegexMatch>[]): string[] {
   return results.filter((r) => r.isMatch).map((r) => r.content[0]);
 }
 
@@ -1312,10 +1312,25 @@ describe("RegexSearchStrategy", () => {
         isMatch: true,
         streamIndices: [7, 16]
       });
-      const content = (match as { content: RegExpExecArray }).content;
+      const content = (match as { content: StreamRegexMatch }).content;
       expect(content.groups?.name).toBe("value");
       expect(content.indices?.[0]).toEqual([7, 16]);
       expect(content.indices?.groups?.name).toEqual([9, 14]);
+    });
+
+    it("reports stream offsets and omits match.input for matches in any chunk", () => {
+      const { results, flushResults } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
+        ["{{first}} and ", "then {{value}}"]
+      );
+
+      const matches = [...results, ...flushResults].filter((result) => result.isMatch);
+      expect(matches).toHaveLength(2);
+      for (const match of matches) {
+        expect(match.content.index).toBe(match.content.indices?.[0]?.[0]);
+        expect(match.content).not.toHaveProperty("input");
+      }
+      expect(matches.map((match) => match.content.index)).toEqual([0, 19]);
     });
 
     it("emits content that never became a match as one trailing non-match segment", () => {
@@ -1448,7 +1463,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
-      const outputs: MatchResult<RegExpExecArray>[] = [];
+      const outputs: MatchResult<StreamRegexMatch>[] = [];
 
       for (const value of strategy.processChunk(
         "Text with {{ something }} and {{ something more }}",
@@ -2009,7 +2024,7 @@ describe("RegexSearchStrategy", () => {
 
   describe("zero-length matches", () => {
     const reassemble = (
-      results: MatchResult<RegExpExecArray>[],
+      results: MatchResult<StreamRegexMatch>[],
       flush: string
     ): string =>
       results.map((r) => (r.isMatch ? r.content[0] : r.content)).join("") +

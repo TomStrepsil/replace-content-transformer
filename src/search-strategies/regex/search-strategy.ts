@@ -11,6 +11,7 @@ import skipOneCodeUnitPastZeroLengthMatch from "./skip-one-code-unit-past-zero-l
 import takeMatch from "./take-match.js";
 import type {
   RegexSearchState,
+  StreamRegexMatch,
   RegexSearchStrategyOptions,
   ScanCursor
 } from "./types.js";
@@ -52,8 +53,8 @@ const FEATURES_NEEDING_PROBE_BEFORE_END = [
  * ```
  */
 export class RegexSearchStrategy
-  extends StringBufferStrategyBase<RegExpExecArray>
-  implements SearchStrategy<RegexSearchState, RegExpExecArray>
+  extends StringBufferStrategyBase<StreamRegexMatch>
+  implements SearchStrategy<RegexSearchState, StreamRegexMatch>
 {
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
@@ -135,7 +136,7 @@ export class RegexSearchStrategy
   *processChunk(
     haystack: string,
     state: RegexSearchState
-  ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
+  ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
     const bufferLength = state.buffer.length;
     if (this.canSkipEvaluation(state, bufferLength + haystack.length)) {
       state.buffer += haystack;
@@ -199,7 +200,7 @@ export class RegexSearchStrategy
 
   flush(
     state: RegexSearchState
-  ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
+  ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
     const buffer = state.buffer;
     const baseOffset = state.streamOffset - buffer.length;
     state.buffer = "";
@@ -211,7 +212,7 @@ export class RegexSearchStrategy
   private *settle(
     buffer: string,
     baseOffset: number
-  ): Generator<MatchResult<RegExpExecArray>, void, undefined> {
+  ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
     const cursor: ScanCursor = { reportedUpTo: 0 };
     while (cursor.reportedUpTo < buffer.length) {
       const finalMatch = this.completeMatchRegex.exec(
@@ -237,7 +238,7 @@ export class RegexSearchStrategy
     }
   }
 
-  override matchToString(match: RegExpExecArray): string {
+  override matchToString(match: StreamRegexMatch): string {
     return match[0];
   }
 }
