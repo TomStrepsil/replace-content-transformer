@@ -17,13 +17,27 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
       - name: Run linter
         run: corepack npm run lint
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Run type check
+        run: corepack npm run typecheck
 
   test:
     name: Test (${{ matrix.runtime }})
@@ -35,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node
         if: matrix.runtime == 'node'
@@ -76,17 +90,35 @@ jobs:
   changelog-and-semver-check:
     name: CHANGELOG and Semver Check
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          sparse-checkout: |
-            docs/CHANGELOG.md
-          sparse-checkout-cone-mode: false
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Compare published package with base
+        id: published_package
+        run: |
+          BASE_INTEGRITY=$(.github/scripts/published-package-integrity.sh "$BASE_SHA")
+          HEAD_INTEGRITY=$(.github/scripts/published-package-integrity.sh HEAD)
+          echo "Base: $BASE_INTEGRITY"
+          echo "Head: $HEAD_INTEGRITY"
+          if [ "$BASE_INTEGRITY" = "$HEAD_INTEGRITY" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
       - name: Check CHANGELOG for Unreleased entries
+        if: steps.published_package.outputs.changed == 'true'
         run: |
           if ! grep -q "## \[Unreleased\]" docs/CHANGELOG.md; then
             echo "Error: docs/CHANGELOG.md must have an [Unreleased] section"
@@ -139,12 +171,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Check for semver selection
+        env:
+          PUBLISHED_PACKAGE_CHANGED: ${{ steps.published_package.outputs.changed }}
         run: |
           PR_BODY=$(cat pr_body.txt)
           echo "Checking PR description for semver selection..."
 
           # Count how many semver checkboxes are selected
           SELECTED_COUNT=$(echo "$PR_BODY" | grep -cE "\[[xX]\] \*\*(MAJOR|MINOR|PATCH)\*\*" || true)
+
+          if [ "$PUBLISHED_PACKAGE_CHANGED" != "true" ]; then
+            if [ "$SELECTED_COUNT" -gt 0 ]; then
+              echo "::warning::A semver checkbox is selected, but the published package is unchanged. Clear it unless this PR should still bump the next release"
+            else
+              echo "✓ The published package is unchanged, so no semver checkbox is required"
+            fi
+            exit 0
+          fi
 
           if [ "$SELECTED_COUNT" -eq 0 ]; then
             echo "❌ Error: No semver checkbox selected in PR description"
