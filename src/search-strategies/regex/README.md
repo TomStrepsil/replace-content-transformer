@@ -365,7 +365,7 @@ The cost is decided by whether the pattern can _settle_:
 
 A terminator the body cannot consume **bounds** the buffer without emptying it: a match in progress when a chunk ends is held, so the peak is the longest pending match (8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md)) and does not grow with the stream.
 
-`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length. 
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length.
 
 Both the 1024-character threshold and the growth factor of 2 can be changed with the `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` options. The price is latency: a match that completes just after a scan is released at the next one, or at end of stream.
 
@@ -379,7 +379,7 @@ new RegexSearchStrategy(/\S+/, {
 });
 ```
 
-Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive. 
+Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive.
 
 Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default value is `Infinity`.
 
