@@ -220,7 +220,6 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       this.#closingIterators.set(key, result);
       return result;
     } catch {
-      // Cancellation is best-effort and must not wait for a stalled next().
       const result = Promise.resolve();
       this.#closingIterators.set(key, result);
       return result;
