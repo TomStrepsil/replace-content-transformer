@@ -1301,6 +1301,36 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks).toEqual([]);
     });
 
+    it("cancel() called from inside a replacement's return() closes that iterator once", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const canceller: { cancel?: () => void } = {};
+      let returnCalls = 0;
+      const iterator: AsyncIterator<string> = {
+        next: () => never(),
+        return: async () => {
+          returnCalls++;
+          canceller.cancel?.();
+          return { done: true, value: undefined };
+        }
+      };
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => ({ [Symbol.asyncIterator]: () => iterator }),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      canceller.cancel = () => engine.cancel();
+      engine.start(sink);
+      await engine.write("M");
+      await settleMicrotasks(5);
+
+      engine.cancel();
+      await expect(engine.end()).resolves.toBeUndefined();
+      expect(returnCalls).toBe(1);
+    });
+
     it.each<[string, () => Promise<AsyncIterable<string>>]>([
       ["whose promise never settles", () => never()],
       ["whose first item never arrives", async () => stalledBeforeFirstItem()]

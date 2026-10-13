@@ -224,16 +224,20 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const key = iterator as object;
     const existing = this.#closingIterators.get(key);
     if (existing !== undefined) return existing;
+    // Registered before return() runs: a cancel() re-entered from inside return()
+    // reuses this promise instead of calling return() again.
+    let settle: () => void = ignore;
+    const result = new Promise<void>((resolve) => {
+      settle = () => resolve();
+    });
+    this.#closingIterators.set(key, result);
     try {
       const closing = iterator.return?.();
-      const result = Promise.resolve(closing).then(() => {}, ignore);
-      this.#closingIterators.set(key, result);
-      return result;
+      Promise.resolve(closing).then(() => {}, ignore).then(settle);
     } catch {
-      const result = Promise.resolve();
-      this.#closingIterators.set(key, result);
-      return result;
+      settle();
     }
+    return result;
   }
 
   /**
