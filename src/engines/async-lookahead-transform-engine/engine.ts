@@ -50,7 +50,10 @@ function untilAborted<T>(
   promise: Promise<T>,
   signal: AbortSignal
 ): Promise<T | typeof ABANDONED> {
-  if (signal.aborted) return Promise.resolve(ABANDONED);
+  if (signal.aborted) {
+    void promise.catch(ignore);
+    return Promise.resolve(ABANDONED);
+  }
   return new Promise((resolve, reject) => {
     const onAbort = () => resolve(ABANDONED);
     signal.addEventListener("abort", onAbort, { once: true });

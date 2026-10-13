@@ -1080,6 +1080,49 @@ describe("AsyncLookaheadTransformEngine", () => {
       await expect(engine.end()).resolves.toBeUndefined();
     });
 
+    it("handles a replacement rejection when next() cancels synchronously", async () => {
+      let engine!: AsyncLookaheadTransformEngine<object, string>;
+      const unhandledRejections: unknown[] = [];
+      const onUnhandledRejection = (reason: unknown) => {
+        unhandledRejections.push(reason);
+      };
+      const replacement: AsyncIterable<string> = {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              engine.cancel();
+              throw new Error("replacement failed during cancellation");
+            },
+            return() {
+              return Promise.resolve({ done: true, value: undefined });
+            }
+          };
+        }
+      };
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "M",
+        streamIndices: [0, 1]
+      });
+      const { sink } = collectEngineSink();
+      engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => replacement,
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      process.on("unhandledRejection", onUnhandledRejection);
+
+      try {
+        await engine.write("M");
+        await expect(engine.end()).resolves.toBeUndefined();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(unhandledRejections).toEqual([]);
+      } finally {
+        process.removeListener("unhandledRejection", onUnhandledRejection);
+      }
+    });
+
     it("cancel() while write() is suspended on a full queue unblocks write()", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] },
