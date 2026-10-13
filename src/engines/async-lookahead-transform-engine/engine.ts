@@ -442,6 +442,10 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
         wake();
       }
     });
+    // The pump owns child.end(), but it may not reach it until the source is
+    // exhausted. The sink already forwards drain failures to this bridge, so
+    // observe the rejection now as well to avoid a transient unhandled rejection.
+    void child.#drainDone?.catch(ignore);
 
     const onCancel = () => wake();
     this.#cancelAbortController.signal.addEventListener("abort", onCancel, { once: true });
