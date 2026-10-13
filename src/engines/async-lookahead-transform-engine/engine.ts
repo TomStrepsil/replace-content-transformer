@@ -54,9 +54,16 @@ function untilAborted<T>(
   return new Promise((resolve, reject) => {
     const onAbort = () => resolve(ABANDONED);
     signal.addEventListener("abort", onAbort, { once: true });
-    promise
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener("abort", onAbort));
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      }
+    );
   });
 }
 

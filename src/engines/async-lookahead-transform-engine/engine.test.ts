@@ -330,6 +330,7 @@ describe("AsyncLookaheadTransformEngine", () => {
   });
 
   describe("error propagation", () => {
+    const sinkReplacementState = { closed: false };
     it("forwards a replacement failure to sink.error and rejects end()", async () => {
       const strategy = mockSearchStrategyFactory({
         isMatch: true,
@@ -385,7 +386,21 @@ describe("AsyncLookaheadTransformEngine", () => {
           }
         };
       } }],
-      ["the sink throws", { first: async () => asyncIterable("R"), sinkThrows: true }]
+      ["the sink throws", {
+        first: async () => {
+          const iterable: AsyncIterable<string> = {
+            async *[Symbol.asyncIterator]() {
+              try {
+                yield "R";
+              } finally {
+                sinkReplacementState.closed = true;
+              }
+            }
+          };
+          return iterable;
+        },
+        sinkThrows: true
+      }]
     ])("releases every concurrency slot when the drain fails because %s", async (_, { first, sinkThrows }) => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] },
@@ -417,6 +432,10 @@ describe("AsyncLookaheadTransformEngine", () => {
       await expect(engine.end()).rejects.toThrow("drain failed");
       expect(errors).toHaveLength(1);
       await vi.waitFor(() => expect(held()).toBe(0));
+      if (sinkThrows) {
+        // Downstream failure closes the replacement iterator.
+        expect(sinkReplacementState.closed).toBe(true);
+      }
     });
 
     it("closes a replacement iterator when the sink throws", async () => {
