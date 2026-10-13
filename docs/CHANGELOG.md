@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
 - Updated `regex-partial-match` to `^2.0.1` (for `hitEnd()` and `features()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
+- The published `package.json` keeps only consumer-facing fields; `scripts`, `devDependencies`, `devEngines`, `workspaces` and git-hook config are no longer published
 
 ### Fixed
 
