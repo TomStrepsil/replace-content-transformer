@@ -164,9 +164,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   readonly #depth: number;
   readonly #cancelAbortController: AbortController;
   readonly #abandonSignal: AbortSignal;
-  readonly #activeIterators = new Set<AsyncIterator<string>>();
   readonly #activeChildren = new Set<AsyncLookaheadTransformEngine<TState, TMatch>>();
-  readonly #closingIterators = new WeakMap<object, Promise<void>>();
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
@@ -207,37 +205,15 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   /**
    * Abort all in-flight work and close the engine without emitting further
    * output. Any write() suspended on backpressure is unblocked immediately.
-   * Pending replacement iterables are closed via `iter.return()`. Original
-   * match text is not emitted even when `abandonPendingSignal` is configured.
+   * Original match text is not emitted even when `abandonPendingSignal` is configured.
    * After `cancel()`, `end()` resolves cleanly without hanging.
    */
   cancel(): void {
     this.#cancelled = true;
     this.#cancelAbortController.abort();
-    for (const iterator of this.#activeIterators) this.#closeIterator(iterator);
     for (const child of this.#activeChildren) child.cancel();
     this.#activeChildren.clear();
     this.#queue.close();
-  }
-
-  #closeIterator(iterator: AsyncIterator<string>): Promise<void> {
-    const key = iterator as object;
-    const existing = this.#closingIterators.get(key);
-    if (existing !== undefined) return existing;
-    // Registered before return() runs: a cancel() re-entered from inside return()
-    // reuses this promise instead of calling return() again.
-    let settle: () => void = ignore;
-    const result = new Promise<void>((resolve) => {
-      settle = () => resolve();
-    });
-    this.#closingIterators.set(key, result);
-    try {
-      const closing = iterator.return?.();
-      Promise.resolve(closing).then(() => {}, ignore).then(settle);
-    } catch {
-      settle();
-    }
-    return result;
   }
 
   /**
@@ -424,22 +400,9 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   }
 
   async #stream(iterable: AsyncIterable<string>): Promise<void> {
-    const iterator = iterable[Symbol.asyncIterator]();
-    this.#activeIterators.add(iterator);
-    let completed = false;
-    try {
-      while (!this.#cancelled) {
-        const step = await iterator.next();
-        if (step.done) {
-          completed = true;
-          return;
-        }
-        if (this.#cancelled) return;
-        this._sink.enqueue(step.value);
-      }
-    } finally {
-      this.#activeIterators.delete(iterator);
-      if (!completed) await this.#closeIterator(iterator);
+    for await (const chunk of iterable) {
+      if (this.#cancelled) return;
+      this._sink.enqueue(chunk);
     }
   }
 
@@ -480,25 +443,21 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       }
     });
 
-    const sourceIterator = source[Symbol.asyncIterator]();
-    this.#activeIterators.add(sourceIterator);
     const onCancel = () => wake();
     this.#cancelAbortController.signal.addEventListener("abort", onCancel, { once: true });
 
     void (async () => {
       try {
-        while (!this.#cancelled) {
-          const step = await sourceIterator.next();
-          if (step.done || this.#cancelled) break;
-          await child.write(step.value);
+        for await (const chunk of source) {
+          if (this.#cancelled) break;
+          await child.write(chunk);
         }
         if (this.#cancelled) child.cancel();
         else await child.end();
       } catch (err) {
+        child.cancel();
         childErr ??= err;
       } finally {
-        this.#activeIterators.delete(sourceIterator);
-        if (this.#cancelled || childErr !== null) await this.#closeIterator(sourceIterator);
         this.#activeChildren.delete(child);
         this.#cancelAbortController.signal.removeEventListener("abort", onCancel);
         childDone = true;

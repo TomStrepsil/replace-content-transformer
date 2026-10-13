@@ -1301,36 +1301,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks).toEqual([]);
     });
 
-    it("cancel() called from inside a replacement's return() closes that iterator once", async () => {
-      const strategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "M", streamIndices: [0, 1] }
-      );
-      const canceller: { cancel?: () => void } = {};
-      let returnCalls = 0;
-      const iterator: AsyncIterator<string> = {
-        next: () => never(),
-        return: async () => {
-          returnCalls++;
-          canceller.cancel?.();
-          return { done: true, value: undefined };
-        }
-      };
-      const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: strategy,
-        replacement: async () => ({ [Symbol.asyncIterator]: () => iterator }),
-        concurrencyStrategy: new SemaphoreStrategy(1)
-      });
-      canceller.cancel = () => engine.cancel();
-      engine.start(sink);
-      await engine.write("M");
-      await settleMicrotasks(5);
-
-      engine.cancel();
-      await expect(engine.end()).resolves.toBeUndefined();
-      expect(returnCalls).toBe(1);
-    });
-
     it.each<[string, () => Promise<AsyncIterable<string>>]>([
       ["whose promise never settles", () => never()],
       ["whose first item never arrives", async () => stalledBeforeFirstItem()]
@@ -1463,156 +1433,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("firstM");
     });
 
-    it("cancel() stops pulling a nested source that never ends", async () => {
-      let pulled = 0;
-      async function* endless() {
-        while (true) {
-          pulled++;
-          yield "x";
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-      }
-      // The strategy is shared with the child engine, so only the first chunk may match.
-      const strategy = mockSearchStrategyFactory<string>();
-      strategy.processChunk
-        .mockImplementationOnce(function* () {
-          yield { isMatch: true, content: "M", streamIndices: [0, 1] };
-        })
-        .mockImplementation(function* () {});
-      const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: strategy,
-        replacement: async () => nested(endless()),
-        concurrencyStrategy: new SemaphoreStrategy(1)
-      });
-      engine.start(sink);
-      await engine.write("M");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-
-      engine.cancel();
-      await expect(engine.end()).resolves.toBeUndefined();
-      // The pump may take one more pull before it sees the cancel; after that it must stop.
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      const settled = pulled;
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      expect(pulled).toBe(settled);
-    });
-
-    it("cancel() requests closure of a replacement whose next() is stalled", async () => {
-      let nextCalls = 0;
-      let closed = false;
-      const replacement: AsyncIterable<string> = {
-        [Symbol.asyncIterator]() {
-          return {
-            next() {
-              nextCalls++;
-              if (nextCalls === 1) {
-                return Promise.resolve({ done: false, value: "first" });
-              }
-              return never<IteratorResult<string>>();
-            },
-            return() {
-              closed = true;
-              return Promise.resolve({ done: true, value: undefined });
-            }
-          };
-        }
-      };
-      const strategy = mockSearchStrategyFactory({
-        isMatch: true,
-        content: "match",
-        streamIndices: [0, 5]
-      });
-      const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: strategy,
-        replacement: async () => replacement,
-        concurrencyStrategy: new SemaphoreStrategy(1)
-      });
-      engine.start(sink);
-
-      await engine.write("match");
-      await settleMicrotasks(10);
-      expect(nextCalls).toBeGreaterThanOrEqual(2);
-
-      engine.cancel();
-      await expect(engine.end()).resolves.toBeUndefined();
-
-      expect(closed).toBe(true);
-    });
-
-    it("cancel() closes a stalled nested source and its active child replacement", async () => {
-      let sourceNextCalls = 0;
-      let sourceClosed = false;
-      const source: AsyncIterable<string> = {
-        [Symbol.asyncIterator]() {
-          return {
-            next() {
-              sourceNextCalls++;
-              if (sourceNextCalls === 1) {
-                return Promise.resolve({ done: false, value: "inner" });
-              }
-              return never<IteratorResult<string>>();
-            },
-            return() {
-              sourceClosed = true;
-              return Promise.resolve({ done: true, value: undefined });
-            }
-          };
-        }
-      };
-      let childNextCalls = 0;
-      let childReplacementClosed = false;
-      const childReplacement: AsyncIterable<string> = {
-        [Symbol.asyncIterator]() {
-          return {
-            next() {
-              childNextCalls++;
-              if (childNextCalls === 1) {
-                return Promise.resolve({ done: false, value: "child-output" });
-              }
-              return never<IteratorResult<string>>();
-            },
-            return() {
-              childReplacementClosed = true;
-              return Promise.resolve({ done: true, value: undefined });
-            }
-          };
-        }
-      };
-      const strategy = {
-        createState: vi.fn().mockReturnValue({}),
-        processChunk: vi.fn().mockImplementation(function* (chunk: string) {
-          if (chunk === "outer") {
-            yield { isMatch: true, content: "outer", streamIndices: [0, 5] };
-          } else if (chunk === "inner") {
-            yield { isMatch: true, content: "inner", streamIndices: [0, 5] };
-          }
-        }),
-        flush: vi.fn().mockImplementation(flushesText()),
-        matchToString: vi.fn().mockImplementation((match: string) => match)
-      };
-      const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: strategy,
-        replacement: async (_match, context) =>
-          context.depth === 0 ? nested(source) : childReplacement,
-        concurrencyStrategy: new SemaphoreStrategy(2)
-      });
-      engine.start(sink);
-
-      await engine.write("outer");
-      await settleMicrotasks(30);
-      expect(sourceNextCalls).toBeGreaterThanOrEqual(2);
-      expect(childNextCalls).toBeGreaterThanOrEqual(2);
-
-      engine.cancel();
-      await expect(engine.end()).resolves.toBeUndefined();
-
-      expect(sourceClosed).toBe(true);
-      expect(childReplacementClosed).toBe(true);
-    });
-
     it("cancel() does not emit original text even when abandonPendingSignal is configured", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
@@ -1706,6 +1526,37 @@ describe("AsyncLookaheadTransformEngine", () => {
       await settleMicrotasks(50);
 
       expect(pulls).toBe(pullsAfterCancel);
+    });
+
+    it("cancels a child engine when reading its nested source fails", async () => {
+      const strategy = {
+        createState: vi.fn().mockReturnValue({}),
+        processChunk: vi.fn().mockImplementation(function* (chunk: string) {
+          if (chunk === "outer" || chunk === "inner") {
+            yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] };
+          }
+        }),
+        flush: vi.fn().mockImplementation(flushesText()),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
+      };
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(2);
+      async function* source() {
+        yield "inner";
+        throw new Error("nested source failed");
+      }
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (_match, { depth }) =>
+          depth === 0 ? nested(source()) : stalledBeforeFirstItem(),
+        concurrencyStrategy
+      });
+      engine.start(sink);
+
+      await engine.write("outer");
+      await expect(engine.end()).rejects.toThrow("nested source failed");
+
+      expect(held()).toBe(0);
     });
 
     it("closes a nested source when the child engine fails while writing it", async () => {
