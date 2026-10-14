@@ -1,4 +1,5 @@
 import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
+import type { StreamRegexMatch } from "../src/search-strategies/regex/types.ts";
 
 type CanonicalSegment = { isMatch: boolean; text: string };
 
@@ -129,10 +130,35 @@ function collectCanonicalSearchStrategyResults<TState, TMatch = string>(
   return { segments, output: segments.map(({ text }) => text).join("") };
 }
 
+/**
+ * Reduce the matches from {@link collectSearchStrategyResults} over a regex
+ * strategy to plain data, so runs over different splits or strategies can be
+ * compared with `toEqual`.
+ */
+function regexMatchDetailsOf({
+  results,
+  flushResults
+}: {
+  results: MatchResult<StreamRegexMatch>[];
+  flushResults: MatchResult<StreamRegexMatch>[];
+}) {
+  return [...results, ...flushResults]
+    .filter((result) => result.isMatch)
+    .map(({ content, streamIndices }) => ({
+      captures: [...content],
+      index: content.index,
+      groups: content.groups,
+      indices: content.indices && [...content.indices],
+      indexGroups: content.indices?.groups,
+      streamIndices
+    }));
+}
+
 export type { CanonicalSegment };
 
 export {
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString
+  flushToString,
+  regexMatchDetailsOf
 };

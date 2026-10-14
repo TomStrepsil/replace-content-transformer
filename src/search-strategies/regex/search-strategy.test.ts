@@ -8,14 +8,11 @@ import PartialMatchRegExp from "regex-partial-match";
 import {
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString
+  flushToString,
+  regexMatchDetailsOf
 } from "../../../test/utilities.js";
 import type { CanonicalSegment } from "../../../test/utilities.js";
-import {
-  characterBySplit,
-  everyThreeWaySplit,
-  everyTwoWaySplit
-} from "../../../test/splits.js";
+import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
 vi.mock("./input-validation.js");
 vi.mock("./options-validation.js");
@@ -28,28 +25,10 @@ function matchesOf(results: MatchResult<StreamRegexMatch>[]): string[] {
   return results.filter((r) => r.isMatch).map((r) => r.content[0]);
 }
 
-function everySplitOf(haystack: string): string[][] {
-  return [
-    ...everyTwoWaySplit(haystack),
-    ...everyThreeWaySplit(haystack),
-    characterBySplit(haystack)
-  ];
-}
-
 function matchDetailsOf(pattern: RegExp, chunks: string[]) {
-  const { results, flushResults } = collectSearchStrategyResults(
-    new RegexSearchStrategy(pattern),
-    chunks
+  return regexMatchDetailsOf(
+    collectSearchStrategyResults(new RegexSearchStrategy(pattern), chunks)
   );
-  return [...results, ...flushResults]
-    .filter((result) => result.isMatch)
-    .map(({ content, streamIndices }) => ({
-      captures: [...content],
-      groups: content.groups,
-      indices: content.indices && [...content.indices],
-      indexGroups: content.indices?.groups,
-      streamIndices
-    }));
 }
 
 function expectSameMatchesAtEverySplit(
@@ -98,7 +77,7 @@ function expectNativeCapturesAtEverySplit(
 ): void {
   const expected = nativeMatchCapturesOf(pattern, haystack);
 
-  for (const chunks of [[haystack], ...everySplitOf(haystack)]) {
+  for (const chunks of everySplitOf(haystack)) {
     expect({ chunks, captures: streamedMatchCapturesOf(pattern, chunks) }).toEqual(
       { chunks, captures: expected }
     );
@@ -108,7 +87,7 @@ function expectNativeCapturesAtEverySplit(
 function expectSettledMatchesAreNative(pattern: RegExp, haystack: string): void {
   const original = new RegExp(pattern.source, `${pattern.flags}y`);
 
-  for (const chunks of [[haystack], ...everySplitOf(haystack)]) {
+  for (const chunks of everySplitOf(haystack)) {
     const settled = matchDetailsOf(pattern, chunks);
     for (const { captures, groups, streamIndices } of settled) {
       original.lastIndex = streamIndices[0];

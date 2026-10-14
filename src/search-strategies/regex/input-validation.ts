@@ -1,11 +1,16 @@
 import type PartialMatchRegExp from "regex-partial-match";
-import features from "regex-partial-match/features";
+import features, { isPartialMatchRegExp } from "regex-partial-match/features";
 
 const throwUnsupported = (reason: string): never => {
   throw new Error(`${reason} not supported`);
 };
 
 const inputValidation = (partialMatchRegex: PartialMatchRegExp) => {
+  if (!isPartialMatchRegExp(partialMatchRegex)) {
+    throw new TypeError(
+      `expected a PartialMatchRegExp instance, received ${String(partialMatchRegex)}`
+    );
+  }
   const detected = features(partialMatchRegex);
   switch (true) {
     case detected.has("negativeLookahead"):

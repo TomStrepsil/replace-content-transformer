@@ -517,6 +517,7 @@ Each strategy contains the pattern-matching logic for a specific use case:
 - **[`StringAnchorSearchStrategy`](./src/search-strategies/looped-indexOf-anchored/README.md)** - finds either single tokens, or "anchor" tokens delimiting start/end (or in sequence in-between) of a match
 - **[`BalancedPairSearchStrategy`](./src/search-strategies/balanced-pair/README.md)** - Matches balanced delimiter pairs, correctly handling arbitrary nesting depth (e.g. `(outer (inner) rest)`)
 - **[`RegexSearchStrategy`](./src/search-strategies/regex/README.md)** - Matches against regular expressions (with some caveats)
+  - **[`LeanRegexSearchStrategy`](./src/search-strategies/regex/README.md#lean-bundles)** - The same, taking a `PartialMatchRegExp` you build from `regex-partial-match/core`, for a smaller bundle
 
 See [search strategies](./src/search-strategies/README.md) for detail of functionality, and development of the strategies.
 
@@ -561,6 +562,16 @@ const searchStrategy = new BalancedPairSearchStrategy("{{", "}}"); // delimiter 
 ```ts
 import { RegexSearchStrategy } from "replace-content-transformer";
 const searchStrategy = new RegexSearchStrategy(/<div>.+?<\/div>/s); // regular expression for complete match
+```
+
+...or, smaller again, bringing your own [lean](./src/search-strategies/regex/README.md#lean-bundles) `PartialMatchRegExp`:
+
+```ts
+import PartialMatchRegExp from "regex-partial-match/core";
+import { LeanRegexSearchStrategy } from "replace-content-transformer";
+const searchStrategy = new LeanRegexSearchStrategy(
+  new PartialMatchRegExp(/<div>.+?<\/div>/s)
+);
 ```
 
 ### 🦾 Engines
