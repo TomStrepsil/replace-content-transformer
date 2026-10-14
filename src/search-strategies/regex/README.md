@@ -20,6 +20,28 @@ To enable optimistic/early yielding, certain regular expression features are uns
 > [!NOTE]
 > Where the `d` flag is provided, indices are mapped to be offsets into the stream as a whole. The indices on the match will duplicate the `streamIndices` passed to the replacement function. However, the `groups` property on indices is also updated, which may prove more useful.
 
+## Lean Bundles
+
+`RegexSearchStrategy` builds its `PartialMatchRegExp` from `regex-partial-match`'s default entry, so a bundle that includes it carries the full class, including rules this strategy never uses. `LeanRegexSearchStrategy` behaves identically and takes the same options, but takes a `PartialMatchRegExp` you build, from whichever entry suits the pattern:
+
+```ts
+import PartialMatchRegExp, { withModules } from "regex-partial-match/core";
+import backreferences from "regex-partial-match/modules/backreferences";
+import { LeanRegexSearchStrategy } from "replace-content-transformer";
+
+new LeanRegexSearchStrategy(new PartialMatchRegExp(/\{\{(\w+)\}\}/));
+
+const WithBackreferences = withModules(backreferences);
+new LeanRegexSearchStrategy(new WithBackreferences(/(["'])(.*?)\1/));
+```
+
+Build from `core`, binding `withModules(backreferences)` only if the pattern has a backreference; no other module is needed.[^13]
+
+Anything other than a `PartialMatchRegExp` instance, from any entry point, throws a `TypeError`.
+
+> [!NOTE]
+> The smaller bundle needs a bundler that tree-shakes. Without one, importing from the package root also loads `RegexSearchStrategy`, and with it the full `PartialMatchRegExp` class and every module, so `LeanRegexSearchStrategy` saves nothing there. [`searchStrategyFactory`](../../../README.md#-search-strategy-factory) continues to return `RegexSearchStrategy`.
+
 ## How It Works
 
 ### Dual Regex Approach
@@ -29,16 +51,27 @@ The strategy maintains two regex patterns:
 ```typescript
 import PartialMatchRegExp from "regex-partial-match";
 
-class RegexSearchStrategy {
+class LeanRegexSearchStrategy {
   private readonly completeMatchRegex: RegExp; // Original pattern
   private readonly partialMatchRegex: PartialMatchRegExp; // Updated for partial detection
 
+  constructor(partialMatchRegex: PartialMatchRegExp) {
+    this.partialMatchRegex = partialMatchRegex;
+    this.completeMatchRegex = new RegExp(
+      partialMatchRegex.source,
+      partialMatchRegex.flags
+    );
+  }
+}
+
+class RegexSearchStrategy extends LeanRegexSearchStrategy {
   constructor(needle: RegExp) {
-    this.completeMatchRegex = needle;
-    this.partialMatchRegex = new PartialMatchRegExp(needle);
+    super(new PartialMatchRegExp(needle));
   }
 }
 ```
+
+A `PartialMatchRegExp` reports the original pattern's `source` and `flags`, so the original is rebuilt from it. See [Lean Bundles](#lean-bundles) for why the logic lives in `LeanRegexSearchStrategy`.
 
 ### Scanning with the Partial Regex
 
@@ -356,12 +389,12 @@ Problem: an unbounded quantifier has no reason to stop at a chunk edge. While a 
 
 The cost is decided by whether the pattern can _settle_:
 
-| Pattern                                 | Peak buffer                            |
-| --------------------------------------- | -------------------------------------- |
-| `/\{\{[^{}]*\}\}/` over templating text | one pending match (8 chars measured)   |
-| `/\{\{[^{}]*\}\}/` over prose           | one pending delimiter prefix           |
-| `/foo.+/`                               | the rest of the stream                 |
-| `/\S+/` over unbroken text              | the whole stream                       |
+| Pattern                                 | Peak buffer                          |
+| --------------------------------------- | ------------------------------------ |
+| `/\{\{[^{}]*\}\}/` over templating text | one pending match (8 chars measured) |
+| `/\{\{[^{}]*\}\}/` over prose           | one pending delimiter prefix         |
+| `/foo.+/`                               | the rest of the stream               |
+| `/\S+/` over unbroken text              | the whole stream                     |
 
 A terminator the body cannot consume **bounds** the buffer without emptying it: a match in progress when a chunk ends is held, so the peak is the longest pending match (8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md)) and does not grow with the stream.
 
@@ -375,7 +408,9 @@ To bound memory, set a ceiling:
 new RegexSearchStrategy(/\S+/, {
   maxBufferLength: 64 * 1024,
   onGuardExceeded: ({ streamIndices: [start, end] }) =>
-    console.warn(`settled ${end - start} code units early, from offset ${start}`)
+    console.warn(
+      `settled ${end - start} code units early, from offset ${start}`
+    )
 });
 ```
 
@@ -477,3 +512,5 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 [^11]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
 
 [^12]: See note within [algorithm overview](#algorithm-overview) regarding indices mapping.
+
+[^13]: The `carets` module is never needed: any `^`, and the `m` flag, are [rejected](#-boundary-assertions) whatever the module set. A `core` pattern containing `^` in a group, or after other input under `m`, is refused at your own construction with `TypeError: Needs the carets module` instead, before the strategy can reject it as "the ^ and $ anchors are not supported". Either way the pattern is refused; only the message differs. Likewise, a backreference pattern built from `core` throws `TypeError: Needs the backreferences module`. See `regex-partial-match`'s [Choosing an entry point](https://github.com/TomStrepsil/regex-partial-match#choosing-an-entry-point) for the full rules.

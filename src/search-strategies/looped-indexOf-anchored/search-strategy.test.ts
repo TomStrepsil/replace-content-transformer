@@ -4,11 +4,7 @@ import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
 import { collectSearchStrategyResults } from "../../../test/utilities.js";
-import {
-  characterBySplit,
-  everyThreeWaySplit,
-  everyTwoWaySplit
-} from "../../../test/splits.js";
+import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
@@ -662,11 +658,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       (_label, needles, input) => {
         const unsplit = matchesOf(needles, [input]);
 
-        for (const chunks of [
-          ...everyTwoWaySplit(input),
-          ...everyThreeWaySplit(input),
-          characterBySplit(input)
-        ]) {
+        for (const chunks of everySplitOf(input)) {
           expect(matchesOf(needles, chunks), chunks.join("|")).toEqual(unsplit);
         }
         expect(unsplit.output).toBe(input);

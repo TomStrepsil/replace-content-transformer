@@ -1,9 +1,38 @@
 import PartialMatchRegExp from "regex-partial-match";
+import CorePartialMatchRegExp, { withModules } from "regex-partial-match/core";
+import backreferences from "regex-partial-match/modules/backreferences";
 import inputValidation from "./input-validation.js";
 
 const validate = (needle: RegExp) => inputValidation(new PartialMatchRegExp(needle));
 
 describe("input validation", () => {
+  it("should not allow a plain RegExp in place of a PartialMatchRegExp", () => {
+    expect(() =>
+      inputValidation(/plain/ as unknown as PartialMatchRegExp)
+    ).toThrow(
+      new TypeError("expected a PartialMatchRegExp instance, received /plain/")
+    );
+  });
+
+  it("should allow a PartialMatchRegExp from the core entry point", () => {
+    expect(() =>
+      inputValidation(new CorePartialMatchRegExp(/allowed/))
+    ).not.toThrow();
+  });
+
+  it("should allow a PartialMatchRegExp bound to modules", () => {
+    const WithBackreferences = withModules(backreferences);
+    expect(() =>
+      inputValidation(new WithBackreferences(/(a)\1/))
+    ).not.toThrow();
+  });
+
+  it("should not allow an unsupported construct in a PartialMatchRegExp from the core entry point", () => {
+    expect(() =>
+      inputValidation(new CorePartialMatchRegExp(/this (?!is not) allowed/))
+    ).toThrow("negative lookaheads are not supported");
+  });
+
   it("should not allow negative lookahead to be part of the needle", () => {
     expect(() => validate(/this (?!is not) allowed/)).toThrow(
       "negative lookaheads are not supported"

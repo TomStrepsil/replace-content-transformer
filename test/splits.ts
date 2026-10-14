@@ -32,4 +32,13 @@ function characterBySplit(haystack: string): string[] {
   return [...haystack];
 }
 
-export { characterBySplit, everyThreeWaySplit, everyTwoWaySplit };
+/** Every two-way and three-way split, the per-character split and the unsplit input. */
+function everySplitOf(haystack: string): string[][] {
+  return [
+    ...everyTwoWaySplit(haystack),
+    ...everyThreeWaySplit(haystack),
+    characterBySplit(haystack)
+  ];
+}
+
+export { characterBySplit, everySplitOf, everyThreeWaySplit, everyTwoWaySplit };

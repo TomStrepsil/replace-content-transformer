@@ -5,11 +5,7 @@ import {
   collectSearchStrategyResults,
   flushToString
 } from "../../../test/utilities.js";
-import {
-  characterBySplit,
-  everyThreeWaySplit,
-  everyTwoWaySplit
-} from "../../../test/splits.js";
+import { everySplitOf } from "../../../test/splits.js";
 import { BalancedPairSearchStrategy } from "./search-strategy.js";
 
 describe("BalancedPairSearchStrategy", () => {
@@ -371,11 +367,7 @@ describe("BalancedPairSearchStrategy", () => {
       (_label, opening, closing, input) => {
         const unsplit = run(opening, closing, [input]);
 
-        for (const chunks of [
-          ...everyTwoWaySplit(input),
-          ...everyThreeWaySplit(input),
-          characterBySplit(input)
-        ]) {
+        for (const chunks of everySplitOf(input)) {
           expect(run(opening, closing, chunks), chunks.join("|")).toEqual(
             unsplit
           );
