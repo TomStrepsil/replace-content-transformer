@@ -16,7 +16,7 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     transformer.start(controller);
 
     expect(engine.start).toHaveBeenCalledOnce();
-    const [sink] = engine.start.mock.calls[0];
+    const [sink] = engine.start.mock.lastCall;
     sink.enqueue("hello");
     expect(outputs).toEqual(["hello"]);
   });
@@ -29,7 +29,7 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
 
     transformer.start(controller);
 
-    const [sink] = engine.start.mock.calls[0];
+    const [sink] = engine.start.mock.lastCall;
     const err = new Error("boom");
     sink.error(err);
     expect(controller.error).toHaveBeenCalledWith(err);
