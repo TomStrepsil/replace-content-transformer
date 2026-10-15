@@ -3,6 +3,7 @@ import { finished } from "node:stream/promises";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
 import {
   collectWritable,
+  deferred,
   mockAsyncEngine,
   textWrittenTo
 } from "../../../test/utilities.js";
@@ -135,12 +136,10 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
 
     it("waits for the engine to accept the trailing sequence before calling engine.end", async () => {
       const engine = mockAsyncEngine();
-      let acceptTrailingSequence!: () => void;
+      const trailingSequenceWrite = deferred<void>();
       engine.write
         .mockResolvedValueOnce(undefined)
-        .mockReturnValueOnce(
-          new Promise<void>((resolve) => (acceptTrailingSequence = resolve))
-        );
+        .mockReturnValueOnce(trailingSequenceWrite.promise);
       const transform = new AsyncReplaceContentTransform(engine);
 
       transform.write(Buffer.from([0x61, 0xe2, 0x82]));
@@ -148,7 +147,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
       await vi.waitFor(() => expect(engine.write).toHaveBeenCalledTimes(2));
       expect(engine.end).not.toHaveBeenCalled();
 
-      acceptTrailingSequence();
+      trailingSequenceWrite.resolve();
       await finished;
       expect(engine.end).toHaveBeenCalledOnce();
     });
