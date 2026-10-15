@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { ReplaceContentTransformer } from "./sync-transformer.js";
 import {
   mockSyncEngine,
-  mockTransformStreamDefaultControllerFactory
+  mockTransformStreamDefaultControllerFactory,
+  startedSinkOf
 } from "../../../test/utilities.js";
 import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
 
@@ -16,7 +17,7 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     transformer.start(controller);
 
     expect(engine.start).toHaveBeenCalledOnce();
-    const [sink] = engine.start.mock.lastCall;
+    const sink = startedSinkOf(engine);
     sink.enqueue("hello");
     expect(outputs).toEqual(["hello"]);
   });
@@ -29,7 +30,7 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
 
     transformer.start(controller);
 
-    const [sink] = engine.start.mock.lastCall;
+    const sink = startedSinkOf(engine);
     const err = new Error("boom");
     sink.error(err);
     expect(controller.error).toHaveBeenCalledWith(err);

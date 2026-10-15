@@ -4,6 +4,7 @@ import { ReplaceContentTransform } from "./sync-transform.js";
 import {
   collectWritable,
   mockSyncEngine,
+  startedSinkOf,
   textWrittenTo
 } from "../../../test/utilities.js";
 import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
@@ -16,7 +17,7 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
 
     transform.pipe(writable);
     expect(engine.start).toHaveBeenCalledOnce();
-    const [sink] = engine.start.mock.lastCall;
+    const sink = startedSinkOf(engine);
     sink.enqueue("hello");
     expect(outputs).toContain("hello");
   });
@@ -155,7 +156,7 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
       const transform = new ReplaceContentTransform(engine);
       const { writable, outputs } = collectWritable();
       transform.pipe(writable);
-      const [sink] = engine.start.mock.lastCall;
+      const sink = startedSinkOf(engine);
 
       sink.enqueue("a\uD83D");
       sink.enqueue("\uDE00b");
@@ -170,7 +171,7 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
       const transform = new ReplaceContentTransform(engine);
       const { writable, outputs } = collectWritable();
       transform.pipe(writable);
-      const [sink] = engine.start.mock.lastCall;
+      const sink = startedSinkOf(engine);
       engine.end.mockImplementation(() => sink.enqueue("\uDE00b"));
 
       sink.enqueue("a\uD83D");
@@ -185,7 +186,7 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
       const transform = new ReplaceContentTransform(engine);
       const { writable, outputs } = collectWritable();
       transform.pipe(writable);
-      const [sink] = engine.start.mock.lastCall;
+      const sink = startedSinkOf(engine);
 
       sink.enqueue("a\uD83D");
       transform.end();

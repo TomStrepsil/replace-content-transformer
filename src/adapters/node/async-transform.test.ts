@@ -5,6 +5,7 @@ import {
   collectWritable,
   deferred,
   mockAsyncEngine,
+  startedSinkOf,
   textWrittenTo
 } from "../../../test/utilities.js";
 import type { AsyncTransformEngine, EngineSink } from "../../engines/types.js";
@@ -17,7 +18,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
 
     transform.pipe(writable);
     expect(engine.start).toHaveBeenCalledOnce();
-    const [sink] = engine.start.mock.lastCall;
+    const sink = startedSinkOf(engine);
     sink.enqueue("hello");
     expect(outputs).toContain("hello");
   });
@@ -194,7 +195,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
       const transform = new AsyncReplaceContentTransform(engine);
       const { writable, outputs } = collectWritable();
       transform.pipe(writable);
-      const [sink] = engine.start.mock.lastCall;
+      const sink = startedSinkOf(engine);
 
       sink.enqueue("a\uD83D");
       sink.enqueue("\uDE00b");
@@ -209,7 +210,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
       const transform = new AsyncReplaceContentTransform(engine);
       const { writable, outputs } = collectWritable();
       transform.pipe(writable);
-      const [sink] = engine.start.mock.lastCall;
+      const sink = startedSinkOf(engine);
       engine.end.mockImplementation(async () => sink.enqueue("\uDE00b"));
 
       sink.enqueue("a\uD83D");
@@ -224,7 +225,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
       const transform = new AsyncReplaceContentTransform(engine);
       const { writable, outputs } = collectWritable();
       transform.pipe(writable);
-      const [sink] = engine.start.mock.lastCall;
+      const sink = startedSinkOf(engine);
 
       sink.enqueue("a\uD83D");
       transform.end();
