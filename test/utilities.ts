@@ -275,7 +275,8 @@ export type { CanonicalSegment } from "./search-strategy-results.ts";
 export {
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString
+  flushToString,
+  regexMatchDetailsOf
 } from "./search-strategy-results.ts";
 
 export {

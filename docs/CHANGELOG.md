@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
 - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
-- Updated `regex-partial-match` to `^2.0.1` (for `hitEnd()` and `features()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
+- Updated `regex-partial-match` to `^2.1.0` (for `hitEnd()`, `features()` and `isPartialMatchRegExp()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
 - The published `package.json` keeps only consumer-facing fields; `scripts`, `devDependencies`, `devEngines`, `workspaces` and git-hook config are no longer published
 
@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `LeanRegexSearchStrategy`, which takes a `PartialMatchRegExp` built from `regex-partial-match/core` (or `withModules()`) so a bundle leaves out the full class, about 3.1 kB gzipped. `RegexSearchStrategy` is unchanged for callers. See [Lean Bundles](../src/search-strategies/regex/README.md#lean-bundles)
 - Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
 - Tests for engine cancellation and for settling a deferred match on abort
 - `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files

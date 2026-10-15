@@ -30,6 +30,7 @@ See also:
 - `collectSearchStrategyResults(strategy, chunks)` runs every chunk plus the final `flush()`. Its `output` must always reproduce the input exactly. It throws if a scan stops advancing, so a runaway loop fails the test instead of exhausting memory.
 - `collectCanonicalSearchStrategyResults(strategy, chunks)` merges adjacent non-match text into single segments. Two runs over the same input split differently must produce identical segments.
 - `flushToString(strategy, state)` returns what a strategy is still holding.
+- `regexMatchDetailsOf(collected)` reduces the matches in a regex strategy's collected results to plain data (captures, `index`, groups, `indices`, `streamIndices`), so two runs can be compared with `toEqual`.
 
 ## Chunk boundaries
 
@@ -38,5 +39,6 @@ Correct behaviour shouldn't depend on where the stream happens to be split. [`sp
 - `everyTwoWaySplit(haystack)`: every two-way split, plus the unsplit input
 - `everyThreeWaySplit(haystack)`: every split into three non-empty parts
 - `characterBySplit(haystack)`: one character per chunk, the most adversarial case
+- `everySplitOf(haystack)`: all of the above, as one list
 
 Combine these with `collectCanonicalSearchStrategyResults` to assert the same matches come out at every split. See `expectSameMatchesAtEverySplit` in [`src/search-strategies/regex/search-strategy.test.ts`](../src/search-strategies/regex/search-strategy.test.ts) for the pattern.

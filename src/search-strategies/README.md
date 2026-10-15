@@ -35,7 +35,7 @@ Matches opening/closing delimiters where nesting is meaningful: the match only c
 - **Algorithm**: Partial regex matching with buffering of prefix matches
 - **Performance**: O(n×p), variable depending on pattern complexity
 - **Use Case**: Complex patterns, wildcards, character classes
-- **Exports**: `RegexSearchStrategy`
+- **Exports**: `RegexSearchStrategy`, and `LeanRegexSearchStrategy` for a smaller bundle (see [Lean Bundles](./regex/README.md#lean-bundles))
 
 ## 📊 Benchmark Strategies
 
