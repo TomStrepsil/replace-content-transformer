@@ -66,7 +66,10 @@ export class AsyncReplaceContentTransform extends TransformBase<
     const remainder = this._decodeRemainder();
     Promise.resolve(remainder ? this.#engine.write(remainder) : undefined)
       .then(() => this.#engine.end() as void | Promise<void>)
-      .then(() => callback())
+      .then(() => {
+        this._pushHeldHighSurrogate();
+        callback();
+      })
       .catch(callback);
   }
 }

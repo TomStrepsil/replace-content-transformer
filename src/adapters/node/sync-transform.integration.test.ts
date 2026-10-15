@@ -26,7 +26,7 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
 });
 
 describe("ReplaceContentTransform + SyncReplacementTransformEngine + RegexSearchStrategy", () => {
-  it("keeps an astral character intact in the output when a nullable pattern skips a zero-length match in front of it, since each pushed string is encoded to UTF-8 on its own", async () => {
+  it("keeps an astral character intact in the output when a nullable pattern skips a zero-length match in front of it", async () => {
     const transform = new ReplaceContentTransform(
       new SyncReplacementTransformEngine({
         searchStrategy: new RegexSearchStrategy(/a*/),
@@ -36,5 +36,17 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + RegexSearch
 
     const out = await text(Readable.from(["x😀ya"]).pipe(transform));
     expect(out).toBe("x😀yZ");
+  });
+
+  it("keeps an astral character intact in the output when a match ends between the two halves of its surrogate pair", async () => {
+    const transform = new ReplaceContentTransform(
+      new SyncReplacementTransformEngine({
+        searchStrategy: new RegexSearchStrategy(/a./),
+        replacement: (match) => match[0]
+      })
+    );
+
+    const out = await text(Readable.from(["a😀b"]).pipe(transform));
+    expect(out).toBe("a😀b");
   });
 });

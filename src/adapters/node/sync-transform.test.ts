@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { finished } from "node:stream/promises";
 import { ReplaceContentTransform } from "./sync-transform.js";
 import {
   collectWritable,
@@ -145,6 +146,52 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
       transform.end();
 
       expect(textWrittenTo(engine)).toBe("\uFFFDx");
+    });
+  });
+
+  describe("UTF-8 encoding", () => {
+    it("pushes a surrogate pair split across two enqueued chunks as one character", async () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const [sink] = engine.start.mock.calls[0];
+
+      sink.enqueue("a\uD83D");
+      sink.enqueue("\uDE00b");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs).toEqual(["a", "😀b"]);
+    });
+
+    it("completes a held surrogate pair with a chunk the engine enqueues during end", async () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const [sink] = engine.start.mock.calls[0];
+      engine.end.mockImplementation(() => sink.enqueue("\uDE00b"));
+
+      sink.enqueue("a\uD83D");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs).toEqual(["a", "😀b"]);
+    });
+
+    it("pushes a high surrogate still held at the end of the stream as U+FFFD, so no output is dropped", async () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const [sink] = engine.start.mock.calls[0];
+
+      sink.enqueue("a\uD83D");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs.join("")).toBe("a\uFFFD");
     });
   });
 });

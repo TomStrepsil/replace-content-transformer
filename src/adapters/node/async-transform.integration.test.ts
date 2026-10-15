@@ -57,6 +57,22 @@ describe("AsyncReplaceContentTransform + AsyncLookaheadTransformEngine (Node ada
     expect(out).toBe("héllo X wörld");
   });
 
+  it("keeps an astral character intact in the output when a match ends between the two halves of its surrogate pair", async () => {
+    const transform = new AsyncReplaceContentTransform(
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["\uDE00"]),
+        replacement: async (match) =>
+          (async function* () {
+            yield match;
+          })(),
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      })
+    );
+
+    const out = await text(sourceOf("😀").pipe(transform));
+    expect(out).toBe("😀");
+  });
+
   it("surfaces engine errors as a stream 'error' event via destroy()", async () => {
     const transform = new AsyncReplaceContentTransform(
       new AsyncLookaheadTransformEngine({
