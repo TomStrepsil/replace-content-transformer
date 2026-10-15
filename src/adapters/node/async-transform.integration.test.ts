@@ -38,6 +38,41 @@ describe("AsyncReplaceContentTransform + AsyncLookaheadTransformEngine (Node ada
     expect(out).toBe("pre FOO end");
   });
 
+  it("produces the same output whether or not a Buffer chunk boundary splits a multi-byte character", async () => {
+    const bytes = Buffer.from("héllo {{x}} wörld");
+    const transform = new AsyncReplaceContentTransform(
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async () =>
+          (async function* () {
+            yield "X";
+          })(),
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      })
+    );
+
+    const out = await text(
+      sourceOf(bytes.subarray(0, 2), bytes.subarray(2)).pipe(transform)
+    );
+    expect(out).toBe("héllo X wörld");
+  });
+
+  it("keeps an astral character intact in the output when a match ends between the two halves of its surrogate pair", async () => {
+    const transform = new AsyncReplaceContentTransform(
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["\uDE00"]),
+        replacement: async (match) =>
+          (async function* () {
+            yield match;
+          })(),
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      })
+    );
+
+    const out = await text(sourceOf("😀").pipe(transform));
+    expect(out).toBe("😀");
+  });
+
   it("surfaces engine errors as a stream 'error' event via destroy()", async () => {
     const transform = new AsyncReplaceContentTransform(
       new AsyncLookaheadTransformEngine({

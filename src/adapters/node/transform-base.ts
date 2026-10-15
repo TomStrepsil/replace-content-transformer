@@ -1,26 +1,64 @@
 import { Transform, type TransformOptions } from "node:stream";
+import { StringDecoder } from "node:string_decoder";
 import type { TransformEngine } from "../../engines/types.js";
+
+const HIGH_SURROGATE_MIN = 0xd800;
+const HIGH_SURROGATE_MAX = 0xdbff;
+
+function endsWithHighSurrogate(text: string): boolean {
+  const lastCodeUnit = text.charCodeAt(text.length - 1);
+  return (
+    lastCodeUnit >= HIGH_SURROGATE_MIN && lastCodeUnit <= HIGH_SURROGATE_MAX
+  );
+}
 
 /**
  * Base class for the Node `stream.Transform` adapters in this package.
  *
- * **Encoding**: all subclasses assume UTF-8 input. Node's default
- * `decodeStrings: true` behaviour means any string written to the
- * writable side is converted to a UTF-8 `Buffer` before `_transform`
- * receives it; subclasses call `chunk.toString()` (which decodes as
- * UTF-8) to recover the string. Non-UTF-8 byte streams will be
- * mis-decoded.
+ * **Encoding**: `Buffer` chunks are decoded as UTF-8, keeping multi-byte
+ * characters intact across chunk boundaries. For other charsets, decode
+ * upstream (e.g. with a streaming `TextDecoder`) and write strings with
+ * `decodeStrings: false`. With Node's default `decodeStrings: true`, a
+ * written string is converted to a `Buffer` using `write()`'s encoding,
+ * then decoded as UTF-8. Output is encoded as UTF-8, holding a trailing
+ * high surrogate back until the next chunk so a surrogate pair split
+ * across output chunks is encoded as one character.
  */
 export abstract class TransformBase<T> extends Transform {
   protected readonly _engine: TransformEngine<T>;
+  readonly #decoder = new StringDecoder("utf8");
+  #heldHighSurrogate = "";
 
   constructor(engine: TransformEngine<T>, options?: TransformOptions) {
     super(options);
     this._engine = engine;
     engine.start({
-      enqueue: (chunk) => this.push(chunk),
+      enqueue: (chunk) => this.#pushWholeCodePoints(chunk),
       error: (err) =>
         this.destroy(err instanceof Error ? err : new Error(String(err)))
     });
+  }
+
+  protected _decode(chunk: Buffer | string): string {
+    return typeof chunk === "string"
+      ? this.#decoder.end() + chunk
+      : this.#decoder.write(chunk);
+  }
+
+  protected _decodeRemainder(): string {
+    return this.#decoder.end();
+  }
+
+  protected _pushHeldHighSurrogate(): void {
+    if (this.#heldHighSurrogate) this.push(this.#heldHighSurrogate);
+    this.#heldHighSurrogate = "";
+  }
+
+  #pushWholeCodePoints(chunk: string): void {
+    const text = this.#heldHighSurrogate + chunk;
+    const splitsPair = endsWithHighSurrogate(text);
+    this.#heldHighSurrogate = splitsPair ? text.slice(-1) : "";
+    const wholeCodePoints = splitsPair ? text.slice(0, -1) : text;
+    if (wholeCodePoints) this.push(wholeCodePoints);
   }
 }

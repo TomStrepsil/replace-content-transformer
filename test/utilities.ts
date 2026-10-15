@@ -270,6 +270,18 @@ function mockAsyncEngine() {
   } satisfies AsyncTransformEngine & { cancel: () => void };
 }
 
+function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
+  return engine.write.mock.calls.map(([chunk]) => chunk).join("");
+}
+
+function startedSinkOf(engine: {
+  start: { mock: { lastCall: [EngineSink] | undefined } };
+}): EngineSink {
+  const lastCall = engine.start.mock.lastCall;
+  if (!lastCall) throw new Error("engine.start has not been called");
+  return lastCall[0];
+}
+
 export type { CanonicalSegment } from "./search-strategy-results.ts";
 
 export {
@@ -292,5 +304,7 @@ export {
   mockTransformStreamDefaultControllerFactory,
   settleMicrotasks,
   startTestHttpServer,
-  streamToString
+  startedSinkOf,
+  streamToString,
+  textWrittenTo
 };

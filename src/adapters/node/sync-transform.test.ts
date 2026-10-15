@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
+import { finished } from "node:stream/promises";
 import { ReplaceContentTransform } from "./sync-transform.js";
-import { collectWritable, mockSyncEngine } from "../../../test/utilities.js";
+import {
+  collectWritable,
+  mockSyncEngine,
+  startedSinkOf,
+  textWrittenTo
+} from "../../../test/utilities.js";
 import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
 
 describe("ReplaceContentTransform (Node sync adapter)", () => {
@@ -11,7 +17,7 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
 
     transform.pipe(writable);
     expect(engine.start).toHaveBeenCalledOnce();
-    const [sink] = engine.start.mock.calls[0];
+    const sink = startedSinkOf(engine);
     sink.enqueue("hello");
     expect(outputs).toContain("hello");
   });
@@ -54,9 +60,15 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
   it("pipes end-to-end: engine output via sink reaches the writable", async () => {
     let capturedSink!: EngineSink;
     const engine: SyncTransformEngine = {
-      start: (sink) => { capturedSink = sink; },
-      write: (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
-      end: () => { capturedSink.enqueue("END"); }
+      start: (sink) => {
+        capturedSink = sink;
+      },
+      write: (chunk) => {
+        capturedSink.enqueue(chunk.toUpperCase());
+      },
+      end: () => {
+        capturedSink.enqueue("END");
+      }
     };
     const transform = new ReplaceContentTransform(engine);
     const { writable, outputs } = collectWritable();
@@ -66,5 +78,121 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
     await new Promise((resolve) => transform.end(resolve));
 
     expect(outputs).toEqual(["ABC", "END"]);
+  });
+
+  describe("UTF-8 decoding", () => {
+    it.each([
+      { text: "héllo", splitAt: 2 },
+      { text: "a😀b", splitAt: 2 },
+      { text: "a😀b", splitAt: 3 },
+      { text: "a😀b", splitAt: 4 }
+    ])(
+      "keeps a multi-byte character intact when a Buffer chunk boundary falls inside it ($text split at byte $splitAt)",
+      ({ text, splitAt }) => {
+        const engine = mockSyncEngine();
+        const transform = new ReplaceContentTransform(engine);
+        const bytes = Buffer.from(text);
+
+        transform.write(bytes.subarray(0, splitAt));
+        transform.write(bytes.subarray(splitAt));
+        transform.end();
+
+        expect(textWrittenTo(engine)).toBe(text);
+      }
+    );
+
+    it("writes an incomplete trailing sequence to the engine as U+FFFD before engine.end, so no bytes are dropped at the end of the stream", () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+
+      transform.write(Buffer.from([0x61, 0xe2, 0x82]));
+      transform.end();
+
+      expect(textWrittenTo(engine)).toBe("a\uFFFD");
+      expect(engine.write.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        engine.end.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("does not write to the engine on flush when no bytes are pending", () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+
+      transform.write(Buffer.from("abc"));
+      transform.end();
+
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("abc");
+    });
+
+    it("passes string chunks to the engine unchanged when decodeStrings is false, whatever the write() encoding", () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine, {
+        decodeStrings: false
+      });
+
+      transform.write("hé", "latin1");
+      transform.end();
+
+      expect(textWrittenTo(engine)).toBe("hé");
+    });
+
+    it("decodes a dangling partial sequence as U+FFFD ahead of a following string chunk, preserving order when decodeStrings is false", () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine, {
+        decodeStrings: false
+      });
+
+      transform.write(Buffer.from([0xc3]));
+      transform.write("x");
+      transform.end();
+
+      expect(textWrittenTo(engine)).toBe("\uFFFDx");
+    });
+  });
+
+  describe("UTF-8 encoding", () => {
+    it("pushes a surrogate pair split across two enqueued chunks as one character", async () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const sink = startedSinkOf(engine);
+
+      sink.enqueue("a\uD83D");
+      sink.enqueue("\uDE00b");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs).toEqual(["a", "😀b"]);
+    });
+
+    it("completes a held surrogate pair with a chunk the engine enqueues during end", async () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const sink = startedSinkOf(engine);
+      engine.end.mockImplementation(() => sink.enqueue("\uDE00b"));
+
+      sink.enqueue("a\uD83D");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs).toEqual(["a", "😀b"]);
+    });
+
+    it("pushes a high surrogate still held at the end of the stream as U+FFFD, so no output is dropped", async () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const sink = startedSinkOf(engine);
+
+      sink.enqueue("a\uD83D");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs.join("")).toBe("a\uFFFD");
+    });
   });
 });
