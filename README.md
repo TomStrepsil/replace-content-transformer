@@ -86,6 +86,23 @@ const replacedStream = readableStream
 > [!NOTE]
 > String chunks must come from a `TextDecoder`/`TextDecoderStream`, so a surrogate pair is never split across chunks. See [Surrogate pairs split across chunks](./src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
 
+> [!TIP]
+> On Node 22, on Node 24 before 24.21.0 and on Node 26 before 26.8.0, `TextEncoderStream` is slow: it costs about 5–10 ms per MB, often more than the replacement itself ([nodejs/node#65414](https://github.com/nodejs/node/pull/65414)). Upgrade, or encode with a `TextEncoder` in a plain `TransformStream`:
+>
+> ```typescript
+> const encoder = new TextEncoder();
+> const replacedStream = readableStream
+>   .pipeThrough(new TextDecoderStream())
+>   .pipeThrough(new TransformStream(transformer))
+>   .pipeThrough(
+>     new TransformStream<string, Uint8Array>({
+>       transform: (chunk, controller) => controller.enqueue(encoder.encode(chunk))
+>     })
+>   );
+> ```
+>
+> This is safe for this library's output. When input comes from a `TextDecoder`/`TextDecoderStream`, no search strategy ends an output chunk part-way through a surrogate pair. Your replacements must not end a chunk part-way through a pair either: `TextEncoderStream` would carry the first half over to the next chunk, but `TextEncoder.encode` turns it into U+FFFD.
+
 ### 👨‍🍳 Recipes
 
 #### Single Static String Replacement
@@ -428,7 +445,7 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
 
 > [!CAUTION]
-> **Encoding**: these adapters assume UTF-8 input. Node's default `decodeStrings: true` behaviour re-encodes any string written to the writable side as a UTF-8 `Buffer`; non-UTF-8 byte streams will be mis-decoded silently.
+> **Encoding**: these adapters decode `Buffer` input as UTF-8, keeping a multi-byte character intact across chunk boundaries. Non-UTF-8 byte streams will be mis-decoded silently: decode upstream with a [`TextDecoder`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder) for the source charset (calling `decode(chunk, { stream: true })` per chunk) and write strings with `decodeStrings: false`. Output is always UTF-8 text; to re-encode it to a legacy charset, use a library such as [`iconv-lite`](https://www.npmjs.com/package/iconv-lite), since `TextEncoder` only produces UTF-8. A string written with Node's default `decodeStrings: true` is converted to a `Buffer` using the encoding passed to `write()` (or `defaultEncoding`) and then decoded as UTF-8; with `decodeStrings: false`, string chunks reach the engine unchanged.
 
 `AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
 
@@ -703,7 +720,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 
 ### ✅ Fully Supported Runtimes
 
-- **Node.js** 22.0.0+
+- **Node.js** 22.0.0+ (`TextEncoderStream` is much faster from 24.21.0 and 26.8.0; see [WHATWG Transformers](#whatwg-transformers))
 - **Bun** 1.0+
 - **Deno** 1.38+
 - **Browsers:**

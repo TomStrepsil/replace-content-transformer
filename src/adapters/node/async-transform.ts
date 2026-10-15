@@ -52,18 +52,20 @@ export class AsyncReplaceContentTransform extends TransformBase<
   }
 
   override _transform(
-    chunk: Buffer,
+    chunk: Buffer | string,
     _encoding: string,
     callback: TransformCallback
   ): void {
     this.#engine
-      .write(chunk.toString())
+      .write(this._decode(chunk))
       .then(() => callback())
       .catch(callback);
   }
 
   override _flush(callback: TransformCallback): void {
-    Promise.resolve(this.#engine.end() as void | Promise<void>)
+    const remainder = this._decodeRemainder();
+    Promise.resolve(remainder ? this.#engine.write(remainder) : undefined)
+      .then(() => this.#engine.end() as void | Promise<void>)
       .then(() => callback())
       .catch(callback);
   }

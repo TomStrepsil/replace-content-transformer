@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
-import { collectWritable, mockAsyncEngine } from "../../../test/utilities.js";
+import {
+  collectWritable,
+  mockAsyncEngine,
+  textWrittenTo
+} from "../../../test/utilities.js";
 import type { AsyncTransformEngine, EngineSink } from "../../engines/types.js";
 
 describe("AsyncReplaceContentTransform (Node async adapter)", () => {
@@ -46,7 +50,9 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
       write: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
       end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
     };
-    const transform = new AsyncReplaceContentTransform(engine, { highWaterMark: 7 });
+    const transform = new AsyncReplaceContentTransform(engine, {
+      highWaterMark: 7
+    });
     expect(transform.writableHighWaterMark).toBe(7);
     expect(transform.readableHighWaterMark).toBe(7);
   });
@@ -72,9 +78,15 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
   it("pipes end-to-end: engine output via sink reaches the writable", async () => {
     let capturedSink!: EngineSink;
     const engine: AsyncTransformEngine = {
-      start: (sink) => { capturedSink = sink; },
-      write: async (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
-      end: async () => { capturedSink.enqueue("END"); }
+      start: (sink) => {
+        capturedSink = sink;
+      },
+      write: async (chunk) => {
+        capturedSink.enqueue(chunk.toUpperCase());
+      },
+      end: async () => {
+        capturedSink.enqueue("END");
+      }
     };
     const transform = new AsyncReplaceContentTransform(engine);
     const { writable, outputs } = collectWritable();
@@ -84,5 +96,95 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
     await new Promise((resolve) => transform.end(resolve));
 
     expect(outputs).toEqual(["ABC", "END"]);
+  });
+
+  describe("UTF-8 decoding", () => {
+    it.each([
+      { text: "héllo", splitAt: 2 },
+      { text: "a😀b", splitAt: 2 },
+      { text: "a😀b", splitAt: 3 },
+      { text: "a😀b", splitAt: 4 }
+    ])(
+      "keeps a multi-byte character intact when a Buffer chunk boundary falls inside it ($text split at byte $splitAt)",
+      async ({ text, splitAt }) => {
+        const engine = mockAsyncEngine();
+        const transform = new AsyncReplaceContentTransform(engine);
+        const bytes = Buffer.from(text);
+
+        transform.write(bytes.subarray(0, splitAt));
+        transform.write(bytes.subarray(splitAt));
+        await new Promise((resolve) => transform.end(resolve));
+
+        expect(textWrittenTo(engine)).toBe(text);
+      }
+    );
+
+    it("writes an incomplete trailing sequence to the engine as U+FFFD before engine.end, so no bytes are dropped at the end of the stream", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+
+      transform.write(Buffer.from([0x61, 0xe2, 0x82]));
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(textWrittenTo(engine)).toBe("a\uFFFD");
+      expect(engine.write.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        engine.end.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("waits for the engine to accept the trailing sequence before calling engine.end", async () => {
+      const engine = mockAsyncEngine();
+      let acceptTrailingSequence!: () => void;
+      engine.write
+        .mockResolvedValueOnce(undefined)
+        .mockReturnValueOnce(
+          new Promise<void>((resolve) => (acceptTrailingSequence = resolve))
+        );
+      const transform = new AsyncReplaceContentTransform(engine);
+
+      transform.write(Buffer.from([0x61, 0xe2, 0x82]));
+      const finished = new Promise((resolve) => transform.end(resolve));
+      await vi.waitFor(() => expect(engine.write).toHaveBeenCalledTimes(2));
+      expect(engine.end).not.toHaveBeenCalled();
+
+      acceptTrailingSequence();
+      await finished;
+      expect(engine.end).toHaveBeenCalledOnce();
+    });
+
+    it("does not write to the engine on flush when no bytes are pending", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+
+      transform.write(Buffer.from("abc"));
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("abc");
+    });
+
+    it("passes string chunks to the engine unchanged when decodeStrings is false, whatever the write() encoding", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine, {
+        decodeStrings: false
+      });
+
+      transform.write("hé", "latin1");
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(textWrittenTo(engine)).toBe("hé");
+    });
+
+    it("decodes a dangling partial sequence as U+FFFD ahead of a following string chunk, preserving order when decodeStrings is false", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine, {
+        decodeStrings: false
+      });
+
+      transform.write(Buffer.from([0xc3]));
+      transform.write("x");
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(textWrittenTo(engine)).toBe("\uFFFDx");
+    });
   });
 });

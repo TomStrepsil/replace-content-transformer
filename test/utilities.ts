@@ -270,6 +270,10 @@ function mockAsyncEngine() {
   } satisfies AsyncTransformEngine & { cancel: () => void };
 }
 
+function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
+  return engine.write.mock.calls.map(([chunk]) => chunk).join("");
+}
+
 export type { CanonicalSegment } from "./search-strategy-results.ts";
 
 export {
@@ -292,5 +296,6 @@ export {
   mockTransformStreamDefaultControllerFactory,
   settleMicrotasks,
   startTestHttpServer,
-  streamToString
+  streamToString,
+  textWrittenTo
 };

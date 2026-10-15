@@ -9,7 +9,7 @@ import advanceToMatch from "./advance-to-match.js";
 import endsAtHaystackEnd from "./ends-at-haystack-end.js";
 import nonMatch from "./non-match.js";
 import sameCaptures from "./same-captures.js";
-import skipOneCodeUnitPastZeroLengthMatch from "./skip-one-code-unit-past-zero-length-match.js";
+import skipOneCodePointPastZeroLengthMatch from "./skip-one-code-point-past-zero-length-match.js";
 import takeMatch from "./take-match.js";
 import type {
   RegexSearchState,
@@ -186,7 +186,7 @@ export class LeanRegexSearchStrategy
         state.buffer = "";
         state.evaluatedBufferLength = 0;
         if (settledMatch[0].length === 0) {
-          yield skipOneCodeUnitPastZeroLengthMatch(
+          yield skipOneCodePointPastZeroLengthMatch(
             haystack,
             cursor,
             settledMatch.index
@@ -228,7 +228,7 @@ export class LeanRegexSearchStrategy
       if (finalMatch === null) break;
 
       if (finalMatch[0].length === 0) {
-        yield skipOneCodeUnitPastZeroLengthMatch(
+        yield skipOneCodePointPastZeroLengthMatch(
           buffer,
           cursor,
           finalMatch.index

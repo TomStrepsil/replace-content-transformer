@@ -441,6 +441,12 @@ describe("RegexSearchStrategy", () => {
         ]
       },
       {
+        name: "handles patterns with astral characters matching as a single character, via the unicode flag",
+        pattern: /./u,
+        chunks: ["\ud83d\ude04"], // "😄"
+        expected: [{ isMatch: true, content: expect.arrayContaining(["😄"]) }]
+      },
+      {
         name: "handles patterns with unicode character class escapes",
         pattern: /\p{Script=Hiragana}+/u,
         chunks: ["Say こんにちは to everyone"],
@@ -592,12 +598,6 @@ describe("RegexSearchStrategy", () => {
           },
           { isMatch: false, content: " here" }
         ]
-      },
-      {
-        name: "handles patterns with astral characters matching as a single character, via the unicode flag",
-        pattern: /./u,
-        chunks: ["\ud83d\ude04"], // "😄"
-        expected: [{ isMatch: true, content: expect.arrayContaining(["😄"]) }]
       },
       {
         name: "handles the d flag, mapping capture-group indices onto the stream",
@@ -2188,16 +2188,37 @@ describe("RegexSearchStrategy", () => {
       expect(flush).toBe("");
     });
 
-    it("advances by one code unit rather than one code point, splitting a surrogate pair but remaining lossless", () => {
-      const input = "\u{1F600}";
-      expect(input).toHaveLength(2);
+    describe("surrogate pairs", () => {
+      const splitsSurrogatePair = (segment: string): boolean =>
+        /[\uD800-\uDBFF]$|^[\uDC00-\uDFFF]/.test(segment);
+      const segmentsOf = (results: MatchResult<StreamRegexMatch>[]) =>
+        results.map(getValue);
+      const input = "x\u{1F600}a\u{1F600}\u{1F600}y";
 
-      const { results, flush } = collectSearchStrategyResults(
-        new RegexSearchStrategy(/a?/),
-        [input]
+      it.each([/a?/, /a*/, /a*/u, /(?:)/, /x|/v])(
+        "advances %s past a whole surrogate pair, so no non-match segment ends between the two halves of an astral character, which a chunk-by-chunk encoder would turn into U+FFFD",
+        (pattern) => {
+          for (const chunks of [[input], [...input]]) {
+            const { results, flush, flushResults } =
+              collectSearchStrategyResults(new RegexSearchStrategy(pattern), chunks);
+
+            expect(
+              segmentsOf([...results, ...flushResults]).filter(splitsSurrogatePair)
+            ).toEqual([]);
+            expect(reassemble(results, flush)).toBe(input);
+          }
+        }
       );
-      expect(matchesOf(results)).toEqual([]);
-      expect(reassemble(results, flush)).toBe(input);
+
+      it("advances past a whole surrogate pair when flush settles held-back content containing one", () => {
+        const { results, flushResults } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/(?:a\u{1F600}b)?/u),
+          ["xa\u{1F600}"]
+        );
+
+        expect(segmentsOf(results)).toEqual(["x"]);
+        expect(segmentsOf(flushResults)).toEqual(["a", "\u{1F600}"]);
+      });
     });
 
     it("leaves non-nullable patterns untouched", () => {

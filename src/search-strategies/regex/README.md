@@ -507,7 +507,7 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^9]: `/(ab)\1|(abc)\2/` fed `"ab"`, `"ca"`, `"bc"` yields the single non-match `"abcabc"` instead of the match `"abcabc"` a non-chunked `exec()` finds. The partial regex returns `"a"` at index 3 for `"abca"` rather than the partial match at 0.
 
-[^10]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
+[^10]: A skipped zero-length match advances the cursor by one **code point**, as `matchAll` does with the `u` or `v` flag, so no non-match segment ends between the two halves of a surrogate pair. Without those flags `matchAll` advances by one code unit. That only makes a difference to a pattern that can match a lone low surrogate (e.g. `/a*|\uDE00/`): this strategy skips the second half of the pair, where `matchAll` would match it.
 
 [^11]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
 
