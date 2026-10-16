@@ -201,7 +201,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
     if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld();
+      await this.#enqueueHeld("");
       if (this.#cancelled) return;
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
@@ -210,7 +210,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     await this.#enqueue(this._searchStrategy.processChunk(chunk, this._state));
   }
 
-  async #enqueueHeld(before = ""): Promise<void> {
+  async #enqueueHeld(before: string): Promise<void> {
     const held = this._takeHeld(before);
     if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
   }
