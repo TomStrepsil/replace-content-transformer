@@ -12,7 +12,8 @@ import {
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
-  settleMicrotasks
+  settleMicrotasks,
+  watchAbortListener
 } from "../../../test/utilities.ts";
 
 function heldSlotCounter(concurrency: number) {
@@ -635,23 +636,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       vi.restoreAllMocks();
     });
 
-    function watchAbortListener() {
-      const addEventListener = vi.spyOn(AbortSignal.prototype, "addEventListener");
-      const removeEventListener = vi.spyOn(
-        AbortSignal.prototype,
-        "removeEventListener"
-      );
-      return {
-        expectDetached() {
-          const [, listener] = addEventListener.mock.calls.find(
-            ([type, , options]) =>
-              type === "abort" && (options as AddEventListenerOptions)?.once
-          )!;
-          expect(removeEventListener).toHaveBeenCalledWith("abort", listener);
-        }
-      };
-    }
-
     it("passes the rest of the stream through once the replacement aborts the signal", async () => {
       const ac = new AbortController();
       const replacement = vi.fn(async () => {
@@ -752,6 +736,28 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks).toEqual(["R", "M2", "M3"]);
       expect(pulled).toBe(2);
       expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("stops replacing even when an earlier abort listener stops propagation", async () => {
+      const ac = new AbortController();
+      ac.signal.addEventListener("abort", (event) =>
+        event.stopImmediatePropagation()
+      );
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+
+      await engine.write("{{a}} ");
+      ac.abort();
+      await engine.write("{{b}}");
+      await engine.end();
+
+      expect(chunks.join("")).toBe("R {{b}}");
     });
 
     it.each([

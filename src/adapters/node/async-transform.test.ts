@@ -101,6 +101,18 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
     expect(outputs).toEqual(["ABC", "END"]);
   });
 
+  it("cancels the engine and reports an AbortError when constructed with an aborted signal", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine, {
+      signal: AbortSignal.abort()
+    });
+
+    await expect(finished(transform)).rejects.toMatchObject({
+      name: "AbortError"
+    });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
   it("calls engine.cancel when the stream is destroyed before it ends", () => {
     const engine = mockAsyncEngine();
     const transform = new AsyncReplaceContentTransform(engine);

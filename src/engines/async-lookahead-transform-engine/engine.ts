@@ -10,7 +10,7 @@ import type {
 } from "../types.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { IterableSlotNode, SlotNode, TextSlotNode } from "./slot-tree/types.ts";
-import { TransformEngineBase } from "../transform-engine-base.ts";
+import { TransformEngineBase, isDefinedSignal } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
@@ -40,8 +40,6 @@ export const DEFAULT_HIGH_WATER_MARK = 32;
 function textSlot(siblingIndex: number, value: string): TextSlotNode {
   return { kind: SLOT_KIND.text, siblingIndex, value };
 }
-
-const isDefinedSignal = (s?: AbortSignal): s is AbortSignal => s !== undefined;
 
 /**
  * Async function called for each match to produce its replacement content.
@@ -154,9 +152,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const abandonSignal = AbortSignal.any(
       [options.abandonPendingSignal, cancelAbortController.signal].filter(isDefinedSignal)
     );
-    const scanSignals = [options.stopReplacingSignal, abandonSignal]
-      .filter(isDefinedSignal);
-    super(options.searchStrategy, AbortSignal.any(scanSignals));
+    super(options.searchStrategy, options.stopReplacingSignal, abandonSignal);
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;

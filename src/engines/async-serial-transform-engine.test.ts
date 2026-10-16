@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
 import { LoopedIndexOfAnchoredSearchStrategy } from "../search-strategies/looped-indexOf-anchored/search-strategy.ts";
@@ -6,7 +6,8 @@ import {
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
-  settleMicrotasks
+  settleMicrotasks,
+  watchAbortListener
 } from "../../test/utilities.ts";
 
 async function runEngine<TState, TMatch>(
@@ -292,6 +293,10 @@ describe("AsyncSerialReplacementTransformEngine", () => {
   });
 
   describe("stopping the search once stopReplacingSignal aborts", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
     function abortingOnCall(ac: AbortController, call: number) {
       let calls = 0;
       return vi.fn(async () => {
@@ -357,6 +362,27 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(replacement).toHaveBeenCalledTimes(2);
     });
 
+    it("stops replacing even when an earlier abort listener stops propagation", async () => {
+      const ac = new AbortController();
+      ac.signal.addEventListener("abort", (event) =>
+        event.stopImmediatePropagation()
+      );
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      await engine.write("{{a}} ");
+      ac.abort();
+      await engine.write("{{b}}");
+      await engine.end();
+
+      expect(chunks.join("")).toBe("R {{b}}");
+    });
+
     it.each([
       ["once end() has finished", async (engine: AsyncSerialReplacementTransformEngine<unknown>) => {
         await engine.write("a{{1}}b");
@@ -367,7 +393,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       }]
     ])("detaches its abort listener %s", async (_label, drive) => {
       const ac = new AbortController();
-      const removeEventListener = vi.spyOn(ac.signal, "removeEventListener");
+      const listener = watchAbortListener();
       const engine = new AsyncSerialReplacementTransformEngine<unknown>({
         searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
         replacement: async () => "R",
@@ -377,15 +403,12 @@ describe("AsyncSerialReplacementTransformEngine", () => {
 
       await drive(engine);
 
-      expect(removeEventListener).toHaveBeenCalledWith(
-        "abort",
-        expect.any(Function)
-      );
+      listener.expectDetached();
     });
 
     it("detaches its abort listener when write() rejects", async () => {
       const ac = new AbortController();
-      const removeEventListener = vi.spyOn(ac.signal, "removeEventListener");
+      const listener = watchAbortListener();
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
         replacement: async () => {
@@ -396,10 +419,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       engine.start(collectEngineSink().sink);
 
       await expect(engine.write("a{{1}}b")).rejects.toThrow("boom");
-      expect(removeEventListener).toHaveBeenCalledWith(
-        "abort",
-        expect.any(Function)
-      );
+      listener.expectDetached();
     });
   });
 

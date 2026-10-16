@@ -5,6 +5,9 @@ import type {
 import type { EngineSink } from "./types.ts";
 import settleOrFlush from "../search-strategies/settle-or-flush.ts";
 
+export const isDefinedSignal = (signal?: AbortSignal): signal is AbortSignal =>
+  signal !== undefined;
+
 /**
  * Abstract base for all transform engines.
  *
@@ -12,7 +15,9 @@ import settleOrFlush from "../search-strategies/settle-or-flush.ts";
  * provides `start`, the `write`/`end` lifecycle and the abort-flush helpers.
  *
  * Whether `stopReplacingSignal` has aborted is cached from an `abort`
- * listener, so it is read once per match. The listener is detached once
+ * listener, so it is read once per match. The listener is on a dependent
+ * `AbortSignal.any()` of the given signals, so another listener calling
+ * `stopImmediatePropagation()` cannot hide the abort. It is detached once
  * `end()` has finished, on `cancel()` and when `write()` throws, so a
  * long-lived signal does not keep the engine alive. Engines implement
  * `_write` and `_end`, and the base detaches around them.
@@ -50,14 +55,15 @@ export abstract class TransformEngineBase<
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
-    stopReplacingSignal?: AbortSignal
+    ...stopReplacingSignals: (AbortSignal | undefined)[]
   ) {
     this._searchStrategy = searchStrategy;
     this._state = searchStrategy.createState();
-    this._replacingStopped = stopReplacingSignal?.aborted ?? false;
-    if (this._replacingStopped) return;
-    this.#stopReplacingSignal = stopReplacingSignal;
-    stopReplacingSignal?.addEventListener("abort", this.#onStopReplacing, {
+    const signals = stopReplacingSignals.filter(isDefinedSignal);
+    this._replacingStopped = signals.some((signal) => signal.aborted);
+    if (this._replacingStopped || signals.length === 0) return;
+    this.#stopReplacingSignal = AbortSignal.any(signals);
+    this.#stopReplacingSignal.addEventListener("abort", this.#onStopReplacing, {
       once: true
     });
   }

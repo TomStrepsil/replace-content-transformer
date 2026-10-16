@@ -11,7 +11,7 @@ import type {
 } from "../src/engines/types.ts";
 import { SLOT_KIND } from "../src/engines/async-lookahead-transform-engine/slot-tree/constants.ts";
 import { Writable } from "node:stream";
-import { vi, type Mocked } from "vitest";
+import { expect, vi, type Mocked } from "vitest";
 
 type TestHttpHandler = (request: Request) => Response | Promise<Response>;
 
@@ -182,6 +182,33 @@ async function settleMicrotasks(times = 2): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+/**
+ * Spy on every `AbortSignal`'s `abort` listeners, to check the one an engine attaches
+ * (with `{ once: true }`) to the dependent signal it watches. Restore with
+ * `vi.restoreAllMocks()`.
+ */
+function watchAbortListener() {
+  const addEventListener = vi.spyOn(AbortSignal.prototype, "addEventListener");
+  const removeEventListener = vi.spyOn(
+    AbortSignal.prototype,
+    "removeEventListener"
+  );
+  const attached = () =>
+    addEventListener.mock.calls.filter(
+      ([type, , options]) =>
+        type === "abort" && (options as AddEventListenerOptions)?.once
+    );
+  return {
+    expectDetached() {
+      const [[, listener]] = attached();
+      expect(removeEventListener).toHaveBeenCalledWith("abort", listener);
+    },
+    expectNoneAttached() {
+      expect(attached()).toEqual([]);
+    }
+  };
+}
+
 function mockSearchStrategyFactory<TMatch = string>(
   ...results: MatchResult<TMatch>[]
 ): Mocked<SearchStrategy<object, TMatch>> {
@@ -294,5 +321,6 @@ export {
   startTestHttpServer,
   startedSinkOf,
   streamToString,
-  textWrittenTo
+  textWrittenTo,
+  watchAbortListener
 };
