@@ -152,13 +152,14 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const abandonSignal = AbortSignal.any(
       [options.abandonPendingSignal, cancelAbortController.signal].filter(isDefinedSignal)
     );
+    const queue = new AsyncChildQueue(
+      options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
+    );
     super(options.searchStrategy, options.stopReplacingSignal, abandonSignal);
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
-    this.#queue = new AsyncChildQueue(
-      options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
-    );
+    this.#queue = queue;
     this.#cancelAbortController = cancelAbortController;
     this.#abandonSignal = abandonSignal;
   }

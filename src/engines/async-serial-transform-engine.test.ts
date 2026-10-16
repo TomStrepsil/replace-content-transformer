@@ -383,6 +383,49 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(chunks.join("")).toBe("R {{b}}");
     });
 
+    it("stops replacing in a write() called from an abort listener on the signal", async () => {
+      const ac = new AbortController();
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("{{a}}");
+      let written: Promise<void> | undefined;
+      ac.signal.addEventListener("abort", () => {
+        written = engine.write("{{b}}");
+      });
+
+      ac.abort();
+      await written;
+      await engine.end();
+
+      expect(chunks.join("")).toBe("R{{b}}");
+    });
+
+    it("flushes rather than replaces at an end() called from an abort listener on the signal", async () => {
+      const ac = new AbortController();
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: new RegexSearchStrategy(/OLD/),
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("x OLD");
+      let ended: Promise<void> | undefined;
+      ac.signal.addEventListener("abort", () => {
+        ended = engine.end();
+      });
+
+      ac.abort();
+      await ended;
+
+      expect(chunks.join("")).toBe("x OLD");
+    });
+
     it.each([
       ["once end() has finished", async (engine: AsyncSerialReplacementTransformEngine<unknown>) => {
         await engine.write("a{{1}}b");

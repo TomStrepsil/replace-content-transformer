@@ -516,6 +516,41 @@ describe("SyncTransformEngine", () => {
       expect(chunks.join("")).toBe("R {{b}}");
     });
 
+    it("stops replacing in a write() called from an abort listener on the signal", () => {
+      const ac = new AbortController();
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("{{a}}");
+      ac.signal.addEventListener("abort", () => engine.write("{{b}}"));
+
+      ac.abort();
+      engine.end();
+
+      expect(chunks.join("")).toBe("R{{b}}");
+    });
+
+    it("flushes rather than replaces at an end() called from an abort listener on the signal", () => {
+      const ac = new AbortController();
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: new RegexSearchStrategy(/OLD/),
+        replacement: "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("x OLD");
+      ac.signal.addEventListener("abort", () => engine.end());
+
+      ac.abort();
+
+      expect(chunks.join("")).toBe("x OLD");
+    });
+
     it("detaches its abort listener once end() has finished", () => {
       const ac = new AbortController();
       const listener = watchAbortListener();

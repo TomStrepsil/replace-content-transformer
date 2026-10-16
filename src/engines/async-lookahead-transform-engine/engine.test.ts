@@ -760,6 +760,67 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("R {{b}}");
     });
 
+    it("stops replacing in a write() called from an abort listener on the signal", async () => {
+      const ac = new AbortController();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("{{a}}");
+      let written: Promise<void> | undefined;
+      ac.signal.addEventListener("abort", () => {
+        written = engine.write("{{b}}");
+      });
+
+      ac.abort();
+      await written;
+      await engine.end();
+
+      expect(chunks.join("")).toBe("R{{b}}");
+    });
+
+    it("flushes rather than replaces at an end() called from an abort listener on the signal", async () => {
+      const ac = new AbortController();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: new RegexSearchStrategy(/OLD/),
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("x OLD");
+      let ended: Promise<void> | undefined;
+      ac.signal.addEventListener("abort", () => {
+        ended = engine.end();
+      });
+
+      ac.abort();
+      await ended;
+
+      expect(chunks.join("")).toBe("x OLD");
+    });
+
+    it("does not attach an abort listener when its options are rejected", () => {
+      const listener = watchAbortListener();
+
+      expect(
+        () =>
+          new AsyncLookaheadTransformEngine({
+            searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+            replacement: async () => asyncIterable("R"),
+            concurrencyStrategy: new SemaphoreStrategy(1),
+            stopReplacingSignal: new AbortController().signal,
+            highWaterMark: 0
+          })
+      ).toThrow(RangeError);
+      listener.expectNoneAttached();
+    });
+
     it.each([
       ["once end() has finished", async (engine: AsyncLookaheadTransformEngine<unknown, string>) => {
         await engine.write("a{{1}}b");

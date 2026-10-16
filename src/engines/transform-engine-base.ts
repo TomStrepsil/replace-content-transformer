@@ -17,8 +17,10 @@ export const isDefinedSignal = (signal?: AbortSignal): signal is AbortSignal =>
  * Whether `stopReplacingSignal` has aborted is cached from an `abort`
  * listener, so it is read once per match. The listener is on a dependent
  * `AbortSignal.any()` of the given signals, so another listener calling
- * `stopImmediatePropagation()` cannot hide the abort. It is detached once
- * `end()` has finished, on `cancel()` and when `write()` throws, so a
+ * `stopImmediatePropagation()` cannot hide the abort. A listener on a source
+ * signal runs before that event, so `write()` and `end()` also re-read the
+ * dependent signal's `aborted`, which is already set by then. The listener is
+ * detached once `end()` has finished, on `cancel()` and when `write()` throws, so a
  * long-lived signal does not keep the engine alive. Engines implement
  * `_write` and `_end`, and the base detaches around them.
  *
@@ -73,6 +75,7 @@ export abstract class TransformEngineBase<
   }
 
   write(chunk: string): TResult {
+    this.#catchUpWithAbort();
     try {
       const written = this._write(chunk);
       return (
@@ -86,6 +89,7 @@ export abstract class TransformEngineBase<
   }
 
   end(): TResult {
+    this.#catchUpWithAbort();
     let ended: TResult;
     try {
       ended = this._end();
@@ -106,6 +110,10 @@ export abstract class TransformEngineBase<
    */
   cancel(): void {
     this.#stopWatchingSignal();
+  }
+
+  #catchUpWithAbort(): void {
+    if (this.#stopReplacingSignal?.aborted) this._replacingStopped = true;
   }
 
   protected abstract _write(chunk: string): TResult;
