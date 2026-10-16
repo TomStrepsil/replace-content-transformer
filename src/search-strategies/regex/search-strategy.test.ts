@@ -7,7 +7,6 @@ import optionsValidation from "./options-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
 import {
   collectCanonicalSearchStrategyResults,
-  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   regexMatchDetailsOf
@@ -1487,26 +1486,6 @@ describe("RegexSearchStrategy", () => {
             );
             expect(stopped).toBe(true);
             expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
-          }
-        }
-      }
-    );
-
-    it.each(cases)(
-      "finds the same matches when processChunk is called again after stopping, %s",
-      (_label, pattern, input) => {
-        const strategy = new RegexSearchStrategy(pattern);
-        for (const chunks of everySplitOf(input)) {
-          const { segments } = collectCanonicalSearchStrategyResults(
-            strategy,
-            chunks
-          );
-          const { results } = collectSearchStrategyResults(strategy, chunks);
-          for (let limit = 1; limit <= results.length; limit++) {
-            expect(
-              collectResumedSearchStrategyResults(strategy, chunks, limit),
-              `${chunks.join("|")} after ${limit}`
-            ).toEqual({ stopped: true, segments });
           }
         }
       }

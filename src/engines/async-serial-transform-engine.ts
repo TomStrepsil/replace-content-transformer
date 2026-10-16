@@ -28,8 +28,9 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
   /**
    * When aborted, the engine stops calling the replacement function and
    * passes remaining input through verbatim, flushing any buffered partial
-   * match first. It stops searching too: the rest of the current chunk is
-   * flushed with what the strategy holds, as one chunk. Available
+   * match first. It stops searching too, at the next match it finds: that
+   * match, the rest of the current chunk and what the strategy holds are
+   * emitted verbatim as one chunk. Available
    * symmetrically on both Node and web adapters.
    */
   stopReplacingSignal?: AbortSignal;
@@ -47,7 +48,7 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
 export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
-  extends TransformEngineBase<TState, TMatch, Promise<void>>
+  extends TransformEngineBase<TState, TMatch>
   implements AsyncTransformEngine
 {
   readonly #replacement: AsyncSerialReplacementFn<TMatch>;
@@ -62,21 +63,22 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
     this.#replacement = replacement;
   }
 
-  protected override async _write(chunk: string): Promise<void> {
+  async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
 
-    if (this._replacingStopped) {
-      this._flushAfterAbortIfNeeded();
+    if (this._stopReplacingSignal?.aborted) {
+      this._enqueueHeld();
       this._sink.enqueue(chunk);
       return;
     }
+
     await this.#emit(this._searchStrategy.processChunk(chunk, this._state));
   }
 
-  protected override async _end(): Promise<void> {
+  override async end(): Promise<void> {
     if (this.#cancelled) return;
-    if (this._replacingStopped) {
-      this._flushAfterAbortIfNeeded();
+    if (this._stopReplacingSignal?.aborted) {
+      this._enqueueHeld();
       return;
     }
     await this.#emit(this._settle());
@@ -84,6 +86,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
 
   async #emit(results: Iterable<MatchResult<TMatch>>): Promise<void> {
     const sink = this._sink;
+    let stoppedAt: string | undefined;
 
     for (const result of results) {
       if (this.#cancelled) return;
@@ -93,8 +96,8 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         continue;
       }
 
-      if (this._replacingStopped) {
-        sink.enqueue(this._renderVerbatim(result));
+      if (this._stopReplacingSignal?.aborted) {
+        stoppedAt = this._renderVerbatim(result);
         break;
       }
 
@@ -112,18 +115,14 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         for await (const item of raw) {
           if (this.#cancelled) return;
           sink.enqueue(item);
-          if (this._replacingStopped) break;
+          if (this._stopReplacingSignal?.aborted) break;
         }
       }
-      if (this._replacingStopped) break;
     }
-    if (this._replacingStopped) {
-      this._flushAfterAbortIfNeeded();
-    }
+    if (stoppedAt !== undefined) this._enqueueHeld(stoppedAt);
   }
 
-  override cancel(): void {
-    super.cancel();
+  cancel(): void {
     this.#cancelled = true;
   }
 }

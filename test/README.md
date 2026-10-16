@@ -29,7 +29,6 @@ See also:
 - `collectSearchStrategyResults(strategy, chunks)` runs every chunk, then settles what the strategy still holds (`settle`, or `flush` when it has none). Its `output` must always reproduce the input exactly. It throws if a scan stops advancing, so a runaway loop fails the test instead of exhausting memory.
 - `collectCanonicalSearchStrategyResults(strategy, chunks)` merges adjacent non-match text into single segments. Two runs over the same input split differently must produce identical segments.
 - `collectStoppedSearchStrategyResults(strategy, chunks, limit)` stops iterating after `limit` results, as an engine does once `stopReplacingSignal` aborts, then emits `flush()` and the unwritten chunks. Its `output` must reproduce the input exactly.
-- `collectResumedSearchStrategyResults(strategy, chunks, limit)` stops a `processChunk` result after `limit` results, then calls `processChunk` again to resume. Its `segments` must match an uninterrupted run.
 - `regexMatchDetailsOf(collected)` reduces the matches in a regex strategy's collected results to plain data (captures, `index`, groups, `indices`, `streamIndices`), so two runs can be compared with `toEqual`.
 
 ## Chunk boundaries

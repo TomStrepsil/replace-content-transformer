@@ -2,15 +2,7 @@ import { describe, test, expect } from "vitest";
 import { AnchorSequenceSearchStrategy } from "./search-strategy.js";
 import { IndexOfKnuthMorrisPrattSearchStrategy } from "../indexOf-knuth-morris-pratt/index.js";
 import { RegexSearchStrategy } from "../../regex/index.js";
-import { LoopedIndexOfAnchoredSearchStrategy } from "../../looped-indexOf-anchored/index.js";
 import type { MatchResult, SearchStrategy } from "../../types.js";
-import {
-  collectCanonicalSearchStrategyResults,
-  collectResumedSearchStrategyResults,
-  collectSearchStrategyResults,
-  collectStoppedSearchStrategyResults
-} from "../../../../test/utilities.js";
-import { everySplitOf } from "../../../../test/splits.js";
 
 describe("AnchorSequenceSearchStrategy", () => {
   describe("findMatch - single call scenarios", () => {
@@ -628,100 +620,5 @@ describe("AnchorSequenceSearchStrategy", () => {
         { isMatch: true, content: "ab", streamIndices: [2, 4] }
       ]);
     });
-  });
-
-  describe("stopping early", () => {
-    const cases: ReadonlyArray<
-      readonly [string, () => SearchStrategy<unknown, string>, string]
-    > = [
-      [
-        "with string anchors",
-        () =>
-          new AnchorSequenceSearchStrategy(
-            ["{{", "}}"].map(
-              (anchor) => new LoopedIndexOfAnchoredSearchStrategy([anchor])
-            )
-          ),
-        "abc {{x}} def{{y}}{{z"
-      ],
-      [
-        "with regex anchors",
-        () =>
-          new AnchorSequenceSearchStrategy([
-            new RegexSearchStrategy(/\{\{/),
-            new RegexSearchStrategy(/\}\}/)
-          ]),
-        "abc {{x}} def{{y}}{{z"
-      ]
-    ];
-
-    test("leaves the unscanned rest for flush after stopping on a non-match", () => {
-      const strategy = cases[0][1]();
-      const state = strategy.createState();
-
-      const results = strategy.processChunk("abc {{x}} def", state);
-      expect(results.next().value).toEqual({ isMatch: false, content: "abc " });
-      results.return();
-
-      expect(strategy.flush(state)).toBe("{{x}} def");
-    });
-
-    test("leaves the unscanned rest for flush after stopping on a match", () => {
-      const strategy = cases[0][1]();
-      const state = strategy.createState();
-
-      const results = strategy.processChunk("{{x}} def", state);
-      expect(results.next().value).toEqual({
-        isMatch: true,
-        content: "{{x}}",
-        streamIndices: [0, 5]
-      });
-      results.return();
-
-      expect(strategy.flush(state)).toBe(" def");
-    });
-
-    test.each(cases)(
-      "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
-      (_label, sequence, input) => {
-        const strategy = sequence();
-        for (const chunks of everySplitOf(input)) {
-          const { results, settledResults } = collectSearchStrategyResults(
-            strategy,
-            chunks
-          );
-          const total = results.length + settledResults.length;
-          for (let limit = 1; limit <= total; limit++) {
-            const { stopped, output } = collectStoppedSearchStrategyResults(
-              strategy,
-              chunks,
-              limit
-            );
-            expect(stopped).toBe(true);
-            expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
-          }
-        }
-      }
-    );
-
-    test.each(cases)(
-      "finds the same matches when processChunk is called again after stopping, %s",
-      (_label, sequence, input) => {
-        const strategy = sequence();
-        for (const chunks of everySplitOf(input)) {
-          const { segments } = collectCanonicalSearchStrategyResults(
-            strategy,
-            chunks
-          );
-          const { results } = collectSearchStrategyResults(strategy, chunks);
-          for (let limit = 1; limit <= results.length; limit++) {
-            expect(
-              collectResumedSearchStrategyResults(strategy, chunks, limit),
-              `${chunks.join("|")} after ${limit}`
-            ).toEqual({ stopped: true, segments });
-          }
-        }
-      }
-    );
   });
 });

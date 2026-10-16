@@ -37,15 +37,6 @@ export abstract class TransformBase<T> extends Transform {
       error: (err) =>
         this.destroy(err instanceof Error ? err : new Error(String(err)))
     });
-    if (this.destroyed) engine.cancel?.();
-  }
-
-  override _destroy(
-    err: Error | null,
-    callback: (error?: Error | null) => void
-  ): void {
-    (this._engine as TransformEngine<T> | undefined)?.cancel?.();
-    callback(err);
   }
 
   protected _decode(chunk: Buffer | string): string {

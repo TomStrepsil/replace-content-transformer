@@ -38,25 +38,18 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
   }
 
   *processChunk(
-    chunk: string,
+    haystack: string,
     state: AnchorSequenceSearchState<TState>
   ): Generator<MatchResult, void, undefined> {
-    const inputLength = chunk.length;
-    let haystack = chunk;
-    if (state.currentNeedleIndex === 0 && state.buffer) {
-      haystack = state.buffer + chunk;
-      state.buffer = "";
-    }
+    const inputLength = haystack.length;
     let isMidMatch = state.currentNeedleIndex !== 0;
     try {
-      do {
+      while (haystack) {
         const subStrategy = this.subStrategies[state.currentNeedleIndex];
         const subStrategyState = state.strategyStates[state.currentNeedleIndex];
-        const handedOff = haystack;
-        haystack = "";
         let matched: string | null = null;
         for (const matchResult of subStrategy.processChunk(
-          handedOff,
+          haystack,
           subStrategyState
         )) {
           if (matchResult.isMatch) {
@@ -69,9 +62,14 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
           }
           yield matchResult;
         }
-        if (!matched) return;
+        if (!matched) {
+          haystack = "";
+          return;
+        }
         state.buffer += matched;
         haystack = subStrategy.flush(subStrategyState);
+        state.strategyStates[state.currentNeedleIndex] =
+          subStrategy.createState();
 
         state.currentNeedleIndex =
           (state.currentNeedleIndex + 1) % this.subStrategies.length;
@@ -83,9 +81,11 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
           state.buffer = "";
           yield { isMatch: true, content: match, streamIndices: [startIndex, endIndex] };
         }
-      } while (haystack);
+      }
     } finally {
-      state.buffer += haystack;
+      if (haystack) {
+        state.buffer += haystack;
+      }
       state.streamOffset += inputLength;
     }
   }
@@ -124,27 +124,29 @@ export class AnchorSequenceSearchStrategy<TState, TMatch = string>
 
     if (matched === null) {
       state.currentNeedleIndex = 0;
-      const ownHeld = super.flush(state);
-      if (ownHeld) yield { isMatch: false, content: ownHeld };
+      state.strategyStates = this.subStrategies.map((subStrategy) =>
+        subStrategy.createState()
+      );
+      const held = super.flush(state);
+      if (held) yield { isMatch: false, content: held };
       return;
     }
 
     state.buffer += matched;
+    state.strategyStates[needleIndex] = subStrategy.createState();
     state.currentNeedleIndex = (needleIndex + 1) % this.subStrategies.length;
     if (state.currentNeedleIndex === 0) {
       const match = state.buffer;
       const endIndex = state.streamOffset - tail.length;
-      state.buffer = tail;
+      state.buffer = "";
       yield {
         isMatch: true,
         content: match,
         streamIndices: [endIndex - match.length, endIndex]
       };
-      yield* this.processChunk("", state);
-    } else {
-      state.streamOffset -= tail.length;
-      yield* this.processChunk(tail, state);
     }
+    state.streamOffset -= tail.length;
+    yield* this.processChunk(tail, state);
     yield* this.settle(state);
   }
 }

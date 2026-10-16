@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change
+- Once `stopReplacingSignal` aborts, engines stop searching at the next match instead of rendering every later match verbatim. That match, the rest of its chunk and anything the search strategy holds are emitted as one chunk, unsettled, so the output text is unchanged but arrives in fewer, larger chunks
 - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
 - Updated `regex-partial-match` to `^2.1.0` (for `hitEnd()`, `features()` and `isPartialMatchRegExp()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
@@ -28,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed lookahead confirmation in the regex search strategy: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
 - Fixed the regex end-of-stream settle stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
 - Fixed `AsyncLookaheadTransformEngine` leaking concurrency slots after an error or `cancel()`, which could stall later replacements or hang `write()`
-- Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` leaving the engine running when the stream is destroyed before it ends, e.g. when a client disconnects mid-response. They now call `engine.cancel?.()`, so `AsyncLookaheadTransformEngine` closes pending replacements and every engine stops watching `stopReplacingSignal`
 - Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at the end of the stream, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
 - Documented that input must be decoded with a `TextDecoder`/`TextDecoderStream` so surrogate pairs are never split. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks)
 - Removed regex strategy tests that should have gone with [3.0.0](#300---2026-07-28)
@@ -43,7 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for engine cancellation, and for flushing rather than settling on abort
 - `SearchStrategy.settle(state)`, optional, which decides what a strategy still holds once no further input can arrive, so a match deferred at the final chunk boundary can still be reported as a match. Engines call it at the end of the stream in place of `flush`, unless `stopReplacingSignal` has aborted. `RegexSearchStrategy` and `LeanRegexSearchStrategy` implement it. See [Search Strategies](../README.md#-search-strategies)
 - `SearchStrategy`, `MatchResult` and `StreamIndices` are exported from the package root
-- `SyncReplacementTransformEngine.cancel()` and `ReplaceContentTransformer.cancel()`, and an optional `cancel?()` on `SyncTransformEngine`, so a cancelled sync stream stops watching `stopReplacingSignal`
 - `RegexSearchStrategy` options `maxBufferLength` (ceiling on held-back content, default `Infinity`), `onGuardExceeded` (called with the `streamIndices` of the span settled early when the ceiling is exceeded), `minCandidateLengthToBackOff` (default `1024`) and `bufferGrowthFactorBetweenEvaluations` (default `2`). See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 
 ## [3.0.2] - 2026-08-27

@@ -10,7 +10,7 @@ import type {
 } from "../types.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { IterableSlotNode, SlotNode, TextSlotNode } from "./slot-tree/types.ts";
-import { TransformEngineBase, isDefinedSignal } from "../transform-engine-base.ts";
+import { TransformEngineBase } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
@@ -40,6 +40,8 @@ export const DEFAULT_HIGH_WATER_MARK = 32;
 function textSlot(siblingIndex: number, value: string): TextSlotNode {
   return { kind: SLOT_KIND.text, siblingIndex, value };
 }
+
+const isDefinedSignal = (s?: AbortSignal): s is AbortSignal => s !== undefined;
 
 /**
  * Async function called for each match to produce its replacement content.
@@ -75,10 +77,10 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
   highWaterMark?: number;
   /**
    * When aborted, the scanner stops calling the replacement function and
-   * stops searching. A match already found when the signal fires is emitted
-   * verbatim (using {@link SearchStrategy.matchToString}); the rest of the
-   * current chunk is then flushed with what the strategy holds, as one chunk,
-   * and later chunks pass through unchanged. In-flight replacements that were
+   * stops searching at the next match it finds: that match is emitted
+   * verbatim (using {@link SearchStrategy.matchToString}) together with the
+   * rest of the current chunk and what the strategy holds, as one chunk, and
+   * later chunks pass through unchanged. In-flight replacements that were
    * scheduled before the signal fired are unaffected — they run to completion
    * and their output is emitted normally. Pair with {@link abandonPendingSignal}
    * to also abandon those.
@@ -120,7 +122,7 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * @typeParam TMatch - The search strategy's match type
  */
 export class AsyncLookaheadTransformEngine<TState, TMatch>
-  extends TransformEngineBase<TState, TMatch, Promise<void>>
+  extends TransformEngineBase<TState, TMatch>
   implements AsyncTransformEngine
 {
   readonly #options: AsyncLookaheadTransformEngineOptions<TState, TMatch>;
@@ -152,14 +154,15 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     const abandonSignal = AbortSignal.any(
       [options.abandonPendingSignal, cancelAbortController.signal].filter(isDefinedSignal)
     );
-    const queue = new AsyncChildQueue(
-      options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
-    );
-    super(options.searchStrategy, options.stopReplacingSignal, abandonSignal);
+    const scanSignals = [options.stopReplacingSignal, abandonSignal]
+      .filter(isDefinedSignal);
+    super(options.searchStrategy, AbortSignal.any(scanSignals));
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
-    this.#queue = queue;
+    this.#queue = new AsyncChildQueue(
+      options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
+    );
     this.#cancelAbortController = cancelAbortController;
     this.#abandonSignal = abandonSignal;
   }
@@ -171,8 +174,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * match text is not emitted even when `abandonPendingSignal` is configured.
    * After `cancel()`, `end()` resolves cleanly without hanging.
    */
-  override cancel(): void {
-    super.cancel();
+  cancel(): void {
     this.#cancelled = true;
     this.#cancelAbortController.abort();
     this.#queue.close();
@@ -196,41 +198,40 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * Feed one input chunk into the scanner. Suspends when the internal
    * queue is full (backpressure).
    */
-  protected override async _write(chunk: string): Promise<void> {
+  async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
-    if (this._replacingStopped) {
-      await this.#flushAfterAbortIfNeeded();
+    if (this._stopReplacingSignal?.aborted) {
+      await this.#enqueueHeld();
       if (this.#cancelled) return;
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
     }
+
     await this.#enqueue(this._searchStrategy.processChunk(chunk, this._state));
   }
 
-  async #flushAfterAbortIfNeeded(): Promise<void> {
-    const held = this._takeHeldAfterAbort();
+  async #enqueueHeld(before = ""): Promise<void> {
+    const held = this._takeHeld(before);
     if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
   }
 
   async #enqueue(results: Iterable<MatchResult<TMatch>>): Promise<void> {
+    let stoppedAt: string | undefined;
     for (const result of results) {
       if (this.#cancelled) return;
       if (!result.isMatch) {
         await this.#queue.push(textSlot(this.#siblingIndex++, result.content));
-      } else if (this._replacingStopped) {
-        await this.#queue.push(
-          textSlot(this.#siblingIndex++, this._renderVerbatim(result))
-        );
-      } else {
-        await this.#queue.push(
-          this.#scheduleMatch(result.content, result.streamIndices)
-        );
+        continue;
       }
-      if (this._replacingStopped) break;
+      if (this._stopReplacingSignal?.aborted) {
+        stoppedAt = this._renderVerbatim(result);
+        break;
+      }
+      await this.#queue.push(
+        this.#scheduleMatch(result.content, result.streamIndices)
+      );
     }
-    if (!this.#cancelled && this._replacingStopped) {
-      await this.#flushAfterAbortIfNeeded();
-    }
+    if (stoppedAt !== undefined) await this.#enqueueHeld(stoppedAt);
   }
 
   /**
@@ -239,13 +240,13 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * Rejects with the first error raised by the drain loop or by any
    * scheduled replacement, so adapters can forward failures.
    */
-  protected override async _end(): Promise<void> {
+  override async end(): Promise<void> {
     if (this.#cancelled) {
       await this.#drainDone;
       return;
     }
-    if (this._replacingStopped) {
-      await this.#flushAfterAbortIfNeeded();
+    if (this._stopReplacingSignal?.aborted) {
+      await this.#enqueueHeld();
     } else {
       await this.#enqueue(this._settle());
     }

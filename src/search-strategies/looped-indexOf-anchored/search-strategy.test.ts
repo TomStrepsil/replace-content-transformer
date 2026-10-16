@@ -3,8 +3,6 @@ import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
 import {
-  collectCanonicalSearchStrategyResults,
-  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults
 } from "../../../test/utilities.js";
@@ -707,29 +705,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
             );
             expect(stopped).toBe(true);
             expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
-          }
-        }
-      }
-    );
-
-    it.each([
-      ["with an anchor pair", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]), "a{{x}}b{{y}}{{z"],
-      ["with a three-anchor sequence", new LoopedIndexOfAnchoredSearchStrategy(["<", "-", ">"]), "<-><a-b>c<-"],
-      ["with a bordered anchor", new LoopedIndexOfAnchoredSearchStrategy(["aba"]), "xababaxaba"]
-    ] as const)(
-      "finds the same matches when processChunk is called again after stopping, %s",
-      (_label, strategy, input) => {
-        for (const chunks of everySplitOf(input)) {
-          const { segments } = collectCanonicalSearchStrategyResults(
-            strategy,
-            chunks
-          );
-          const { results } = collectSearchStrategyResults(strategy, chunks);
-          for (let limit = 1; limit <= results.length; limit++) {
-            expect(
-              collectResumedSearchStrategyResults(strategy, chunks, limit),
-              `${chunks.join("|")} after ${limit}`
-            ).toEqual({ stopped: true, segments });
           }
         }
       }

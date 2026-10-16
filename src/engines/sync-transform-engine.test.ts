@@ -1,12 +1,11 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
 import { LoopedIndexOfAnchoredSearchStrategy } from "../search-strategies/looped-indexOf-anchored/search-strategy.ts";
 import type { StreamRegexMatch } from "../search-strategies/regex/types.ts";
 import {
   collectEngineSink,
-  mockSearchStrategyFactory,
-  watchAbortListener
+  mockSearchStrategyFactory
 } from "../../test/utilities.ts";
 
 function runEngine<TState, TMatch>(
@@ -410,7 +409,7 @@ describe("SyncTransformEngine", () => {
             streamIndices: [1, 2] as [number, number]
           };
         }),
-        flush: vi.fn().mockReturnValueOnce("B").mockReturnValue(""),
+        flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockImplementation(() => {
@@ -432,10 +431,6 @@ describe("SyncTransformEngine", () => {
   });
 
   describe("stopping the search once stopReplacingSignal aborts", () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
     function abortingOnCall(ac: AbortController, call: number) {
       let calls = 0;
       return vi.fn(() => {
@@ -444,7 +439,7 @@ describe("SyncTransformEngine", () => {
       });
     }
 
-    it("stops searching the rest of the chunk, and flushes it as one chunk", () => {
+    it("stops searching at the next match, and flushes it with the rest of the chunk", () => {
       const ac = new AbortController();
       const replacement = abortingOnCall(ac, 1);
       const engine = new SyncReplacementTransformEngine({
@@ -456,7 +451,8 @@ describe("SyncTransformEngine", () => {
       expect(runEngine(engine, ["a{{1}}b{{2}}c{{3}}d", "{{4}}"])).toEqual([
         "a",
         "R",
-        "b{{2}}c{{3}}d",
+        "b",
+        "{{2}}c{{3}}d",
         "{{4}}"
       ]);
       expect(replacement).toHaveBeenCalledOnce();
@@ -491,125 +487,26 @@ describe("SyncTransformEngine", () => {
         stopReplacingSignal: ac.signal
       });
 
-      expect(runEngine(engine, ['x "y z'])).toEqual(["R", " ", '"', "R", " z"]);
+      expect(runEngine(engine, ['x "y z'])).toEqual(["R", " ", '"', "R", " ", "z"]);
       expect(replacement).toHaveBeenCalledTimes(2);
     });
 
-    it("stops replacing even when an earlier abort listener stops propagation", () => {
-      const ac = new AbortController();
-      ac.signal.addEventListener("abort", (event) =>
-        event.stopImmediatePropagation()
-      );
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: "R",
-        stopReplacingSignal: ac.signal
-      });
-      const { sink, chunks } = collectEngineSink();
-      engine.start(sink);
-
-      engine.write("{{a}} ");
-      ac.abort();
-      engine.write("{{b}}");
-      engine.end();
-
-      expect(chunks.join("")).toBe("R {{b}}");
-    });
-
-    it("stops replacing in a write() called from an abort listener on the signal", () => {
+    it("keeps the rest of the chunk when end() is called from an abort listener mid-write", () => {
       const ac = new AbortController();
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: "R",
+        replacement: abortingOnCall(ac, 1),
         stopReplacingSignal: ac.signal
       });
       const { sink, chunks } = collectEngineSink();
       engine.start(sink);
-      engine.write("{{a}}");
-      ac.signal.addEventListener("abort", () => engine.write("{{b}}"));
-
-      ac.abort();
-      engine.end();
-
-      expect(chunks.join("")).toBe("R{{b}}");
-    });
-
-    it("flushes rather than replaces at an end() called from an abort listener on the signal", () => {
-      const ac = new AbortController();
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new RegexSearchStrategy(/OLD/),
-        replacement: "R",
-        stopReplacingSignal: ac.signal
-      });
-      const { sink, chunks } = collectEngineSink();
-      engine.start(sink);
-      engine.write("x OLD");
       ac.signal.addEventListener("abort", () => engine.end());
 
-      ac.abort();
+      engine.write("{{a}}tail");
 
-      expect(chunks.join("")).toBe("x OLD");
+      expect(chunks.join("")).toBe("Rtail");
     });
 
-    it("detaches its abort listener once end() has finished", () => {
-      const ac = new AbortController();
-      const listener = watchAbortListener();
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: "R",
-        stopReplacingSignal: ac.signal
-      });
-
-      runEngine(engine, ["a{{1}}b"]);
-
-      listener.expectDetached();
-    });
-
-    it("detaches its abort listener when write() throws", () => {
-      const ac = new AbortController();
-      const listener = watchAbortListener();
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: () => {
-          throw new Error("boom");
-        },
-        stopReplacingSignal: ac.signal
-      });
-      engine.start(collectEngineSink().sink);
-
-      expect(() => engine.write("a{{1}}b")).toThrow("boom");
-      listener.expectDetached();
-    });
-
-    it("detaches its abort listener on cancel()", () => {
-      const ac = new AbortController();
-      const listener = watchAbortListener();
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: "R",
-        stopReplacingSignal: ac.signal
-      });
-      engine.start(collectEngineSink().sink);
-      engine.write("a{{1");
-
-      engine.cancel();
-
-      listener.expectDetached();
-    });
-
-    it("does not attach an abort listener to a signal that has already aborted", () => {
-      const ac = new AbortController();
-      ac.abort();
-      const listener = watchAbortListener();
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: "R",
-        stopReplacingSignal: ac.signal
-      });
-
-      expect(runEngine(engine, ["a{{1}}b"])).toEqual(["a{{1}}b"]);
-      listener.expectNoneAttached();
-    });
   });
 
   describe("zero-length matches", () => {

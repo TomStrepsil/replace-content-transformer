@@ -69,31 +69,6 @@ function collectSearchStrategyResults<TState, TMatch = string>(
   return { results, settled, settledResults, output };
 }
 
-function canonicalSegmentsOf<TMatch>(
-  strategy: Pick<SearchStrategy<unknown, TMatch>, "matchToString">,
-  results: MatchResult<TMatch>[]
-): CanonicalSegment[] {
-  const segments: CanonicalSegment[] = [];
-
-  function append(isMatch: boolean, text: string): void {
-    if (!isMatch) {
-      if (text === "") return;
-      const last = segments.at(-1);
-      if (last && !last.isMatch) {
-        last.text += text;
-        return;
-      }
-    }
-    segments.push({ isMatch, text });
-  }
-
-  for (const result of results) {
-    append(result.isMatch, resultToString(strategy, result));
-  }
-
-  return segments;
-}
-
 /**
  * As {@link collectSearchStrategyResults}, but reduced to a chunking-independent
  * form: adjacent non-match yields (and what is settled at end of stream) are merged into a
@@ -114,10 +89,24 @@ function collectCanonicalSearchStrategyResults<TState, TMatch = string>(
     strategy,
     chunks
   );
-  const segments = canonicalSegmentsOf(strategy, [
-    ...results,
-    ...settledResults
-  ]);
+  const segments: CanonicalSegment[] = [];
+
+  function append(isMatch: boolean, text: string): void {
+    if (!isMatch) {
+      if (text === "") return;
+      const last = segments.at(-1);
+      if (last && !last.isMatch) {
+        last.text += text;
+        return;
+      }
+    }
+    segments.push({ isMatch, text });
+  }
+
+  for (const result of [...results, ...settledResults]) {
+    append(result.isMatch, resultToString(strategy, result));
+  }
+
   return { segments, output: segments.map(({ text }) => text).join("") };
 }
 
@@ -174,34 +163,6 @@ function collectStoppedSearchStrategyResults<TState, TMatch = string>(
 }
 
 /**
- * Drive `strategy` over `chunks`, stopping its `processChunk` result after `limit`
- * results in total, then resuming it by calling `processChunk` again with an empty
- * chunk before writing the rest.
- *
- * The `segments` must match {@link collectCanonicalSearchStrategyResults} over the
- * same chunks, wherever iteration stopped.
- */
-function collectResumedSearchStrategyResults<TState, TMatch = string>(
-  strategy: SearchStrategy<TState, TMatch>,
-  chunks: string[],
-  limit: number
-): { stopped: boolean; segments: CanonicalSegment[] } {
-  const state = strategy.createState();
-  const results: MatchResult<TMatch>[] = [];
-  let stopped = false;
-  for (const chunk of chunks) {
-    if (stopped) {
-      results.push(...strategy.processChunk(chunk, state));
-      continue;
-    }
-    stopped = iterateUntil(strategy.processChunk(chunk, state), results, limit);
-    if (stopped) results.push(...strategy.processChunk("", state));
-  }
-  results.push(...settleOrFlush(strategy, state));
-  return { stopped, segments: canonicalSegmentsOf(strategy, results) };
-}
-
-/**
  * Reduce the matches from {@link collectSearchStrategyResults} over a regex
  * strategy to plain data, so runs over different splits or strategies can be
  * compared with `toEqual`.
@@ -229,7 +190,6 @@ export type { CanonicalSegment };
 
 export {
   collectCanonicalSearchStrategyResults,
-  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   regexMatchDetailsOf

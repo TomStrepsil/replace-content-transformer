@@ -26,8 +26,9 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
   /**
    * When aborted, the engine stops calling the replacement function and
    * passes remaining input through verbatim, flushing any buffered partial
-   * match first. It stops searching too: the rest of the current chunk is
-   * flushed with what the strategy holds, as one chunk. Available
+   * match first. It stops searching too, at the next match it finds: that
+   * match, the rest of the current chunk and what the strategy holds are
+   * emitted verbatim as one chunk. Available
    * symmetrically on both Node and web adapters.
    */
   stopReplacingSignal?: AbortSignal;
@@ -44,7 +45,7 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
 export class SyncReplacementTransformEngine<TState, TMatch = string>
-  extends TransformEngineBase<TState, TMatch, void>
+  extends TransformEngineBase<TState, TMatch>
   implements SyncTransformEngine
 {
   readonly #replacement: SyncReplacementFn<TMatch>;
@@ -61,18 +62,19 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         : replacement;
   }
 
-  protected override _write(chunk: string): void {
-    if (this._replacingStopped) {
-      this._flushAfterAbortIfNeeded();
+  write(chunk: string): void {
+    if (this._stopReplacingSignal?.aborted) {
+      this._enqueueHeld();
       this._sink.enqueue(chunk);
       return;
     }
+
     this.#emit(this._searchStrategy.processChunk(chunk, this._state));
   }
 
-  protected override _end(): void {
-    if (this._replacingStopped) {
-      this._flushAfterAbortIfNeeded();
+  override end(): void {
+    if (this._stopReplacingSignal?.aborted) {
+      this._enqueueHeld();
       return;
     }
     this.#emit(this._settle());
@@ -80,6 +82,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
 
   #emit(results: Iterable<MatchResult<TMatch>>): void {
     const sink = this._sink;
+    let stoppedAt: string | undefined;
 
     for (const result of results) {
       if (!result.isMatch) {
@@ -87,8 +90,8 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         continue;
       }
 
-      if (this._replacingStopped) {
-        sink.enqueue(this._renderVerbatim(result));
+      if (this._stopReplacingSignal?.aborted) {
+        stoppedAt = this._renderVerbatim(result);
         break;
       }
 
@@ -105,10 +108,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
           sink.enqueue(item);
         }
       }
-      if (this._replacingStopped) break;
     }
-    if (this._replacingStopped) {
-      this._flushAfterAbortIfNeeded();
-    }
+    if (stoppedAt !== undefined) this._enqueueHeld(stoppedAt);
   }
 }

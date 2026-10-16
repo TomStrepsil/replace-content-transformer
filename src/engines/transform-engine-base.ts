@@ -5,120 +5,40 @@ import type {
 import type { EngineSink } from "./types.ts";
 import settleOrFlush from "../search-strategies/settle-or-flush.ts";
 
-export const isDefinedSignal = (signal?: AbortSignal): signal is AbortSignal =>
-  signal !== undefined;
-
 /**
  * Abstract base for all transform engines.
  *
  * Holds the shared state (`searchStrategy`, `state`, `sink`, `matchIndex`) and
- * provides `start`, the `write`/`end` lifecycle and the abort-flush helpers.
+ * provides `start` plus the helpers for settling at the end of the stream and
+ * for emitting what a strategy holds once `stopReplacingSignal` has aborted.
  *
- * Whether `stopReplacingSignal` has aborted is cached from an `abort`
- * listener, so it is read once per match. The listener is on a dependent
- * `AbortSignal.any()` of the given signals, so another listener calling
- * `stopImmediatePropagation()` cannot hide the abort. A listener on a source
- * signal runs before that event, so `write()` and `end()` also re-read the
- * dependent signal's `aborted`, which is already set by then. The listener is
- * detached once `end()` has finished, on `cancel()` and when `write()` throws, so a
- * long-lived signal does not keep the engine alive. Engines implement
- * `_write` and `_end`, and the base detaches around them.
+ * `end()` is abstract: each engine routes settled results through its own
+ * replacement path.
  *
  * @typeParam TState - The search strategy's state type
- * @typeParam TMatch - The search strategy's match type
- * @typeParam TResult - `void` for a sync engine, `Promise<void>` for an async one
+ * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
-export abstract class TransformEngineBase<
-  TState,
-  TMatch,
-  TResult extends void | Promise<void>
-> {
+export abstract class TransformEngineBase<TState, TMatch = string> {
   protected readonly _searchStrategy: SearchStrategy<TState, TMatch>;
+  protected readonly _stopReplacingSignal: AbortSignal | undefined;
   protected _state: TState;
   protected _sink!: EngineSink;
   protected _matchIndex = 0;
-  protected _replacingStopped: boolean;
-  readonly #stopReplacingSignal: AbortSignal | undefined;
-  readonly #onStopReplacing = (): void => {
-    this._replacingStopped = true;
-  };
-  readonly #stopWatchingSignal = (): void => {
-    this.#stopReplacingSignal?.removeEventListener(
-      "abort",
-      this.#onStopReplacing
-    );
-  };
-  readonly #stopWatchingAndRethrow = (err: unknown): never => {
-    this.#stopWatchingSignal();
-    throw err;
-  };
-
-  #didFlushAfterAbort = false;
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
-    ...stopReplacingSignals: (AbortSignal | undefined)[]
+    stopReplacingSignal?: AbortSignal
   ) {
     this._searchStrategy = searchStrategy;
+    this._stopReplacingSignal = stopReplacingSignal;
     this._state = searchStrategy.createState();
-    const signals = stopReplacingSignals.filter(isDefinedSignal);
-    this._replacingStopped = signals.some((signal) => signal.aborted);
-    if (this._replacingStopped || signals.length === 0) return;
-    this.#stopReplacingSignal = AbortSignal.any(signals);
-    this.#stopReplacingSignal.addEventListener("abort", this.#onStopReplacing, {
-      once: true
-    });
   }
 
   start(sink: EngineSink): void {
     this._sink = sink;
   }
 
-  write(chunk: string): TResult {
-    this.#catchUpWithAbort();
-    try {
-      const written = this._write(chunk);
-      return (
-        written instanceof Promise
-          ? written.catch(this.#stopWatchingAndRethrow)
-          : written
-      ) as TResult;
-    } catch (err) {
-      return this.#stopWatchingAndRethrow(err);
-    }
-  }
-
-  end(): TResult {
-    this.#catchUpWithAbort();
-    let ended: TResult;
-    try {
-      ended = this._end();
-    } catch (err) {
-      return this.#stopWatchingAndRethrow(err);
-    }
-    if (ended instanceof Promise) {
-      return ended.finally(this.#stopWatchingSignal) as TResult;
-    }
-    this.#stopWatchingSignal();
-    return ended;
-  }
-
-  /**
-   * Stop watching `stopReplacingSignal`. Adapters call this when the stream is
-   * cancelled or destroyed, so an abandoned stream does not stay registered on a
-   * long-lived signal.
-   */
-  cancel(): void {
-    this.#stopWatchingSignal();
-  }
-
-  #catchUpWithAbort(): void {
-    if (this.#stopReplacingSignal?.aborted) this._replacingStopped = true;
-  }
-
-  protected abstract _write(chunk: string): TResult;
-
-  protected abstract _end(): TResult;
+  abstract end(): void | Promise<void>;
 
   protected _settle(): Iterable<MatchResult<TMatch>> {
     return settleOrFlush(this._searchStrategy, this._state);
@@ -130,14 +50,12 @@ export abstract class TransformEngineBase<
       : result.content;
   }
 
-  protected _takeHeldAfterAbort(): string {
-    if (this.#didFlushAfterAbort) return "";
-    this.#didFlushAfterAbort = true;
-    return this._searchStrategy.flush(this._state);
+  protected _takeHeld(before = ""): string {
+    return before + this._searchStrategy.flush(this._state);
   }
 
-  protected _flushAfterAbortIfNeeded(): void {
-    const held = this._takeHeldAfterAbort();
+  protected _enqueueHeld(before = ""): void {
+    const held = this._takeHeld(before);
     if (held) this._sink.enqueue(held);
   }
 }

@@ -542,7 +542,7 @@ The `flush` returns anything the strategy is still holding as raw text, without 
 
 The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
 
-An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it, or a further `processChunk` call resumes from it. The built-in strategies do this from the `finally` blocks of their generators.
+An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching at the next match rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it. The built-in strategies do this from the `finally` blocks of their generators.
 
 The `matchToString` converts a match back to the raw matched text, for a match emitted verbatim.
 
@@ -620,7 +620,6 @@ interface SyncTransformEngine {
   start(sink: EngineSink): void;
   write(chunk: string): void;
   end(): void;
-  cancel?(): void;
 }
 
 interface AsyncTransformEngine {

@@ -42,7 +42,7 @@ export interface SearchStrategy<TState, TMatch = string> {
    *
    * A caller may stop iterating the result early, as engines do once `stopReplacingSignal`
    * aborts. Whatever was not yet yielded must then be left in `state`, so {@link flush}
-   * returns it, or a further call to `processChunk` resumes from it.
+   * returns it.
    *
    * @param haystack - New content to process
    * @param state - Mutable state object to track search progress

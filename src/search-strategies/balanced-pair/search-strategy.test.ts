@@ -2,7 +2,6 @@
 import { describe, it, expect } from "vitest";
 import {
   collectCanonicalSearchStrategyResults,
-  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults
 } from "../../../test/utilities.js";
@@ -421,29 +420,6 @@ describe("BalancedPairSearchStrategy", () => {
             );
             expect(stopped).toBe(true);
             expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
-          }
-        }
-      }
-    );
-
-    it.each([
-      ["with nested pairs", new BalancedPairSearchStrategy("(", ")"), "a(b(c)d)e(f)g(h"],
-      ["with adjacent pairs", new BalancedPairSearchStrategy("(", ")"), "((a)b)(c)"],
-      ["with multi-character delimiters", new BalancedPairSearchStrategy("{{", "}}"), "{{a{{b}}}}c{{d"]
-    ] as const)(
-      "finds the same matches when processChunk is called again after stopping, %s",
-      (_label, strategy, input) => {
-        for (const chunks of everySplitOf(input)) {
-          const { segments } = collectCanonicalSearchStrategyResults(
-            strategy,
-            chunks
-          );
-          const { results } = collectSearchStrategyResults(strategy, chunks);
-          for (let limit = 1; limit <= results.length; limit++) {
-            expect(
-              collectResumedSearchStrategyResults(strategy, chunks, limit),
-              `${chunks.join("|")} after ${limit}`
-            ).toEqual({ stopped: true, segments });
           }
         }
       }
