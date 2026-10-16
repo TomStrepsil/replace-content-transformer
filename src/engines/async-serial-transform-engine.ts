@@ -28,7 +28,9 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
   /**
    * When aborted, the engine stops calling the replacement function and
    * passes remaining input through verbatim, flushing any buffered partial
-   * match first. Available symmetrically on both Node and web adapters.
+   * match first. It stops searching too: the rest of the current chunk is
+   * flushed with what the strategy holds, as one chunk. Available
+   * symmetrically on both Node and web adapters.
    */
   stopReplacingSignal?: AbortSignal;
 }
@@ -45,7 +47,7 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
 export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
-  extends TransformEngineBase<TState, TMatch>
+  extends TransformEngineBase<TState, TMatch, Promise<void>>
   implements AsyncTransformEngine
 {
   readonly #replacement: AsyncSerialReplacementFn<TMatch>;
@@ -60,21 +62,24 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
     this.#replacement = replacement;
   }
 
-  async write(chunk: string): Promise<void> {
+  protected override async _write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
 
-    if (this._stopReplacingSignal?.aborted) {
+    if (this._replacingStopped) {
       this._flushAfterAbortIfNeeded();
       this._sink.enqueue(chunk);
       return;
     }
-
     await this.#emit(this._searchStrategy.processChunk(chunk, this._state));
   }
 
-  override async end(): Promise<void> {
+  protected override async _end(): Promise<void> {
     if (this.#cancelled) return;
-    await this.#emit(this._flush());
+    if (this._replacingStopped) {
+      this._flushAfterAbortIfNeeded();
+      return;
+    }
+    await this.#emit(this._settle());
   }
 
   async #emit(results: Iterable<MatchResult<TMatch>>): Promise<void> {
@@ -88,9 +93,9 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         continue;
       }
 
-      if (this._stopReplacingSignal?.aborted) {
+      if (this._replacingStopped) {
         sink.enqueue(this._renderVerbatim(result));
-        continue;
+        break;
       }
 
       const ctx: ReplacementContext = {
@@ -107,13 +112,18 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         for await (const item of raw) {
           if (this.#cancelled) return;
           sink.enqueue(item);
-          if (this._stopReplacingSignal?.aborted) break;
+          if (this._replacingStopped) break;
         }
       }
+      if (this._replacingStopped) break;
+    }
+    if (this._replacingStopped) {
+      this._flushAfterAbortIfNeeded();
     }
   }
 
-  cancel(): void {
+  override cancel(): void {
+    super.cancel();
     this.#cancelled = true;
   }
 }

@@ -1,16 +1,14 @@
-import type { MatchResult, StringBufferState } from "./types.js";
+import type { StringBufferState } from "./types.js";
 
 abstract class StringBufferStrategyBase<TMatch = string> {
   createState(): StringBufferState {
     return { buffer: "", streamOffset: 0 };
   }
-  *flush(
-    state: StringBufferState
-  ): Generator<MatchResult<TMatch>, void, undefined> {
+  flush(state: StringBufferState): string {
     const flushed = state.buffer;
     state.buffer = "";
     state.streamOffset = 0;
-    if (flushed) yield { isMatch: false, content: flushed };
+    return flushed;
   }
   matchToString(match: TMatch): string {
     return String(match);

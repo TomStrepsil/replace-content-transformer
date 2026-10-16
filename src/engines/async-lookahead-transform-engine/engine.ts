@@ -76,13 +76,13 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    */
   highWaterMark?: number;
   /**
-   * When aborted, the scanner stops calling the replacement function.
-   * Matches discovered after the signal fires are emitted verbatim (using
-   * {@link SearchStrategy.matchToString}) rather than being passed to
-   * `replacement`. Any already-buffered partial match is flushed first so
-   * output stays in order. In-flight replacements that were scheduled
-   * before the signal fired are unaffected — they run to completion and
-   * their output is emitted normally. Pair with {@link abandonPendingSignal}
+   * When aborted, the scanner stops calling the replacement function and
+   * stops searching. A match already found when the signal fires is emitted
+   * verbatim (using {@link SearchStrategy.matchToString}); the rest of the
+   * current chunk is then flushed with what the strategy holds, as one chunk,
+   * and later chunks pass through unchanged. In-flight replacements that were
+   * scheduled before the signal fired are unaffected — they run to completion
+   * and their output is emitted normally. Pair with {@link abandonPendingSignal}
    * to also abandon those.
    */
   stopReplacingSignal?: AbortSignal;
@@ -91,10 +91,11 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    * begun consuming is abandoned: its iterable is closed and the original
    * matched text is emitted in its place. A replacement the drain loop is
    * already iterating is allowed to complete normally — no partial output.
-   * Scanning is also halted (implying {@link stopReplacingSignal} semantics)
-   * — there is no useful combination where pending work is abandoned but
-   * new replacements continue to be scheduled. Internally the engine
-   * combines both signals via `AbortSignal.any()`.
+   * Scanning is also halted (implying {@link stopReplacingSignal} semantics):
+   * no further replacements are scheduled and the rest of the input passes
+   * through as raw text — there is no useful combination where pending work
+   * is abandoned but new replacements continue to be scheduled. Internally
+   * the engine combines both signals via `AbortSignal.any()`.
    */
   abandonPendingSignal?: AbortSignal;
 }
@@ -121,7 +122,7 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * @typeParam TMatch - The search strategy's match type
  */
 export class AsyncLookaheadTransformEngine<TState, TMatch>
-  extends TransformEngineBase<TState, TMatch>
+  extends TransformEngineBase<TState, TMatch, Promise<void>>
   implements AsyncTransformEngine
 {
   readonly #options: AsyncLookaheadTransformEngineOptions<TState, TMatch>;
@@ -133,7 +134,6 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
-  #flushedAfterAbort = false;
   #cancelled = false;
 
   constructor(
@@ -174,7 +174,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * match text is not emitted even when `abandonPendingSignal` is configured.
    * After `cancel()`, `end()` resolves cleanly without hanging.
    */
-  cancel(): void {
+  override cancel(): void {
+    super.cancel();
     this.#cancelled = true;
     this.#cancelAbortController.abort();
     this.#queue.close();
@@ -198,19 +199,20 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * Feed one input chunk into the scanner. Suspends when the internal
    * queue is full (backpressure).
    */
-  async write(chunk: string): Promise<void> {
+  protected override async _write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
-    if (this._stopReplacingSignal?.aborted) {
-      if (!this.#flushedAfterAbort) {
-        this.#flushedAfterAbort = true;
-        await this.#enqueue(this._flush());
-        if (this.#cancelled) return;
-      }
+    if (this._replacingStopped) {
+      await this.#flushAfterAbortIfNeeded();
+      if (this.#cancelled) return;
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
     }
-
     await this.#enqueue(this._searchStrategy.processChunk(chunk, this._state));
+  }
+
+  async #flushAfterAbortIfNeeded(): Promise<void> {
+    const held = this._takeHeldAfterAbort();
+    if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
   }
 
   async #enqueue(results: Iterable<MatchResult<TMatch>>): Promise<void> {
@@ -218,17 +220,19 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       if (this.#cancelled) return;
       if (!result.isMatch) {
         await this.#queue.push(textSlot(this.#siblingIndex++, result.content));
-        continue;
-      }
-      if (this._stopReplacingSignal?.aborted) {
+      } else if (this._replacingStopped) {
         await this.#queue.push(
           textSlot(this.#siblingIndex++, this._renderVerbatim(result))
         );
-        continue;
+      } else {
+        await this.#queue.push(
+          this.#scheduleMatch(result.content, result.streamIndices)
+        );
       }
-      await this.#queue.push(
-        this.#scheduleMatch(result.content, result.streamIndices)
-      );
+      if (this._replacingStopped) break;
+    }
+    if (!this.#cancelled && this._replacingStopped) {
+      await this.#flushAfterAbortIfNeeded();
     }
   }
 
@@ -238,13 +242,15 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
    * Rejects with the first error raised by the drain loop or by any
    * scheduled replacement, so adapters can forward failures.
    */
-  override async end(): Promise<void> {
+  protected override async _end(): Promise<void> {
     if (this.#cancelled) {
       await this.#drainDone;
       return;
     }
-    if (!this.#flushedAfterAbort) {
-      await this.#enqueue(this._flush());
+    if (this._replacingStopped) {
+      await this.#flushAfterAbortIfNeeded();
+    } else {
+      await this.#enqueue(this._settle());
     }
     this.#queue.close();
     await this.#drainDone;

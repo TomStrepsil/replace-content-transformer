@@ -101,10 +101,8 @@ export class IndexOfKnuthMorrisPrattSearchStrategy
     }
   }
 
-  *flush(
-    state: IndexOfKnuthMorrisPrattSearchState
-  ): Generator<MatchResult, void, undefined> {
+  flush(state: IndexOfKnuthMorrisPrattSearchState): string {
     state.needleIndex = 0;
-    yield* super.flush(state);
+    return super.flush(state);
   }
 }

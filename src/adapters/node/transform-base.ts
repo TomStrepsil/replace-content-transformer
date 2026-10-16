@@ -39,6 +39,14 @@ export abstract class TransformBase<T> extends Transform {
     });
   }
 
+  override _destroy(
+    err: Error | null,
+    callback: (error?: Error | null) => void
+  ): void {
+    this._engine.cancel?.();
+    callback(err);
+  }
+
   protected _decode(chunk: Buffer | string): string {
     return typeof chunk === "string"
       ? this.#decoder.end() + chunk

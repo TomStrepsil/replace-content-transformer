@@ -101,6 +101,17 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
     expect(outputs).toEqual(["ABC", "END"]);
   });
 
+  it("calls engine.cancel when the stream is destroyed before it ends", () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.write("x");
+    transform.destroy();
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+    expect(engine.end).not.toHaveBeenCalled();
+  });
+
   describe("UTF-8 decoding", () => {
     it.each([
       { text: "héllo", splitAt: 2 },

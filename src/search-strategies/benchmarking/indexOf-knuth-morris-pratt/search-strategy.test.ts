@@ -1,10 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { IndexOfKnuthMorrisPrattSearchStrategy } from "./search-strategy.js";
 import type { MatchResult } from "../../types.js";
-import {
-  collectSearchStrategyResults,
-  flushToString
-} from "../../../../test/utilities.js";
+import { collectSearchStrategyResults } from "../../../../test/utilities.js";
 
 describe("IndexOfKnuthMorrisPratt", () => {
   describe("complete matches in single chunk", () => {
@@ -88,11 +85,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
+        const { results, settledResults } = collectSearchStrategyResults(
           new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
           chunks
         );
-        results.push(...flushResults);
+        results.push(...settledResults);
 
         expect(results).toEqual(expected);
       });
@@ -129,11 +126,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
+        const { results, settledResults } = collectSearchStrategyResults(
           new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
           chunks
         );
-        results.push(...flushResults);
+        results.push(...settledResults);
 
         expect(results).toEqual(expected);
       });
@@ -234,11 +231,11 @@ describe("IndexOfKnuthMorrisPratt", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
+        const { results, settledResults } = collectSearchStrategyResults(
           new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
           chunks
         );
-        results.push(...flushResults);
+        results.push(...settledResults);
 
         expect(results).toEqual(expected);
       });
@@ -287,12 +284,12 @@ describe("IndexOfKnuthMorrisPratt", () => {
     testCases.forEach(
       ({ name, pattern, chunks, expectedYields, expectedFlush }) => {
         test(name, () => {
-          const { results, flush } = collectSearchStrategyResults(
+          const { results, settled } = collectSearchStrategyResults(
             new IndexOfKnuthMorrisPrattSearchStrategy(pattern),
             chunks
           );
           expect(results).toEqual(expectedYields);
-          expect(flush).toBe(expectedFlush);
+          expect(settled).toBe(expectedFlush);
         });
       }
     );
@@ -360,7 +357,7 @@ describe("IndexOfKnuthMorrisPratt", () => {
           break;
         }
       }
-      const flushed = flushToString(strategy, state);
+      const flushed = strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: false, content: "First " },

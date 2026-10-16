@@ -73,4 +73,23 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
 
     expect(outputs).toEqual(["ABC", "END"]);
   });
+
+  it("calls engine.cancel() when cancel() is called and engine supports it", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+
+    transformer.cancel("test reason");
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not throw when cancel() is called on an engine without cancel support", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cancel: _unused, ...engineWithoutCancel } = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(
+      engineWithoutCancel as SyncTransformEngine
+    );
+
+    expect(() => transformer.cancel()).not.toThrow();
+  });
 });

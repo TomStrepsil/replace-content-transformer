@@ -2,8 +2,9 @@
 import { describe, it, expect } from "vitest";
 import {
   collectCanonicalSearchStrategyResults,
+  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString
+  collectStoppedSearchStrategyResults
 } from "../../../test/utilities.js";
 import { everySplitOf } from "../../../test/splits.js";
 import { BalancedPairSearchStrategy } from "./search-strategy.js";
@@ -15,7 +16,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("(content)", state)];
-      const flushed = flushToString(strategy, state);
+      const flushed = strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "(content)", streamIndices: [0, 9] }
@@ -28,7 +29,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("before (content) after", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: false, content: "before " },
@@ -42,7 +43,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("(a)(b)(c)", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "(a)", streamIndices: [0, 3] },
@@ -56,7 +57,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("no matches here", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: false, content: "no matches here" }
@@ -70,7 +71,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("((inner) outer)", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((inner) outer)", streamIndices: [0, 15] }
@@ -82,7 +83,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("(((deep)))", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "(((deep)))", streamIndices: [0, 10] }
@@ -96,7 +97,7 @@ describe("BalancedPairSearchStrategy", () => {
       // ((a) (b)) — each inner pair is balanced (net 0 per increment), only the
       // surplus opening at position 0 drives nestingLevel to 1 until the final )
       const results = [...strategy.processChunk("((a) (b))", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((a) (b))", streamIndices: [0, 9] }
@@ -110,7 +111,7 @@ describe("BalancedPairSearchStrategy", () => {
       // Each increment " (b)" and " (c)" contributes net 0 (1 open, 1 close),
       // so only the extra ( at position 0 keeps nestingLevel at 1 until the final )
       const results = [...strategy.processChunk("((a) (b) (c))", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((a) (b) (c))", streamIndices: [0, 13] }
@@ -122,7 +123,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("prefix ((inner) outer) suffix", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: false, content: "prefix " },
@@ -136,7 +137,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("((a) b)(c)", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((a) b)", streamIndices: [0, 7] },
@@ -150,7 +151,7 @@ describe("BalancedPairSearchStrategy", () => {
 
       // {{{{inner}}}} — two opening {{ before first closing }}
       const results = [...strategy.processChunk("{{{{inner}}}}", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "{{{{inner}}}}", streamIndices: [0, 13] }
@@ -174,7 +175,7 @@ describe("BalancedPairSearchStrategy", () => {
       expect(results2).toEqual([
         { isMatch: true, content: "((c) d)", streamIndices: [7, 14] }
       ]);
-      flushToString(strategy, state);
+      strategy.flush(state);
     });
   });
 
@@ -187,7 +188,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("(cont", state),
         ...strategy.processChunk("ent)", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "(content)", streamIndices: [0, 9] }
@@ -202,7 +203,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("((inner)", state),
         ...strategy.processChunk(" outer)", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((inner) outer)", streamIndices: [0, 15] }
@@ -217,7 +218,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("(((deep))", state),
         ...strategy.processChunk(")", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "(((deep)))", streamIndices: [0, 10] }
@@ -231,7 +232,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("((inner)", state),
         ...strategy.processChunk(" outer)", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((inner) outer)", streamIndices: [0, 15] }
@@ -248,7 +249,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("((a) more", state),
         ...strategy.processChunk(" content)", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "((a) more content)", streamIndices: [0, 18] }
@@ -263,7 +264,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("no match", state),
         ...strategy.processChunk("((inner) outer)", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({ streamIndices: [8, 23] });
@@ -274,7 +275,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       [...strategy.processChunk("((inner)", state)];
-      const flushed = flushToString(strategy, state);
+      const flushed = strategy.flush(state);
 
       expect(flushed).toBe("((inner)");
     });
@@ -284,14 +285,14 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       [...strategy.processChunk("((inner)", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(state.nestingLevel).toBe(0);
       expect(state.balancedBuffer).toBe("");
 
       // After flush, the state is reset: a fresh simple match should yield correctly
       const results = [...strategy.processChunk("(fresh)", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: true, content: "(fresh)", streamIndices: [0, 7] }
@@ -305,7 +306,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("prefix (match)", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({ streamIndices: [7, 14] });
@@ -316,7 +317,7 @@ describe("BalancedPairSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [...strategy.processChunk("text ((a) b) end", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({ streamIndices: [5, 12] });
@@ -330,7 +331,7 @@ describe("BalancedPairSearchStrategy", () => {
         ...strategy.processChunk("prefix ", state),
         ...strategy.processChunk("((inner) outer)", state)
       ];
-      flushToString(strategy, state);
+      strategy.flush(state);
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({ streamIndices: [7, 22] });
@@ -395,5 +396,57 @@ describe("BalancedPairSearchStrategy", () => {
         { isMatch: true, content: "**a*", streamIndices: [0, 4] }
       ]);
     });
+  });
+
+  describe("stopping early", () => {
+
+    it.each([
+      ["with nested pairs", new BalancedPairSearchStrategy("(", ")"), "a(b(c)d)e(f)g(h"],
+      ["with adjacent pairs", new BalancedPairSearchStrategy("(", ")"), "((a)b)(c)"],
+      ["with multi-character delimiters", new BalancedPairSearchStrategy("{{", "}}"), "{{a{{b}}}}c{{d"]
+    ] as const)(
+      "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
+      (_label, strategy, input) => {
+        for (const chunks of everySplitOf(input)) {
+          const { results, settledResults } = collectSearchStrategyResults(
+            strategy,
+            chunks
+          );
+          const total = results.length + settledResults.length;
+          for (let limit = 1; limit <= total; limit++) {
+            const { stopped, output } = collectStoppedSearchStrategyResults(
+              strategy,
+              chunks,
+              limit
+            );
+            expect(stopped).toBe(true);
+            expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
+          }
+        }
+      }
+    );
+
+    it.each([
+      ["with nested pairs", new BalancedPairSearchStrategy("(", ")"), "a(b(c)d)e(f)g(h"],
+      ["with adjacent pairs", new BalancedPairSearchStrategy("(", ")"), "((a)b)(c)"],
+      ["with multi-character delimiters", new BalancedPairSearchStrategy("{{", "}}"), "{{a{{b}}}}c{{d"]
+    ] as const)(
+      "finds the same matches when processChunk is called again after stopping, %s",
+      (_label, strategy, input) => {
+        for (const chunks of everySplitOf(input)) {
+          const { segments } = collectCanonicalSearchStrategyResults(
+            strategy,
+            chunks
+          );
+          const { results } = collectSearchStrategyResults(strategy, chunks);
+          for (let limit = 1; limit <= results.length; limit++) {
+            expect(
+              collectResumedSearchStrategyResults(strategy, chunks, limit),
+              `${chunks.join("|")} after ${limit}`
+            ).toEqual({ stopped: true, segments });
+          }
+        }
+      }
+    );
   });
 });

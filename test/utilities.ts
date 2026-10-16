@@ -182,19 +182,6 @@ async function settleMicrotasks(times = 2): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
-/**
- * A `flush()` implementation for mocked strategies: yields each non-empty text
- * as one non-match result, matching the generator signature `SearchStrategy`
- * requires.
- */
-function flushesText<TMatch = string>(...contents: string[]) {
-  return function* (): Generator<MatchResult<TMatch>, void, undefined> {
-    for (const content of contents) {
-      if (content) yield { isMatch: false, content };
-    }
-  };
-}
-
 function mockSearchStrategyFactory<TMatch = string>(
   ...results: MatchResult<TMatch>[]
 ): Mocked<SearchStrategy<object, TMatch>> {
@@ -205,7 +192,7 @@ function mockSearchStrategyFactory<TMatch = string>(
         yield result;
       }
     }),
-    flush: vi.fn().mockImplementation(flushesText<TMatch>()),
+    flush: vi.fn().mockReturnValue(""),
     matchToString: vi.fn().mockImplementation((match: TMatch) => String(match))
   };
 }
@@ -255,8 +242,9 @@ function mockSyncEngine() {
   return {
     start: vi.fn<(sink: EngineSink) => void>(),
     write: vi.fn<(chunk: string) => void>(),
-    end: vi.fn<() => void>()
-  } satisfies SyncTransformEngine;
+    end: vi.fn<() => void>(),
+    cancel: vi.fn<() => void>()
+  } satisfies SyncTransformEngine & { cancel: () => void };
 }
 
 function mockAsyncEngine() {
@@ -286,13 +274,13 @@ export type { CanonicalSegment } from "./search-strategy-results.ts";
 
 export {
   collectCanonicalSearchStrategyResults,
+  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString,
+  collectStoppedSearchStrategyResults,
   regexMatchDetailsOf
 } from "./search-strategy-results.ts";
 
 export {
-  flushesText,
   collectEngineSink,
   collectWritable,
   asyncIterable,

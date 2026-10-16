@@ -80,6 +80,17 @@ describe("ReplaceContentTransform (Node sync adapter)", () => {
     expect(outputs).toEqual(["ABC", "END"]);
   });
 
+  it("calls engine.cancel when the stream is destroyed before it ends", () => {
+    const engine = mockSyncEngine();
+    const transform = new ReplaceContentTransform(engine);
+
+    transform.write("x");
+    transform.destroy();
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+    expect(engine.end).not.toHaveBeenCalled();
+  });
+
   describe("UTF-8 decoding", () => {
     it.each([
       { text: "héllo", splitAt: 2 },

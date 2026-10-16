@@ -40,8 +40,8 @@ export interface DriveResult {
   output: string;
   /** Matches emitted by `processChunk`, i.e. settled at a chunk boundary. */
   matches: EmittedMatch[];
-  /** Matches emitted by `flush`, i.e. only settled once the stream ended. */
-  flushMatches: EmittedMatch[];
+  /** Matches emitted by `settle`, i.e. only settled once the stream ended. */
+  settledMatches: EmittedMatch[];
   /** Longest the buffer ever grew, in characters. */
   peakBuffer: number;
 }
@@ -59,7 +59,7 @@ export function drive(
 ): DriveResult {
   const state = strategy.createState();
   const matches: EmittedMatch[] = [];
-  const flushMatches: EmittedMatch[] = [];
+  const settledMatches: EmittedMatch[] = [];
   let output = "";
   let peakBuffer = 0;
 
@@ -88,9 +88,9 @@ export function drive(
     record(strategy.processChunk(chunk, state), matches);
     if (state.buffer.length > peakBuffer) peakBuffer = state.buffer.length;
   }
-  record(strategy.flush(state), flushMatches);
+  record(strategy.settle(state), settledMatches);
 
-  return { output, matches, flushMatches, peakBuffer };
+  return { output, matches, settledMatches, peakBuffer };
 }
 
 /**

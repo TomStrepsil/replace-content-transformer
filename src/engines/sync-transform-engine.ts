@@ -26,7 +26,9 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
   /**
    * When aborted, the engine stops calling the replacement function and
    * passes remaining input through verbatim, flushing any buffered partial
-   * match first. Available symmetrically on both Node and web adapters.
+   * match first. It stops searching too: the rest of the current chunk is
+   * flushed with what the strategy holds, as one chunk. Available
+   * symmetrically on both Node and web adapters.
    */
   stopReplacingSignal?: AbortSignal;
 }
@@ -42,7 +44,7 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
 export class SyncReplacementTransformEngine<TState, TMatch = string>
-  extends TransformEngineBase<TState, TMatch>
+  extends TransformEngineBase<TState, TMatch, void>
   implements SyncTransformEngine
 {
   readonly #replacement: SyncReplacementFn<TMatch>;
@@ -59,18 +61,21 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         : replacement;
   }
 
-  write(chunk: string): void {
-    if (this._stopReplacingSignal?.aborted) {
+  protected override _write(chunk: string): void {
+    if (this._replacingStopped) {
       this._flushAfterAbortIfNeeded();
       this._sink.enqueue(chunk);
       return;
     }
-
     this.#emit(this._searchStrategy.processChunk(chunk, this._state));
   }
 
-  override end(): void {
-    this.#emit(this._flush());
+  protected override _end(): void {
+    if (this._replacingStopped) {
+      this._flushAfterAbortIfNeeded();
+      return;
+    }
+    this.#emit(this._settle());
   }
 
   #emit(results: Iterable<MatchResult<TMatch>>): void {
@@ -82,9 +87,9 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         continue;
       }
 
-      if (this._stopReplacingSignal?.aborted) {
+      if (this._replacingStopped) {
         sink.enqueue(this._renderVerbatim(result));
-        continue;
+        break;
       }
 
       const ctx: ReplacementContext = {
@@ -100,6 +105,10 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
           sink.enqueue(item);
         }
       }
+      if (this._replacingStopped) break;
+    }
+    if (this._replacingStopped) {
+      this._flushAfterAbortIfNeeded();
     }
   }
 }

@@ -40,6 +40,10 @@ export interface SearchStrategy<TState, TMatch = string> {
   /**
    * Process input chunk and yield match results as they're determined.
    *
+   * A caller may stop iterating the result early, as engines do once `stopReplacingSignal`
+   * aborts. Whatever was not yet yielded must then be left in `state`, so {@link flush}
+   * returns it, or a further call to `processChunk` resumes from it.
+   *
    * @param haystack - New content to process
    * @param state - Mutable state object to track search progress
    * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch, streamIndices: [startIndex, endIndex] }`
@@ -50,19 +54,32 @@ export interface SearchStrategy<TState, TMatch = string> {
   ): Generator<MatchResult<TMatch>, void, undefined>;
 
   /**
-   * Settle whatever remains buffered in state, now that no further input can arrive.
+   * Return everything held in `state` as raw text, without searching it, and re-set `state`
+   * for re-use.
    *
-   * Yields the same {@link MatchResult} union as {@link processChunk}, so a strategy
-   * that deferred a decision at a chunk boundary can still report a real match once
-   * the stream ends. Strategies with nothing to settle yield the buffer as a single
-   * non-match result; a strategy holding nothing yields nothing at all.
-   *
-   * Also re-sets `state` for re-use, so the same state can drive a second stream.
+   * Engines call this at end of stream when there is no {@link settle}, and in place of
+   * {@link settle} once `stopReplacingSignal` has aborted.
    *
    * @param state - Mutable state
-   * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch, streamIndices: [startIndex, endIndex] }`
+   * @returns The held text, or `""` when nothing is held
    */
-  flush(state: TState): Generator<MatchResult<TMatch>, void, undefined>;
+  flush(state: TState): string;
+
+  /**
+   * Optional. Decide whatever remains held in `state`, now that no further input can arrive,
+   * and re-set `state` when called.
+   *
+   * Yields the same {@link MatchResult} union as {@link processChunk}, so a strategy that
+   * deferred a decision at a chunk boundary can still report a real match once the stream
+   * ends. A strategy without it has its held text emitted verbatim via {@link flush}.
+   *
+   * As with {@link processChunk}, a caller may stop iterating the result early, so it must be
+   * lazy: whatever was not yet yielded is put back into `state` for {@link flush} to return.
+   * The caller must call {@link flush} before re-using `state`.
+   *
+   * @param state - Mutable state
+   */
+  settle?(state: TState): Iterable<MatchResult<TMatch>>;
 
   /**
    * Convert a match value to the raw matched string.

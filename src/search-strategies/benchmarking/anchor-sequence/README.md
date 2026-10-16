@@ -49,7 +49,7 @@ for (const result of subStrategy.processChunk(chunk, state)) {
   }
 }
 // finally block in sub-strategy has executed, buffer preserved
-const buffered = flushToString(subStrategy, state);
+const buffered = subStrategy.flush(state);
 ```
 
 The generator interface guarantees `finally` blocks execute when iteration stops, ensuring buffered content is preserved in state.

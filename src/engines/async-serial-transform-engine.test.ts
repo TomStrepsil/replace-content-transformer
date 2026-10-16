@@ -1,15 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
+import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
+import { LoopedIndexOfAnchoredSearchStrategy } from "../search-strategies/looped-indexOf-anchored/search-strategy.ts";
 import {
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
-  settleMicrotasks,
-  flushesText
+  settleMicrotasks
 } from "../../test/utilities.ts";
 
-async function runEngine<TState>(
-  engine: AsyncSerialReplacementTransformEngine<TState>,
+async function runEngine<TState, TMatch>(
+  engine: AsyncSerialReplacementTransformEngine<TState, TMatch>,
   inputs: string[]
 ): Promise<string[]> {
   const { sink, chunks } = collectEngineSink();
@@ -69,7 +70,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
         }),
-        flush: vi.fn().mockImplementation(flushesText()),
+        flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockResolvedValue("R");
@@ -105,7 +106,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
           yield { isMatch: true, content: `M${call}`, streamIndices: [call, call + 1] as [number, number] };
           call++;
         }),
-        flush: vi.fn().mockImplementation(flushesText()),
+        flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new AsyncSerialReplacementTransformEngine({
@@ -136,7 +137,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
             yield { isMatch: false, content: " end" };
           }
         }),
-        flush: vi.fn().mockImplementation(flushesText()),
+        flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const engine = new AsyncSerialReplacementTransformEngine({
@@ -209,14 +210,14 @@ describe("AsyncSerialReplacementTransformEngine", () => {
   describe("end / flush", () => {
     it("emits strategy tail on end()", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.flush.mockImplementation(flushesText("TAIL"));
+      strategy.flush.mockReturnValue("TAIL");
       const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: async () => "R" });
       expect(await runEngine(engine, ["a"])).toEqual(["a", "TAIL"]);
     });
 
-    it("resolves end() only after a match held until flush has been replaced", async () => {
+    it("resolves end() only after a match settled at end() has been replaced", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.flush.mockImplementation(function* () {
+      strategy.settle = vi.fn().mockImplementation(function* () {
         yield { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] };
       });
       const gate = deferred<string>();
@@ -237,9 +238,9 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(chunks).toEqual(["a", "R"]);
     });
 
-    it("rejects end() when replacing a match held until flush fails", async () => {
+    it("rejects end() when replacing a match settled at end() fails", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.flush.mockImplementation(function* () {
+      strategy.settle = vi.fn().mockImplementation(function* () {
         yield { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] };
       });
       const engine = new AsyncSerialReplacementTransformEngine({
@@ -273,7 +274,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
 
     it("flushes buffered tail on first aborted chunk then passes subsequent chunks through", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.flush.mockImplementationOnce(flushesText("BUF")).mockImplementation(flushesText());
+      strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
       const ac = new AbortController();
       ac.abort();
       const engine = new AsyncSerialReplacementTransformEngine({
@@ -290,6 +291,118 @@ describe("AsyncSerialReplacementTransformEngine", () => {
     });
   });
 
+  describe("stopping the search once stopReplacingSignal aborts", () => {
+    function abortingOnCall(ac: AbortController, call: number) {
+      let calls = 0;
+      return vi.fn(async () => {
+        if (++calls === call) ac.abort();
+        return "R";
+      });
+    }
+
+    it("stops searching the rest of the chunk, and flushes it as one chunk", async () => {
+      const ac = new AbortController();
+      const replacement = abortingOnCall(ac, 1);
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      expect(await runEngine(engine, ["a{{1}}b{{2}}c{{3}}d", "{{4}}"])).toEqual([
+        "a",
+        "R",
+        "b{{2}}c{{3}}d",
+        "{{4}}"
+      ]);
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("flushes rather than settles what a strategy holds when the signal aborted before end()", async () => {
+      const ac = new AbortController();
+      const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
+      const settle = vi.spyOn(strategy, "settle");
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      await engine.write('x "y z');
+      ac.abort();
+      await engine.end();
+
+      expect(chunks).toEqual(["R", " ", '"y z']);
+      expect(settle).not.toHaveBeenCalled();
+    });
+
+    it("stops settling at end() once a settled match's replacement aborts the signal", async () => {
+      const ac = new AbortController();
+      const replacement = abortingOnCall(ac, 2);
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: new RegexSearchStrategy(/"[^"]*"|\w+/),
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      expect(await runEngine(engine, ['x "y z'])).toEqual([
+        "R",
+        " ",
+        '"',
+        "R",
+        " z"
+      ]);
+      expect(replacement).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ["once end() has finished", async (engine: AsyncSerialReplacementTransformEngine<unknown>) => {
+        await engine.write("a{{1}}b");
+        await engine.end();
+      }],
+      ["on cancel()", async (engine: AsyncSerialReplacementTransformEngine<unknown>) => {
+        engine.cancel();
+      }]
+    ])("detaches its abort listener %s", async (_label, drive) => {
+      const ac = new AbortController();
+      const removeEventListener = vi.spyOn(ac.signal, "removeEventListener");
+      const engine = new AsyncSerialReplacementTransformEngine<unknown>({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(collectEngineSink().sink);
+
+      await drive(engine);
+
+      expect(removeEventListener).toHaveBeenCalledWith(
+        "abort",
+        expect.any(Function)
+      );
+    });
+
+    it("detaches its abort listener when write() rejects", async () => {
+      const ac = new AbortController();
+      const removeEventListener = vi.spyOn(ac.signal, "removeEventListener");
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        replacement: async () => {
+          throw new Error("boom");
+        },
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(collectEngineSink().sink);
+
+      await expect(engine.write("a{{1}}b")).rejects.toThrow("boom");
+      expect(removeEventListener).toHaveBeenCalledWith(
+        "abort",
+        expect.any(Function)
+      );
+    });
+  });
+
   describe("cancel", () => {
     it("stops processing after cancel() is called", async () => {
       const strategy = {
@@ -297,7 +410,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         processChunk: vi.fn().mockImplementation(function* () {
           yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
         }),
-        flush: vi.fn().mockImplementation(flushesText()),
+        flush: vi.fn().mockReturnValue(""),
         matchToString: vi.fn().mockImplementation((m: string) => m)
       };
       const fn = vi.fn().mockResolvedValue("R");

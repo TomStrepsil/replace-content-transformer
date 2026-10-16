@@ -17,7 +17,8 @@ Do not comment on:
 ## Where to look hardest
 
 1. **Chunk boundaries.** A needle, regex match or anchor sequence that is split across two or more chunks, including a split after every character. Look at partial matches carried between chunks, and at text that is held back and must eventually be emitted.
-2. **State reset.** After `flush()`, or after a match completes, every field a strategy or engine uses has to be back to its initial value so the instance can be reused.
+2. **State reset.** After `flush()` or `settle()`, or after a match completes, every field a strategy or engine uses has to be back to its initial value so the instance can be reused.
+   - A strategy must leave everything it has not yielded in state when a `processChunk` or `settle` result is stopped early, so `flush()` returns it.
 3. **Regex semantics.** `lastIndex`, sticky and global flags, empty matches, zero-width lookarounds, capture groups and indices, and Unicode surrogate pairs at a chunk edge.
 4. **Async and iterator protocol.** `return()` and `throw()` propagation, cancellation, backpressure, and errors raised inside a replacement function or async generator.
 5. **Public API and semver.** Changes to exported types or signatures in `src/index.ts`, `src/adapters/web` or `src/adapters/node`. If one is breaking, say so once.

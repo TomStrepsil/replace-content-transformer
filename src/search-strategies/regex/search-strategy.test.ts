@@ -7,8 +7,9 @@ import optionsValidation from "./options-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
 import {
   collectCanonicalSearchStrategyResults,
+  collectResumedSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString,
+  collectStoppedSearchStrategyResults,
   regexMatchDetailsOf
 } from "../../../test/utilities.js";
 import type { CanonicalSegment } from "../../../test/utilities.js";
@@ -733,11 +734,11 @@ describe("RegexSearchStrategy", () => {
 
         describe(name, () => {
           test.skipIf(skipOnBun)("matches", () => {
-            const { results, flushResults } = collectSearchStrategyResults(
+            const { results, settledResults } = collectSearchStrategyResults(
               new RegexSearchStrategy(pattern),
               chunks
             );
-            results.push(...flushResults);
+            results.push(...settledResults);
 
             expect(results).toMatchObject(expected);
           });
@@ -783,11 +784,11 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
+        const { results, settledResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
         );
-        results.push(...flushResults);
+        results.push(...settledResults);
 
         expect(results).toMatchObject(expected);
       });
@@ -1164,7 +1165,7 @@ describe("RegexSearchStrategy", () => {
     );
   });
 
-  describe("incomplete matches requiring flush", () => {
+  describe("incomplete matches held until the end of the stream", () => {
     const testCases = [
       {
         name: "partial match at end - one character",
@@ -1206,12 +1207,12 @@ describe("RegexSearchStrategy", () => {
     testCases.forEach(
       ({ name, pattern, chunks, expectedYields, expectedFlush }) => {
         test(name, () => {
-          const { results, flush } = collectSearchStrategyResults(
+          const { results, settled } = collectSearchStrategyResults(
             new RegexSearchStrategy(pattern),
             chunks
           );
           expect(results).toEqual(expectedYields);
-          expect(flush).toBe(expectedFlush);
+          expect(settled).toBe(expectedFlush);
         });
       }
     );
@@ -1256,37 +1257,37 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(({ name, pattern, chunks, expected }) => {
       test(name, () => {
-        const { results, flushResults } = collectSearchStrategyResults(
+        const { results, settledResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           chunks
         );
 
-        expect([...results, ...flushResults]).toMatchObject(expected);
+        expect([...results, ...settledResults]).toMatchObject(expected);
       });
     });
   });
 
   describe("settling at end of stream", () => {
     it("emits a match the stream ended on, rather than flushing it as text", () => {
-      const { results, flushResults } = collectSearchStrategyResults(
+      const { results, settledResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/abc|b/),
         ["ab"]
       );
       expect(results).toEqual([]);
-      expect(flushResults).toMatchObject([
+      expect(settledResults).toMatchObject([
         { isMatch: false, content: "a" },
         { isMatch: true, content: expect.arrayContaining(["b"]) }
       ]);
     });
 
     it("maps capture-group and `d`-flag indices of a settled match onto the stream", () => {
-      const { results, flushResults } = collectSearchStrategyResults(
+      const { results, settledResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
         ["prefix ", "{{value}}"]
       );
 
       expect(results.some((result) => result.isMatch)).toBe(false);
-      const match = flushResults.find((result) => result.isMatch);
+      const match = settledResults.find((result) => result.isMatch);
       expect(match).toMatchObject({
         isMatch: true,
         streamIndices: [7, 16]
@@ -1298,12 +1299,12 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("reports stream offsets and omits match.input for matches in any chunk", () => {
-      const { results, flushResults } = collectSearchStrategyResults(
+      const { results, settledResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
         ["{{first}} and ", "then {{value}}"]
       );
 
-      const matches = [...results, ...flushResults].filter((result) => result.isMatch);
+      const matches = [...results, ...settledResults].filter((result) => result.isMatch);
       expect(matches).toHaveLength(2);
       for (const match of matches) {
         expect(match.content.index).toBe(match.content.indices?.[0]?.[0]);
@@ -1313,7 +1314,7 @@ describe("RegexSearchStrategy", () => {
     });
 
     it("emits content that never became a match as one trailing non-match segment", () => {
-      const { results, flushResults } = collectSearchStrategyResults(
+      const { results, settledResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{\w+\}\}/),
         ["a {{b}} and {{unclo"]
       );
@@ -1322,7 +1323,7 @@ describe("RegexSearchStrategy", () => {
         { isMatch: true, content: expect.arrayContaining(["{{b}}"]) },
         { isMatch: false, content: " and " }
       ]);
-      expect(flushResults).toEqual([{ isMatch: false, content: "{{unclo" }]);
+      expect(settledResults).toEqual([{ isMatch: false, content: "{{unclo" }]);
     });
 
     it("settles a match that was deferred across a chunk boundary, onto the right stream offset", () => {
@@ -1330,13 +1331,13 @@ describe("RegexSearchStrategy", () => {
       const chunks = ["x f", "o"];
       expect(pattern.exec(chunks.join(""))?.[0]).toBe("o");
 
-      const { results, flushResults, output } = collectSearchStrategyResults(
+      const { results, settledResults, output } = collectSearchStrategyResults(
         new RegexSearchStrategy(pattern),
         chunks
       );
 
       expect(results).toEqual([{ isMatch: false, content: "x " }]);
-      expect(flushResults).toMatchObject([
+      expect(settledResults).toMatchObject([
         { isMatch: false, content: "f" },
         {
           isMatch: true,
@@ -1350,7 +1351,7 @@ describe("RegexSearchStrategy", () => {
     it("yields nothing when the buffer is empty", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
-      expect([...strategy.flush(state)]).toEqual([]);
+      expect([...strategy.settle(state)]).toEqual([]);
     });
   });
 
@@ -1420,7 +1421,7 @@ describe("RegexSearchStrategy", () => {
       let generator = strategy.processChunk("Text with ", state);
       outputs.push(getValue(generator.next().value!));
       expect(generator.return().value).toBeUndefined();
-      expect(flushToString(strategy, state)).toBe("");
+      expect(strategy.flush(state)).toBe("");
       expect(outputs).toMatchObject(["Text with "]);
     });
 
@@ -1433,7 +1434,7 @@ describe("RegexSearchStrategy", () => {
       let generator = strategy.processChunk("Text with {", state);
       outputs.push(getValue(generator.next().value!));
       const remainder = generator.return().value;
-      outputs.push(flushToString(strategy, state));
+      outputs.push(strategy.flush(state));
       expect(remainder).toBeUndefined();
       expect(outputs).toMatchObject(["Text with ", "{"]);
     });
@@ -1455,7 +1456,95 @@ describe("RegexSearchStrategy", () => {
         { isMatch: false, content: "Text with " },
         { isMatch: true, content: expect.arrayContaining(["{{ something }}"]) }
       ]);
-      expect(flushToString(strategy, state)).toBe(" and {{ something more }}");
+      expect(strategy.flush(state)).toBe(" and {{ something more }}");
+    });
+  });
+
+  describe("stopping early", () => {
+    const cases = [
+      ["with matches settled at chunk boundaries", /\d+/, "a1b22c333"],
+      ["with a stray quote holding back the rest", /"[^"]*"|\w+/, 'x "y z'],
+      ["with alternatives that could still grow", /a+b|a/, "aaab aa"],
+      ["with a lookahead", /\w(?=!)/, "a! b!c"]
+    ] as const;
+
+
+    it.each(cases)(
+      "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
+      (_label, pattern, input) => {
+        const strategy = new RegexSearchStrategy(pattern);
+        for (const chunks of everySplitOf(input)) {
+          const { results, settledResults } = collectSearchStrategyResults(
+            strategy,
+            chunks
+          );
+          const total = results.length + settledResults.length;
+          for (let limit = 1; limit <= total; limit++) {
+            const { stopped, output } = collectStoppedSearchStrategyResults(
+              strategy,
+              chunks,
+              limit
+            );
+            expect(stopped).toBe(true);
+            expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
+          }
+        }
+      }
+    );
+
+    it.each(cases)(
+      "finds the same matches when processChunk is called again after stopping, %s",
+      (_label, pattern, input) => {
+        const strategy = new RegexSearchStrategy(pattern);
+        for (const chunks of everySplitOf(input)) {
+          const { segments } = collectCanonicalSearchStrategyResults(
+            strategy,
+            chunks
+          );
+          const { results } = collectSearchStrategyResults(strategy, chunks);
+          for (let limit = 1; limit <= results.length; limit++) {
+            expect(
+              collectResumedSearchStrategyResults(strategy, chunks, limit),
+              `${chunks.join("|")} after ${limit}`
+            ).toEqual({ stopped: true, segments });
+          }
+        }
+      }
+    );
+
+    it("leaves the unsettled rest for flush when settle is stopped after a match", () => {
+      const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
+      const state = strategy.createState();
+      const reported = [...strategy.processChunk('x "y z', state)];
+
+      for (const result of strategy.settle(state)) {
+        reported.push(result);
+        if (result.isMatch) break;
+      }
+
+      expect(reported.map((result) => getValue(result)).join("")).toBe('x "y');
+      expect(strategy.flush(state)).toBe(" z");
+    });
+
+    it("leaves nothing for flush when settle is stopped after its final non-match", () => {
+      const strategy = new RegexSearchStrategy(/"[^"]*"/);
+      const state = strategy.createState();
+      Array.from(strategy.processChunk('x "y', state));
+
+      const settled = strategy.settle(state)[Symbol.iterator]();
+      expect(settled.next().value).toEqual({ isMatch: false, content: '"y' });
+      settled.return?.();
+
+      expect(strategy.flush(state)).toBe("");
+    });
+
+    it("settles nothing when flushed first", () => {
+      const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
+      const state = strategy.createState();
+      Array.from(strategy.processChunk('x "y z', state));
+
+      expect(strategy.flush(state)).toBe('"y z');
+      expect([...strategy.settle(state)]).toEqual([]);
     });
   });
 
@@ -1522,7 +1611,7 @@ describe("RegexSearchStrategy", () => {
       const state1 = strategy.createState();
       const results1 = [
         ...strategy.processChunk("OLD", state1),
-        ...strategy.flush(state1)
+        ...strategy.settle(state1)
       ];
       const match1 = results1.find((r) => r.isMatch);
       expect(match1?.streamIndices[0]).toBe(0);
@@ -1530,7 +1619,7 @@ describe("RegexSearchStrategy", () => {
       const state2 = strategy.createState();
       const results2 = [
         ...strategy.processChunk("OLD", state2),
-        ...strategy.flush(state2)
+        ...strategy.settle(state2)
       ];
       const match2 = results2.find((r) => r.isMatch);
       expect(match2?.streamIndices[0]).toBe(0);
@@ -1785,13 +1874,13 @@ describe("RegexSearchStrategy", () => {
 
       // Stream 1: match at position 7
       const results1 = [...strategy.processChunk("prefix hello suffix", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [7, 12] });
 
       // Stream 2: reuse state after flush — indices should start from 0 again
       const results2 = [...strategy.processChunk("prefix hello suffix", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [7, 12] });
     });
@@ -1804,7 +1893,7 @@ describe("RegexSearchStrategy", () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       [...strategy.processChunk("hello ", state)];
       const results1 = [...strategy.processChunk("world!", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [6, 11] });
 
@@ -1812,7 +1901,7 @@ describe("RegexSearchStrategy", () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       [...strategy.processChunk("hello ", state)];
       const results2 = [...strategy.processChunk("world!", state)];
-      flushToString(strategy, state);
+      strategy.flush(state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [6, 11] });
     });
@@ -1863,7 +1952,7 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
       const results = [
         ...strategy.processChunk("user@example", state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ];
       const match = results.find((r) => r.isMatch)!;
       expect(strategy.matchToString(match.content)).toBe("user@example");
@@ -1875,25 +1964,25 @@ describe("RegexSearchStrategy", () => {
       const pattern = /(.+?) \1/;
 
       it("matches when the repeated word is split across chunks", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["foo f", "oo bar"]
         );
         expect(results).toMatchObject([
           { isMatch: true, content: expect.arrayContaining(["foo foo"]) }
         ]);
-        expect(flush).toBe(" bar");
+        expect(settled).toBe(" bar");
       });
 
       it("matches when the chunk boundary falls between the delimiter and the second occurrence", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["foo ", "foo bar"]
         );
         expect(results).toMatchObject([
           { isMatch: true, content: expect.arrayContaining(["foo foo"]) }
         ]);
-        expect(flush).toBe(" bar");
+        expect(settled).toBe(" bar");
       });
 
       it("matches the same at every two-way, three-way and per-character split", () => {
@@ -1908,7 +1997,7 @@ describe("RegexSearchStrategy", () => {
       const pattern = /(?<word>\w+) \k<word>/;
 
       it("matches when the repeated word is split across chunks", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["hello hel", "lo world"]
         );
@@ -1923,7 +2012,7 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, content: " " }
         ]);
 
-        expect(flush).toBe("world");
+        expect(settled).toBe("world");
       });
     });
 
@@ -1931,7 +2020,7 @@ describe("RegexSearchStrategy", () => {
       const pattern = /<([a-zA-Z][\w:-]*)>[^<]*?<\/\1>/;
 
       it("matches a tag pair whose name, content, and close are each split across chunks", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["<esi:", "include>bo", "dy</esi:in", "clude>tail"]
         );
@@ -1942,11 +2031,11 @@ describe("RegexSearchStrategy", () => {
           },
           { isMatch: false, content: "tail" }
         ]);
-        expect(flush).toBe("");
+        expect(settled).toBe("");
       });
 
       it("captures the tag name via the backreference group", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["<div>", "hello", "</div>", " world"]
         );
@@ -1956,11 +2045,11 @@ describe("RegexSearchStrategy", () => {
         });
 
         expect(results).toContainEqual({ isMatch: false, content: " world" });
-        expect(flush).toBe("");
+        expect(settled).toBe("");
       });
 
       it("rejects a mismatched closing tag without buffering indefinitely", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["<div>hello</wr", "ong>"]
         );
@@ -1968,11 +2057,11 @@ describe("RegexSearchStrategy", () => {
           { isMatch: false, content: "<div>hello</wr" },
           { isMatch: false, content: "ong>" }
         ]);
-        expect(flush).toBe("");
+        expect(settled).toBe("");
       });
 
       it("does not confuse the tag name between two consecutive matches", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(pattern),
           ["<a>1</a> and <b", ">2</b> done"]
         );
@@ -1984,7 +2073,7 @@ describe("RegexSearchStrategy", () => {
         expect(matches[1]).toMatchObject({
           content: expect.objectContaining({ 0: "<b>2</b>", 1: "b" })
         });
-        expect(flush).toBe("");
+        expect(settled).toBe("");
       });
 
       it("matches the same at every two-way, three-way and per-character split", () => {
@@ -2058,14 +2147,14 @@ describe("RegexSearchStrategy", () => {
           new RegexSearchStrategy(pattern),
           [input]
         );
-        expect(reassemble(whole.results, whole.flush)).toBe(input);
+        expect(reassemble(whole.results, whole.settled)).toBe(input);
 
         for (let i = 1; i < input.length; i++) {
-          const { results, flush } = collectSearchStrategyResults(
+          const { results, settled } = collectSearchStrategyResults(
             new RegexSearchStrategy(pattern),
             [input.slice(0, i), input.slice(i)]
           );
-          expect(reassemble(results, flush)).toBe(input);
+          expect(reassemble(results, settled)).toBe(input);
         }
       });
     });
@@ -2089,7 +2178,7 @@ describe("RegexSearchStrategy", () => {
       it.each(cases)(
         "%s matches as matchAll minus empty matches",
         (pattern, input) => {
-          const { results, flushResults } = collectSearchStrategyResults(
+          const { results, settledResults } = collectSearchStrategyResults(
             new RegexSearchStrategy(pattern),
             [input]
           );
@@ -2101,7 +2190,7 @@ describe("RegexSearchStrategy", () => {
 
           // A match ending at end-of-input is deferred while it could still
           // grow, and settled by flush() once nothing more can arrive.
-          expect(matchesOf([...results, ...flushResults])).toEqual(expected);
+          expect(matchesOf([...results, ...settledResults])).toEqual(expected);
         }
       );
 
@@ -2118,22 +2207,22 @@ describe("RegexSearchStrategy", () => {
 
     describe("chunk boundaries", () => {
       it("buffers a nullable pattern split mid-token, rather than advancing past the zero-length match and destroying a match more input would have completed", () => {
-        const { results, flush, flushResults } = collectSearchStrategyResults(
+        const { results, settled, settledResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
           ["a", "b"]
         );
-        expect(matchesOf([...results, ...flushResults])).toEqual(["ab"]);
-        expect(reassemble(results, flush)).toBe("ab");
+        expect(matchesOf([...results, ...settledResults])).toEqual(["ab"]);
+        expect(reassemble(results, settled)).toBe("ab");
       });
 
       it("yields the same matches at every split point", () => {
         const input = "xabyab";
         const allMatchesOf = (chunks: string[]) => {
-          const { results, flushResults } = collectSearchStrategyResults(
+          const { results, settledResults } = collectSearchStrategyResults(
             new RegexSearchStrategy(/(ab)?/),
             chunks
           );
-          return matchesOf([...results, ...flushResults]);
+          return matchesOf([...results, ...settledResults]);
         };
 
         const whole = allMatchesOf([input]);
@@ -2147,45 +2236,45 @@ describe("RegexSearchStrategy", () => {
       });
 
       it("passes the character through and advances when no partial match could grow from that position", () => {
-        const { results, flush } = collectSearchStrategyResults(
+        const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
           ["xy"]
         );
         expect(matchesOf(results)).toEqual([]);
-        expect(reassemble(results, flush)).toBe("xy");
+        expect(reassemble(results, settled)).toBe("xy");
       });
     });
 
     it("emits preceding text as a non-match before buffering, when the partial that preempts a zero-length match starts partway through the chunk", () => {
-      const { results, flush } = collectSearchStrategyResults(
+      const { results, settled } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)(ab)?/),
         ["ba"]
       );
 
       expect(results).toEqual([{ isMatch: false, content: "b" }]);
-      expect(flush).toBe("a");
+      expect(settled).toBe("a");
     });
 
     it("completes that buffered partial into a real match once the rest arrives", () => {
-      const { results, flushResults } = collectSearchStrategyResults(
+      const { results, settledResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)(ab)?/),
         ["ba", "b"]
       );
 
-      expect([...results, ...flushResults]).toMatchObject([
+      expect([...results, ...settledResults]).toMatchObject([
         { isMatch: false, content: "b" },
         { isMatch: true, content: expect.objectContaining({ 0: "ab" }) }
       ]);
     });
 
     it("emits the text before a skipped zero-length match and the skipped code unit as a single non-match yield, unlike the separate yields a real match produces", () => {
-      const { results, flush } = collectSearchStrategyResults(
+      const { results, settled } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?=a)/),
         ["xa"]
       );
 
       expect(results).toEqual([{ isMatch: false, content: "xa" }]);
-      expect(flush).toBe("");
+      expect(settled).toBe("");
     });
 
     describe("surrogate pairs", () => {
@@ -2199,35 +2288,35 @@ describe("RegexSearchStrategy", () => {
         "advances %s past a whole surrogate pair, so no non-match segment ends between the two halves of an astral character, which a chunk-by-chunk encoder would turn into U+FFFD",
         (pattern) => {
           for (const chunks of [[input], [...input]]) {
-            const { results, flush, flushResults } =
+            const { results, settled, settledResults } =
               collectSearchStrategyResults(new RegexSearchStrategy(pattern), chunks);
 
             expect(
-              segmentsOf([...results, ...flushResults]).filter(splitsSurrogatePair)
+              segmentsOf([...results, ...settledResults]).filter(splitsSurrogatePair)
             ).toEqual([]);
-            expect(reassemble(results, flush)).toBe(input);
+            expect(reassemble(results, settled)).toBe(input);
           }
         }
       );
 
-      it("advances past a whole surrogate pair when flush settles held-back content containing one", () => {
-        const { results, flushResults } = collectSearchStrategyResults(
+      it("advances past a whole surrogate pair when settle decides held-back content containing one", () => {
+        const { results, settledResults } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(?:a\u{1F600}b)?/u),
           ["xa\u{1F600}"]
         );
 
         expect(segmentsOf(results)).toEqual(["x"]);
-        expect(segmentsOf(flushResults)).toEqual(["a", "\u{1F600}"]);
+        expect(segmentsOf(settledResults)).toEqual(["a", "\u{1F600}"]);
       });
     });
 
     it("leaves non-nullable patterns untouched", () => {
-      const { results, flush } = collectSearchStrategyResults(
+      const { results, settled } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(\w+)\}\}/),
         ["a {{na", "me}} b"]
       );
       expect(matchesOf(results)).toEqual(["{{name}}"]);
-      expect(reassemble(results, flush)).toBe("a {{name}} b");
+      expect(reassemble(results, settled)).toBe("a {{name}} b");
     });
   });
 
@@ -2261,15 +2350,15 @@ describe("RegexSearchStrategy", () => {
       );
     });
 
-    it("settles a candidate completed while evaluation was being skipped, at the latest on flush", () => {
+    it("settles a candidate completed while evaluation was being skipped, at the latest at the end of the stream", () => {
       const haystack = `${unbrokenRun} next`;
-      const { results, flushResults, output } = collectSearchStrategyResults(
+      const { results, settledResults, output } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\S+/),
         chunksOf(haystack)
       );
       expect(output).toBe(haystack);
       expect(
-        [...results, ...flushResults]
+        [...results, ...settledResults]
           .filter((result) => result.isMatch)
           .map((result) => getValue(result).length)
       ).toEqual([unbrokenRun.length, "next".length]);
@@ -2411,7 +2500,7 @@ describe("RegexSearchStrategy", () => {
         };
         drain(first);
         expect(() => drain(second)).toThrow("callback failed");
-        expect(reported + flushToString(strategy, state)).toBe(first + second);
+        expect(reported + strategy.flush(state)).toBe(first + second);
       }
     );
 
@@ -2419,10 +2508,10 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/\S+/, {
         maxBufferLength: MAX_BUFFER_LENGTH
       });
-      const { results, flushResults, output } =
+      const { results, settledResults, output } =
         collectSearchStrategyResults(strategy, chunks);
       expect(output).toBe(unbrokenRun);
-      for (const result of [...results, ...flushResults]) {
+      for (const result of [...results, ...settledResults]) {
         if (!result.isMatch) continue;
         const [start, end] = result.streamIndices;
         expect(unbrokenRun.slice(start, end)).toBe(result.content[0]);
@@ -2454,14 +2543,14 @@ describe("RegexSearchStrategy", () => {
         if (result.isMatch) break;
       }
       expect(reported).toBe("aXXb");
-      expect(reported + flushToString(strategy, state)).toBe(input);
+      expect(reported + strategy.flush(state)).toBe(input);
     });
 
     it("resets the ceiling's bookkeeping on flush", () => {
       const strategy = new RegexSearchStrategy(/\S+/);
       const state = strategy.createState();
       for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
-      Array.from(strategy.flush(state));
+      strategy.flush(state);
       expect(state).toEqual(strategy.createState());
     });
   });
