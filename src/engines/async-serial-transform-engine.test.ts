@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
 import type { MatchResult } from "../search-strategies/types.ts";
 import {
+  abortingOnFirstCall,
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
@@ -302,21 +303,13 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       content
     });
 
-    function abortingOnCall(ac: AbortController, call: number) {
-      let calls = 0;
-      return vi.fn(async () => {
-        if (++calls === call) ac.abort();
-        return "R";
-      });
-    }
-
     it("stops searching at the next match, and flushes it with the rest of the chunk", async () => {
       const ac = new AbortController();
       const { strategy, counts } = mockStoppableSearchStrategy({
         chunk: [nonMatch("a"), match("1"), nonMatch("b"), match("2"), match("3")],
         rest: "REST"
       });
-      const replacement = abortingOnCall(ac, 1);
+      const replacement = abortingOnFirstCall(ac, async () => "R");
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
         replacement,
@@ -361,7 +354,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         settled: [match("M1"), match("M2"), match("M3")],
         rest: "REST"
       });
-      const replacement = abortingOnCall(ac, 1);
+      const replacement = abortingOnFirstCall(ac, async () => "R");
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
         replacement,
@@ -381,7 +374,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       });
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
-        replacement: abortingOnCall(ac, 1),
+        replacement: abortingOnFirstCall(ac, async () => "R"),
         stopReplacingSignal: ac.signal
       });
       const { sink, chunks } = collectEngineSink();

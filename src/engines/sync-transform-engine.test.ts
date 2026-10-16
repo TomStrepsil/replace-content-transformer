@@ -4,6 +4,7 @@ import type { MatchResult } from "../search-strategies/types.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
 import type { StreamRegexMatch } from "../search-strategies/regex/types.ts";
 import {
+  abortingOnFirstCall,
   collectEngineSink,
   mockSearchStrategyFactory,
   mockStoppableSearchStrategy
@@ -442,21 +443,13 @@ describe("SyncTransformEngine", () => {
       content
     });
 
-    function abortingOnCall(ac: AbortController, call: number) {
-      let calls = 0;
-      return vi.fn(() => {
-        if (++calls === call) ac.abort();
-        return "R";
-      });
-    }
-
     it("stops searching at the next match, and flushes it with the rest of the chunk", () => {
       const ac = new AbortController();
       const { strategy, counts } = mockStoppableSearchStrategy({
         chunk: [nonMatch("a"), match("1"), nonMatch("b"), match("2"), match("3")],
         rest: "REST"
       });
-      const replacement = abortingOnCall(ac, 1);
+      const replacement = abortingOnFirstCall(ac, () => "R");
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: strategy,
         replacement,
@@ -480,7 +473,7 @@ describe("SyncTransformEngine", () => {
         settled: [match("M1"), match("M2"), match("M3")],
         rest: "REST"
       });
-      const replacement = abortingOnCall(ac, 1);
+      const replacement = abortingOnFirstCall(ac, () => "R");
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: strategy,
         replacement,
@@ -500,7 +493,7 @@ describe("SyncTransformEngine", () => {
       });
       const engine = new SyncReplacementTransformEngine({
         searchStrategy: strategy,
-        replacement: abortingOnCall(ac, 1),
+        replacement: abortingOnFirstCall(ac, () => "R"),
         stopReplacingSignal: ac.signal
       });
       const { sink, chunks } = collectEngineSink();

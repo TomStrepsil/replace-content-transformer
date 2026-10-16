@@ -6,6 +6,7 @@ import type { SlotTreeNode, IterableSlotNode } from "./slot-tree/types.ts";
 import { nested } from "./nested.ts";
 import type { EngineSink } from "../types.ts";
 import {
+  abortingOnFirstCall,
   asyncIterable,
   collectEngineSink,
   deferred,
@@ -641,10 +642,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         ],
         rest: "REST"
       });
-      const replacement = vi.fn(async () => {
-        ac.abort();
-        return asyncIterable("R");
-      });
+      const replacement = abortingOnFirstCall(ac, async () => asyncIterable("R"));
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,

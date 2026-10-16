@@ -246,7 +246,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       return;
     }
     if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld();
+      await this.#enqueueHeld("");
     } else {
       await this.#enqueue(this._settle());
     }

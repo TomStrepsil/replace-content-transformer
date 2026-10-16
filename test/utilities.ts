@@ -238,6 +238,17 @@ function mockStoppableSearchStrategy<TMatch = string>({
   return { strategy, counts };
 }
 
+/**
+ * A replacement mock that aborts `controller` on its first call, and returns a fresh
+ * `result()` on every call.
+ */
+function abortingOnFirstCall<T>(controller: AbortController, result: () => T) {
+  return vi.fn(() => {
+    if (!controller.signal.aborted) controller.abort();
+    return result();
+  });
+}
+
 function mockTransformStreamDefaultControllerFactory<T = string>(
   outputs: T[]
 ): Mocked<TransformStreamDefaultController<T>> {
@@ -320,6 +331,7 @@ export {
 } from "./search-strategy-results.ts";
 
 export {
+  abortingOnFirstCall,
   collectEngineSink,
   collectWritable,
   asyncIterable,
