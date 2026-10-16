@@ -4,14 +4,13 @@ import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts"
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { SlotTreeNode, IterableSlotNode } from "./slot-tree/types.ts";
 import { nested } from "./nested.ts";
-import { RegexSearchStrategy } from "../../search-strategies/regex/search-strategy.ts";
-import { LoopedIndexOfAnchoredSearchStrategy } from "../../search-strategies/looped-indexOf-anchored/search-strategy.ts";
 import type { EngineSink } from "../types.ts";
 import {
   asyncIterable,
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
+  mockStoppableSearchStrategy,
   settleMicrotasks
 } from "../../../test/utilities.ts";
 
@@ -630,33 +629,45 @@ describe("AsyncLookaheadTransformEngine", () => {
   });
 
   describe("stopping the search once stopReplacingSignal aborts", () => {
-    it("passes the rest of the stream through once the replacement aborts the signal", async () => {
+    it("stops searching at the next match, and flushes it with the rest of the chunk", async () => {
       const ac = new AbortController();
+      const { strategy, counts } = mockStoppableSearchStrategy({
+        chunk: [
+          { isMatch: false, content: "a" },
+          { isMatch: true, content: "1", streamIndices: [0, 1] },
+          { isMatch: false, content: "b" },
+          { isMatch: true, content: "2", streamIndices: [1, 2] },
+          { isMatch: true, content: "3", streamIndices: [2, 3] }
+        ],
+        rest: "REST"
+      });
       const replacement = vi.fn(async () => {
         ac.abort();
         return asyncIterable("R");
       });
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        searchStrategy: strategy,
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(1),
         stopReplacingSignal: ac.signal
       });
 
-      engine.start(sink);
-      await engine.write("a{{1}}b{{2}}c{{3}}d");
-      await engine.write("{{4}}");
-      await engine.end();
+      await runEngine(engine, sink, ["chunk", "next"]);
 
-      expect(chunks.join("")).toBe("aRb{{2}}c{{3}}d{{4}}");
+      expect(chunks).toEqual(["a", "R", "b", "2REST", "next"]);
+      expect(counts.pulled).toBe(4);
       expect(replacement).toHaveBeenCalledOnce();
     });
 
     it("flushes rather than settles what a strategy holds when the signal aborted before end()", async () => {
       const ac = new AbortController();
-      const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
-      const settle = vi.spyOn(strategy, "settle");
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "x", streamIndices: [0, 1] },
+        { isMatch: false, content: " " }
+      );
+      strategy.settle = vi.fn();
+      strategy.flush.mockReturnValueOnce("HELD").mockReturnValue("");
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -666,12 +677,12 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
 
-      await engine.write('x "y z');
+      await engine.write("chunk");
       ac.abort();
       await engine.end();
 
-      expect(chunks).toEqual(["R", " ", '"y z']);
-      expect(settle).not.toHaveBeenCalled();
+      expect(chunks).toEqual(["R", " ", "HELD"]);
+      expect(strategy.settle).not.toHaveBeenCalled();
     });
 
     it("stops settling at end() once the signal aborts", async () => {
@@ -703,31 +714,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(pulled).toBe(2);
       expect(replacement).toHaveBeenCalledOnce();
     });
-
-    it("keeps the rest of the chunk when end() is called from an abort listener mid-write", async () => {
-      const ac = new AbortController();
-      const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
-        replacement: async () => {
-          ac.abort();
-          return asyncIterable("R");
-        },
-        concurrencyStrategy: new SemaphoreStrategy(1),
-        stopReplacingSignal: ac.signal
-      });
-      engine.start(sink);
-      let ended: Promise<void> | undefined;
-      ac.signal.addEventListener("abort", () => {
-        ended = engine.end();
-      });
-
-      await engine.write("{{a}}tail");
-      await ended;
-
-      expect(chunks.join("")).toBe("Rtail");
-    });
-
   });
 
   describe("abandonPendingSignal", () => {

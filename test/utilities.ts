@@ -197,6 +197,47 @@ function mockSearchStrategyFactory<TMatch = string>(
   };
 }
 
+/**
+ * A mock strategy whose `processChunk` and `settle` yield `chunk` and `settled`, and
+ * which keeps to the stop-early contract: when a caller stops either iteration part-way,
+ * it holds `rest` for `flush` to return. `pulled` counts the results the caller took.
+ */
+function mockStoppableSearchStrategy<TMatch = string>({
+  chunk = [],
+  settled = [],
+  rest
+}: {
+  chunk?: MatchResult<TMatch>[];
+  settled?: MatchResult<TMatch>[];
+  rest: string;
+}) {
+  const strategy = mockSearchStrategyFactory<TMatch>();
+  const counts = { pulled: 0 };
+  let held = "";
+  function* yieldUnlessStopped(
+    results: MatchResult<TMatch>[]
+  ): Generator<MatchResult<TMatch>, void, undefined> {
+    let finished = false;
+    try {
+      for (const result of results) {
+        counts.pulled++;
+        yield result;
+      }
+      finished = true;
+    } finally {
+      if (!finished) held = rest;
+    }
+  }
+  strategy.processChunk.mockImplementation(() => yieldUnlessStopped(chunk));
+  strategy.settle = vi.fn(() => yieldUnlessStopped(settled));
+  strategy.flush.mockImplementation(() => {
+    const flushed = held;
+    held = "";
+    return flushed;
+  });
+  return { strategy, counts };
+}
+
 function mockTransformStreamDefaultControllerFactory<T = string>(
   outputs: T[]
 ): Mocked<TransformStreamDefaultController<T>> {
@@ -286,6 +327,7 @@ export {
   deferred,
   mockAsyncEngine,
   mockSearchStrategyFactory,
+  mockStoppableSearchStrategy,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   settleMicrotasks,

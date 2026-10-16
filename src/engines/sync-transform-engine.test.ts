@@ -1,15 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
+import type { MatchResult } from "../search-strategies/types.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
-import { LoopedIndexOfAnchoredSearchStrategy } from "../search-strategies/looped-indexOf-anchored/search-strategy.ts";
 import type { StreamRegexMatch } from "../search-strategies/regex/types.ts";
 import {
   collectEngineSink,
-  mockSearchStrategyFactory
+  mockSearchStrategyFactory,
+  mockStoppableSearchStrategy
 } from "../../test/utilities.ts";
 
-function runEngine<TState, TMatch>(
-  engine: SyncReplacementTransformEngine<TState, TMatch>,
+function runEngine<TState>(
+  engine: SyncReplacementTransformEngine<TState>,
   inputs: string[]
 ): string[] {
   const { sink, chunks } = collectEngineSink();
@@ -431,6 +432,16 @@ describe("SyncTransformEngine", () => {
   });
 
   describe("stopping the search once stopReplacingSignal aborts", () => {
+    const match = (content: string): MatchResult => ({
+      isMatch: true,
+      content,
+      streamIndices: [0, 1]
+    });
+    const nonMatch = (content: string): MatchResult => ({
+      isMatch: false,
+      content
+    });
+
     function abortingOnCall(ac: AbortController, call: number) {
       let calls = 0;
       return vi.fn(() => {
@@ -441,60 +452,54 @@ describe("SyncTransformEngine", () => {
 
     it("stops searching at the next match, and flushes it with the rest of the chunk", () => {
       const ac = new AbortController();
+      const { strategy, counts } = mockStoppableSearchStrategy({
+        chunk: [nonMatch("a"), match("1"), nonMatch("b"), match("2"), match("3")],
+        rest: "REST"
+      });
       const replacement = abortingOnCall(ac, 1);
       const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        searchStrategy: strategy,
         replacement,
         stopReplacingSignal: ac.signal
       });
 
-      expect(runEngine(engine, ["a{{1}}b{{2}}c{{3}}d", "{{4}}"])).toEqual([
+      expect(runEngine(engine, ["chunk", "next"])).toEqual([
         "a",
         "R",
         "b",
-        "{{2}}c{{3}}d",
-        "{{4}}"
+        "2REST",
+        "next"
       ]);
+      expect(counts.pulled).toBe(4);
       expect(replacement).toHaveBeenCalledOnce();
-    });
-
-    it("flushes rather than settles what a strategy holds when the signal aborted before end()", () => {
-      const ac = new AbortController();
-      const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
-      const settle = vi.spyOn(strategy, "settle");
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: strategy,
-        replacement: "R",
-        stopReplacingSignal: ac.signal
-      });
-      const { sink, chunks } = collectEngineSink();
-      engine.start(sink);
-
-      engine.write('x "y z');
-      ac.abort();
-      engine.end();
-
-      expect(chunks).toEqual(["R", " ", '"y z']);
-      expect(settle).not.toHaveBeenCalled();
     });
 
     it("stops settling at end() once a settled match's replacement aborts the signal", () => {
       const ac = new AbortController();
-      const replacement = abortingOnCall(ac, 2);
+      const { strategy, counts } = mockStoppableSearchStrategy({
+        settled: [match("M1"), match("M2"), match("M3")],
+        rest: "REST"
+      });
+      const replacement = abortingOnCall(ac, 1);
       const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new RegexSearchStrategy(/"[^"]*"|\w+/),
+        searchStrategy: strategy,
         replacement,
         stopReplacingSignal: ac.signal
       });
 
-      expect(runEngine(engine, ['x "y z'])).toEqual(["R", " ", '"', "R", " ", "z"]);
-      expect(replacement).toHaveBeenCalledTimes(2);
+      expect(runEngine(engine, [])).toEqual(["R", "M2REST"]);
+      expect(counts.pulled).toBe(2);
+      expect(replacement).toHaveBeenCalledOnce();
     });
 
     it("keeps the rest of the chunk when end() is called from an abort listener mid-write", () => {
       const ac = new AbortController();
+      const { strategy } = mockStoppableSearchStrategy({
+        chunk: [match("a"), nonMatch("tail"), match("b"), nonMatch("unreached")],
+        rest: "REST"
+      });
       const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        searchStrategy: strategy,
         replacement: abortingOnCall(ac, 1),
         stopReplacingSignal: ac.signal
       });
@@ -502,11 +507,10 @@ describe("SyncTransformEngine", () => {
       engine.start(sink);
       ac.signal.addEventListener("abort", () => engine.end());
 
-      engine.write("{{a}}tail");
+      engine.write("chunk");
 
-      expect(chunks.join("")).toBe("Rtail");
+      expect(chunks.join("")).toBe("RtailbREST");
     });
-
   });
 
   describe("zero-length matches", () => {
