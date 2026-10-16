@@ -683,7 +683,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   });
 
   describe("stopping early", () => {
-
     it.each([
       ["with an anchor pair", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]), "a{{x}}b{{y}}{{z"],
       ["with a three-anchor sequence", new LoopedIndexOfAnchoredSearchStrategy(["<", "-", ">"]), "<-><a-b>c<-"],

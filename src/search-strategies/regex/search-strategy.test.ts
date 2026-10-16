@@ -1460,18 +1460,14 @@ describe("RegexSearchStrategy", () => {
   });
 
   describe("stopping early", () => {
-    const cases = [
-      ["with matches settled at chunk boundaries", /\d+/, "a1b22c333"],
-      ["with a stray quote holding back the rest", /"[^"]*"|\w+/, 'x "y z'],
-      ["with alternatives that could still grow", /a+b|a/, "aaab aa"],
-      ["with a lookahead", /\w(?=!)/, "a! b!c"]
-    ] as const;
-
-
-    it.each(cases)(
+    it.each([
+      ["with matches settled at chunk boundaries", new RegexSearchStrategy(/\d+/), "a1b22c333"],
+      ["with a stray quote holding back the rest", new RegexSearchStrategy(/"[^"]*"|\w+/), 'x "y z'],
+      ["with alternatives that could still grow", new RegexSearchStrategy(/a+b|a/), "aaab aa"],
+      ["with a lookahead", new RegexSearchStrategy(/\w(?=!)/), "a! b!c"]
+    ])(
       "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
-      (_label, pattern, input) => {
-        const strategy = new RegexSearchStrategy(pattern);
+      (_label, strategy, input) => {
         for (const chunks of everySplitOf(input)) {
           const { results, settledResults } = collectSearchStrategyResults(
             strategy,

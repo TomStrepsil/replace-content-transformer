@@ -398,7 +398,6 @@ describe("BalancedPairSearchStrategy", () => {
   });
 
   describe("stopping early", () => {
-
     it.each([
       ["with nested pairs", new BalancedPairSearchStrategy("(", ")"), "a(b(c)d)e(f)g(h"],
       ["with adjacent pairs", new BalancedPairSearchStrategy("(", ")"), "((a)b)(c)"],
