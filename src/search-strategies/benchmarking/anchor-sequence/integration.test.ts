@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { flushToString } from "../../../../test/utilities.js";
 import { AnchorSequenceSearchStrategy } from "./search-strategy.js";
 import { BufferedIndexOfCancellableSearchStrategy } from "../buffered-indexOf-cancellable/search-strategy.js";
 
@@ -20,7 +19,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
       { isMatch: true, content: "{{name}}", streamIndices: [6, 14] },
       { isMatch: false, content: " worl" }
     ]);
-    expect(flushToString(strategy, state)).toEqual("d");
+    expect(strategy.flush(state)).toEqual("d");
   });
 
   it("cross-chunk match", () => {
@@ -38,7 +37,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
       { isMatch: true, content: "{{name}}", streamIndices: [6, 14] },
       { isMatch: false, content: " worl" }
     ]);
-    expect(flushToString(strategy, state)).toEqual("d");
+    expect(strategy.flush(state)).toEqual("d");
   });
 
   it("invalid sequence - content between start and failed end treated as match", () => {
@@ -50,7 +49,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
 
     const results1 = Array.from(strategy.processChunk("{{na", state));
     const results2 = Array.from(strategy.processChunk("me without end", state));
-    const flushed = flushToString(strategy, state);
+    const flushed = strategy.flush(state);
 
     expect(results1).toEqual([]);
     expect(results2).toEqual([]);
@@ -73,7 +72,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(results).toEqual([
       { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">', streamIndices: [0, 35] }
     ]);
-    expect(flushToString(strategy, state)).toEqual(" text");
+    expect(strategy.flush(state)).toEqual(" text");
   });
 
   it("flush with incomplete sequence", () => {
@@ -84,9 +83,9 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     const state = strategy.createState();
 
     Array.from(strategy.processChunk("{{name", state));
-    const flushResults = flushToString(strategy, state);
+    const settledResults = strategy.flush(state);
 
-    expect(flushResults).toEqual("{{name");
+    expect(settledResults).toEqual("{{name");
   });
 
   // ===== Split Delimiter Tests =====
@@ -120,7 +119,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
       { isMatch: true, content: "{{name}}", streamIndices: [0, 8] },
       { isMatch: false, content: " worl" }
     ]);
-    expect(flushToString(strategy, state)).toEqual("d");
+    expect(strategy.flush(state)).toEqual("d");
   });
 
   it("both delimiters split across multiple chunks", () => {
@@ -142,7 +141,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
       { isMatch: true, content: "{{hello}}", streamIndices: [0, 9] },
       { isMatch: false, content: " ther" }
     ]);
-    expect(flushToString(strategy, state)).toEqual("e");
+    expect(strategy.flush(state)).toEqual("e");
   });
 
   it("split delimiter that fails to match - first delimiter interrupted", () => {
@@ -160,7 +159,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     // BufferedIndexOfCancellableSearchStrategy outputs the whole thing as one non-match
     expect(r1).toEqual([]);
     expect(r2).toEqual([{ isMatch: false, content: "{ {hi}" }]);
-    expect(flushToString(strategy, state)).toEqual("}");
+    expect(strategy.flush(state)).toEqual("}");
   });
 
   it("partial delimiter followed by complete match", () => {
@@ -227,7 +226,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(r1).toEqual([{ isMatch: true, content: "{{first}}", streamIndices: [0, 9] }]);
     expect(r2).toEqual([{ isMatch: false, content: " " }]);
 
-    const r3 = flushToString(strategy, state);
+    const r3 = strategy.flush(state);
     expect(r3).toEqual("{{partial");
   });
 
@@ -306,7 +305,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
       { isMatch: true, content: "{{{{stuff}}", streamIndices: [0, 11] },
       { isMatch: false, content: "}" }
     ]);
-    expect(flushToString(strategy, state)).toEqual("}");
+    expect(strategy.flush(state)).toEqual("}");
   });
 
   it("three-token pattern with split delimiters", () => {
@@ -328,7 +327,7 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(r4).toEqual([
       { isMatch: true, content: '<img src="/photo.jpg" alt="sunset">', streamIndices: [0, 35] }
     ]);
-    expect(flushToString(strategy, state)).toEqual(" text");
+    expect(strategy.flush(state)).toEqual(" text");
   });
 
   it("multiple three-token sequences", () => {
@@ -401,6 +400,6 @@ describe("AnchorSequenceSearchStrategy + BufferedIndexOfCancellableSearchStrateg
     expect(r1).toEqual([{ isMatch: false, content: "before " }]);
     expect(r2).toEqual([]);
     expect(r3).toEqual([{ isMatch: true, content: "[middle]", streamIndices: [7, 15] }]);
-    expect(flushToString(strategy, state)).toEqual(" after");
+    expect(strategy.flush(state)).toEqual(" after");
   });
 });

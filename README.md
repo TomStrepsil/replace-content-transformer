@@ -528,7 +528,9 @@ interface SearchStrategy<TState, TMatch = string> {
     haystack: string,
     state: TState
   ): Generator<MatchResult<TMatch>, void, undefined>;
-  flush(state: TState): Generator<MatchResult<TMatch>, void, undefined>;
+  flush(state: TState): string;
+  settle?(state: TState): Iterable<MatchResult<TMatch>>;
+  matchToString(match: TMatch): string;
 }
 ```
 
@@ -536,7 +538,13 @@ The `TState` type is specific to the strategy, managed by the consuming engine /
 
 The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data, including capture groups and stream-relative indices. Regex matches use the exported `StreamRegexMatch` type, which omits `RegExpExecArray.input`: that property identifies one scan buffer rather than the complete stream.
 
-The `flush` is called by the engine once no further input can arrive, to settle anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. Strategies with nothing to settle yield their buffer as a single non-match result. This also re-sets the provided state parameter for re-use.
+The `flush` returns anything the strategy is still holding as raw text, without searching it, and re-sets the provided state parameter for re-use. The engine calls it at the end of the stream when the strategy has no `settle`, and once `stopReplacingSignal` has aborted.
+
+The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
+
+An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching at the next match rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it. The built-in strategies do this from the `finally` blocks of their generators.
+
+The `matchToString` converts a match back to the raw matched text, for a match emitted verbatim.
 
 > [!NOTE]
 > The `streamIndices` property contains absolute character offsets into the stream passed to the engine as `[startIndex, endIndex]`, thus not chunk-relative.
@@ -646,7 +654,12 @@ write(chunk: string) {
   this.#emit(this.searchStrategy.processChunk(chunk, this.searchState));
 }
 end() {
-  this.#emit(this.searchStrategy.flush(this.searchState));
+  if (this.searchStrategy.settle) {
+    this.#emit(this.searchStrategy.settle(this.searchState));
+  } else {
+    const held = this.searchStrategy.flush(this.searchState);
+    if (held) sink.enqueue(held);
+  }
 }
 ```
 
@@ -655,7 +668,7 @@ end() {
 - **Lazy evaluation** - Output is produced only when deemed consumable
 - **Memory efficient** - No need to accumulate entire result
 - **[Backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) support** - Downstream can control the flow rate
-- **Cancellable** - Consumer can abort matching mid-chunk
+- **Cancellable** - Consumer can stop matching mid-chunk, e.g. once `stopReplacingSignal` aborts
 - **Composition** - Easily chain with iterables, async iterables, or streams
 
 ## 🔧 Development

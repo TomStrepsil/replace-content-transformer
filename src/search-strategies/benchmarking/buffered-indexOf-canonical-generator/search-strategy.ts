@@ -1,4 +1,4 @@
-import type { MatchResult, StringBufferState } from "../../types.ts";
+import type { StringBufferState } from "../../types.ts";
 import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
 import type { ReplacementContext } from "../../../engines/types.ts";
 
@@ -78,7 +78,7 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
     }
   }
 
-  *flush(): Generator<MatchResult, void, undefined> {
-    yield* super.flush(this.state);
+  flush(): string {
+    return super.flush(this.state);
   }
 }

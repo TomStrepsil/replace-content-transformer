@@ -249,7 +249,9 @@ Output: "a" (non-match), then "b" (match)
 Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
 
 > [!NOTE]
-> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`.
+> This is the strategy's [`settle()`](../types.ts), which yields `MatchResult`s, the same union as `processChunk`. Its [`flush()`](../types.ts) returns the buffer as it is, without searching it, which is what an engine uses once `stopReplacingSignal` has aborted.
+>
+> If an engine stops iterating `processChunk` or `settle` part-way, e.g. once `stopReplacingSignal` aborts, whatever was not yet yielded is put back in the buffer for `flush()` to return.
 
 ## Partial Match Transformation
 
@@ -282,7 +284,8 @@ type RegexSearchState = {
 - **Complete match found:** Clear buffer, emit match
 - **Partial match detected:** Buffer matched portion
 - **No match (complete or partial):** Emit content as non-match
-- **Flush:** Settle the buffer — emit any matches it still holds, then any trailing content
+- **Settle:** Settle the buffer — emit any matches it still holds, then any trailing content
+- **Flush:** Return the buffer as it is, and clear it
 
 ## Limitations
 

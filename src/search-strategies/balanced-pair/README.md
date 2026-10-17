@@ -123,22 +123,25 @@ interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
 | Opening found, no inner opens     | `0` (after `--` + 0)  | accumulated → cleared      | Yield as complete match                |
 | Opening found, inner opens exist  | `> 0`                 | accumulating               | Set `currentNeedleIndex = 1`, continue |
 | Subsequent close balances depth   | decrements toward `0` | accumulating               | Continue or yield when reaching `0`    |
-| Flush mid-match                   | reset to `0`          | cleared (yielded as-is)    | Yield buffered content as a non-match  |
+| Flush mid-match                   | reset to `0`          | cleared (returned as-is)   | Return buffered content as raw text    |
 
 **Flush behaviour:**
 
-If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` yields all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer, as non-match results:
+If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` returns all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer:
 
 ```typescript
-*flush(state: BalancedPairSearchState): Generator<MatchResult, void, undefined> {
+flush(state: BalancedPairSearchState): string {
   const flushed = state.balancedBuffer;
   state.balancedBuffer = "";
   state.balancedBufferStart = 0;
   state.nestingLevel = 0;
-  if (flushed) yield { isMatch: false, content: flushed };
-  yield* this.anchorStringSearchStrategy.flush(state);
+  return flushed + this.anchorStringSearchStrategy.flush(state);
 }
 ```
+
+**Stopping early:**
+
+If an engine stops iterating `processChunk` part-way, e.g. once `stopReplacingSignal` aborts, `flush` returns everything not yet yielded. A pair is only yielded once its nesting level returns to `0`, so stopping after any result never leaves a pair half-recorded.
 
 ## Cross-Chunk Matching
 

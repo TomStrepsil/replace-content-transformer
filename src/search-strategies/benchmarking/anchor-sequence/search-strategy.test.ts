@@ -1,5 +1,4 @@
 import { describe, test, expect } from "vitest";
-import { flushToString } from "../../../../test/utilities.js";
 import { AnchorSequenceSearchStrategy } from "./search-strategy.js";
 import { IndexOfKnuthMorrisPrattSearchStrategy } from "../indexOf-knuth-morris-pratt/index.js";
 import { RegexSearchStrategy } from "../../regex/index.js";
@@ -95,7 +94,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           for (const result of strategy.processChunk(haystack, state)) {
             output.push(result);
           }
-          expect(flushToString(strategy, state)).toBe(expectedFlush);
+          expect(strategy.flush(state)).toBe(expectedFlush);
           expect(output).toEqual(expectedResults);
         });
       }
@@ -225,7 +224,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           });
 
           expect(allResults).toEqual(expectedResults);
-          expect(flushToString(strategy, state)).toBe(expectedFlush);
+          expect(strategy.flush(state)).toBe(expectedFlush);
         });
       }
     );
@@ -344,7 +343,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           });
 
           expect(allResults).toEqual(expectedResults);
-          expect(flushToString(strategy, state)).toBe(expectedFlush);
+          expect(strategy.flush(state)).toBe(expectedFlush);
         });
       }
     );
@@ -369,7 +368,7 @@ describe("AnchorSequenceSearchStrategy", () => {
           break;
         }
       }
-      const flushed = flushToString(strategy, state);
+      const flushed = strategy.flush(state);
 
       expect(results).toEqual([
         { isMatch: false, content: "First " },
@@ -410,7 +409,12 @@ describe("AnchorSequenceSearchStrategy", () => {
           streamIndices: [index, index + token.length]
         };
       },
-      *flush(state) {
+      flush(state) {
+        const held = state.buffer;
+        state.buffer = "";
+        return held;
+      },
+      *settle(state) {
         const held = state.buffer;
         state.buffer = "";
         const index = held.indexOf(token);
@@ -450,7 +454,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk(input, state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ];
 
       expect(render(strategy, emitted)).toBe(input);
@@ -459,7 +463,7 @@ describe("AnchorSequenceSearchStrategy", () => {
       ]);
     });
 
-    test("renders a match settled during flush through matchToString", () => {
+    test("renders a match settled at end of stream through matchToString", () => {
       const strategy = new AnchorSequenceSearchStrategy([
         tokenAnchor("{{", true),
         tokenAnchor("}}", true)
@@ -469,7 +473,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk(input, state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ];
 
       expect(render(strategy, emitted)).toBe(input);
@@ -499,7 +503,7 @@ describe("AnchorSequenceSearchStrategy", () => {
       expect([...strategy.processChunk("Start {{incomplete", state)]).toEqual([
         { isMatch: false, content: "Start " }
       ]);
-      expect(flushToString(strategy, state)).toBe("{{incomplete");
+      expect(strategy.flush(state)).toBe("{{incomplete");
 
       expect([...strategy.processChunk("Hello {{name}} world", state)]).toEqual([
         { isMatch: false, content: "Hello " },
@@ -514,7 +518,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk("Start {{incomplete", state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ];
 
       expect(emitted).toEqual([
@@ -530,7 +534,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk("Hello {{name}} world", state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ];
 
       expect(emitted).toEqual([
@@ -561,7 +565,7 @@ describe("AnchorSequenceSearchStrategy", () => {
       const processed = [...strategy.processChunk("xxab", state)];
       expect(processed).toEqual([{ isMatch: false, content: "xx" }]);
 
-      const flushed = [...strategy.flush(state)];
+      const flushed = [...strategy.settle(state)];
       expect(flushed).toEqual([{ isMatch: false, content: "ab" }]);
     });
 
@@ -572,7 +576,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk(input, state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ].map((result) =>
         result.isMatch ? strategy.matchToString(result.content) : result.content
       );
@@ -591,7 +595,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk("xxaa", state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ].map((result) =>
         result.isMatch ? strategy.matchToString(result.content) : result.content
       );
@@ -608,7 +612,7 @@ describe("AnchorSequenceSearchStrategy", () => {
 
       const emitted = [
         ...strategy.processChunk("xxab", state),
-        ...strategy.flush(state)
+        ...strategy.settle(state)
       ];
 
       expect(emitted).toEqual([

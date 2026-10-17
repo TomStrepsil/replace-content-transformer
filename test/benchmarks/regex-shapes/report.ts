@@ -21,7 +21,7 @@ interface ShapeReport {
   boundary: string;
   chunks: number;
   matches: number;
-  flushMatches: number;
+  settledMatches: number;
   referenceMatches: number;
   agreesWithReference: boolean;
   divergence: ReturnType<typeof firstDivergence>;
@@ -34,14 +34,14 @@ const reports: ShapeReport[] = shapes.map((shape) => {
   const chunks = chunksOf(shape.content, shape.chunkSize);
   const result = drive(new RegexSearchStrategy(shape.pattern), chunks);
   const expected = referenceMatches(shape.pattern, shape.content);
-  const emitted: EmittedMatch[] = [...result.matches, ...result.flushMatches];
+  const emitted: EmittedMatch[] = [...result.matches, ...result.settledMatches];
   const divergence = firstDivergence(emitted, expected);
   return {
     shape: shape.name,
     boundary: shape.boundary,
     chunks: chunks.length,
     matches: result.matches.length,
-    flushMatches: result.flushMatches.length,
+    settledMatches: result.settledMatches.length,
     referenceMatches: expected.length,
     agreesWithReference: divergence === null,
     divergence,
@@ -69,12 +69,12 @@ if (asJson) {
 
   console.log("\nRegex shapes — buffering and fidelity (no timing)\n");
   console.log(
-    `${"shape".padEnd(52)} ${"boundary".padEnd(15)} ${pad("chunks", 6)} ${pad("matches", 8)} ${pad("flush", 6)} ${pad("ref", 5)} ${pad("peak buf", 9)} ${pad("% held", 7)}`
+    `${"shape".padEnd(52)} ${"boundary".padEnd(15)} ${pad("chunks", 6)} ${pad("matches", 8)} ${pad("settle", 6)} ${pad("ref", 5)} ${pad("peak buf", 9)} ${pad("% held", 7)}`
   );
   for (const report of reports) {
     const flag = report.agreesWithReference && report.lossless ? "" : "  ⚠️";
     console.log(
-      `${report.shape.slice(0, 52).padEnd(52)} ${report.boundary.padEnd(15)} ${pad(report.chunks, 6)} ${pad(report.matches, 8)} ${pad(report.flushMatches, 6)} ${pad(report.referenceMatches, 5)} ${pad(report.peakBuffer, 9)} ${pad((report.peakBufferRatio * 100).toFixed(1), 7)}${flag}`
+      `${report.shape.slice(0, 52).padEnd(52)} ${report.boundary.padEnd(15)} ${pad(report.chunks, 6)} ${pad(report.matches, 8)} ${pad(report.settledMatches, 6)} ${pad(report.referenceMatches, 5)} ${pad(report.peakBuffer, 9)} ${pad((report.peakBufferRatio * 100).toFixed(1), 7)}${flag}`
     );
   }
 

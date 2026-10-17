@@ -76,13 +76,13 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    */
   highWaterMark?: number;
   /**
-   * When aborted, the scanner stops calling the replacement function.
-   * Matches discovered after the signal fires are emitted verbatim (using
-   * {@link SearchStrategy.matchToString}) rather than being passed to
-   * `replacement`. Any already-buffered partial match is flushed first so
-   * output stays in order. In-flight replacements that were scheduled
-   * before the signal fired are unaffected — they run to completion and
-   * their output is emitted normally. Pair with {@link abandonPendingSignal}
+   * When aborted, the scanner stops calling the replacement function and
+   * stops searching at the next match it finds: that match is emitted
+   * verbatim (using {@link SearchStrategy.matchToString}) together with the
+   * rest of the current chunk and what the strategy holds, as one chunk, and
+   * later chunks pass through unchanged. In-flight replacements that were
+   * scheduled before the signal fired are unaffected — they run to completion
+   * and their output is emitted normally. Pair with {@link abandonPendingSignal}
    * to also abandon those.
    */
   stopReplacingSignal?: AbortSignal;
@@ -91,10 +91,11 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    * begun consuming is abandoned: its iterable is closed and the original
    * matched text is emitted in its place. A replacement the drain loop is
    * already iterating is allowed to complete normally — no partial output.
-   * Scanning is also halted (implying {@link stopReplacingSignal} semantics)
-   * — there is no useful combination where pending work is abandoned but
-   * new replacements continue to be scheduled. Internally the engine
-   * combines both signals via `AbortSignal.any()`.
+   * Scanning is also halted (implying {@link stopReplacingSignal} semantics):
+   * no further replacements are scheduled and the rest of the input passes
+   * through as raw text — there is no useful combination where pending work
+   * is abandoned but new replacements continue to be scheduled. Internally
+   * the engine combines both signals via `AbortSignal.any()`.
    */
   abandonPendingSignal?: AbortSignal;
 }
@@ -133,7 +134,6 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
-  #flushedAfterAbort = false;
   #cancelled = false;
 
   constructor(
@@ -201,11 +201,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
     if (this._stopReplacingSignal?.aborted) {
-      if (!this.#flushedAfterAbort) {
-        this.#flushedAfterAbort = true;
-        await this.#enqueue(this._flush());
-        if (this.#cancelled) return;
-      }
+      await this.#enqueueHeld("");
+      if (this.#cancelled) return;
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
     }
@@ -213,7 +210,13 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     await this.#enqueue(this._searchStrategy.processChunk(chunk, this._state));
   }
 
+  async #enqueueHeld(before: string): Promise<void> {
+    const held = this._takeHeld(before);
+    if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
+  }
+
   async #enqueue(results: Iterable<MatchResult<TMatch>>): Promise<void> {
+    let stoppedAt: string | undefined;
     for (const result of results) {
       if (this.#cancelled) return;
       if (!result.isMatch) {
@@ -221,15 +224,14 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
         continue;
       }
       if (this._stopReplacingSignal?.aborted) {
-        await this.#queue.push(
-          textSlot(this.#siblingIndex++, this._renderVerbatim(result))
-        );
-        continue;
+        stoppedAt = this._renderVerbatim(result);
+        break;
       }
       await this.#queue.push(
         this.#scheduleMatch(result.content, result.streamIndices)
       );
     }
+    if (stoppedAt !== undefined) await this.#enqueueHeld(stoppedAt);
   }
 
   /**
@@ -243,8 +245,10 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       await this.#drainDone;
       return;
     }
-    if (!this.#flushedAfterAbort) {
-      await this.#enqueue(this._flush());
+    if (this._stopReplacingSignal?.aborted) {
+      await this.#enqueueHeld("");
+    } else {
+      await this.#enqueue(this._settle());
     }
     this.#queue.close();
     await this.#drainDone;

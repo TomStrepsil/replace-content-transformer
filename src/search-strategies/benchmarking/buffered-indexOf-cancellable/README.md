@@ -167,9 +167,7 @@ for (const result of generator) {
 }
 
 // finally block has executed, buffered content preserved
-for (const result of strategy.flush(state)) {
-  // one non-match result carrying the buffered partial match
-}
+const buffered = strategy.flush(state); // Returns any buffered partial match
 ```
 
 **Composition with anchor-sequence:**

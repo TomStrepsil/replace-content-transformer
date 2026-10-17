@@ -205,43 +205,53 @@ export class LeanRegexSearchStrategy
     }
   }
 
-  flush(
-    state: RegexSearchState
-  ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
-    const buffer = state.buffer;
-    const baseOffset = state.streamOffset - buffer.length;
-    state.buffer = "";
-    state.streamOffset = 0;
+  override flush(state: RegexSearchState): string {
     state.evaluatedBufferLength = 0;
-    return this.settle(buffer, baseOffset);
+    return super.flush(state);
   }
 
-  private *settle(
+  settle(
+    state: RegexSearchState
+  ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
+    const baseOffset = state.streamOffset - state.buffer.length;
+    return this.settleBuffer(this.flush(state), baseOffset, state);
+  }
+
+  private *settleBuffer(
     buffer: string,
-    baseOffset: number
+    baseOffset: number,
+    state: RegexSearchState
   ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
     const cursor: ScanCursor = { reportedUpTo: 0 };
-    while (cursor.reportedUpTo < buffer.length) {
-      const finalMatch = this.completeMatchRegex.exec(
-        buffer.substring(cursor.reportedUpTo)
-      );
-      if (finalMatch === null) break;
-
-      if (finalMatch[0].length === 0) {
-        yield skipOneCodePointPastZeroLengthMatch(
-          buffer,
-          cursor,
-          finalMatch.index
+    try {
+      while (cursor.reportedUpTo < buffer.length) {
+        const finalMatch = this.completeMatchRegex.exec(
+          buffer.substring(cursor.reportedUpTo)
         );
-        continue;
-      }
-      const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
-      if (precedingContent) yield precedingContent;
-      yield takeMatch(finalMatch, cursor, baseOffset);
-    }
+        if (finalMatch === null) break;
 
-    if (cursor.reportedUpTo < buffer.length) {
-      yield nonMatch(buffer.slice(cursor.reportedUpTo));
+        if (finalMatch[0].length === 0) {
+          yield skipOneCodePointPastZeroLengthMatch(
+            buffer,
+            cursor,
+            finalMatch.index
+          );
+          continue;
+        }
+        const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
+        if (precedingContent) yield precedingContent;
+        yield takeMatch(finalMatch, cursor, baseOffset);
+      }
+
+      if (cursor.reportedUpTo < buffer.length) {
+        const rest = buffer.slice(cursor.reportedUpTo);
+        cursor.reportedUpTo = buffer.length;
+        yield nonMatch(rest);
+      }
+    } finally {
+      if (cursor.reportedUpTo < buffer.length) {
+        state.buffer = buffer.slice(cursor.reportedUpTo);
+      }
     }
   }
 
