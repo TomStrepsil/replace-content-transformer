@@ -630,6 +630,9 @@ interface AsyncTransformEngine {
 }
 ```
 
+> [!CAUTION]
+> Engines should only be driven by an adapter. Adapters call `write()` and `end()` one at a time, which keeps output in order and buffered text intact.
+
 There are three concrete engines:
 
 - **`SyncReplacementTransformEngine`** — synchronous replacement. `replacement` can be a plain `string` for static replacement, or a function returning `string | Iterable<string>` for functional and iterable use-cases
