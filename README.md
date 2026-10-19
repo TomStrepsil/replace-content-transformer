@@ -620,7 +620,6 @@ interface SyncTransformEngine {
   start(sink: EngineSink): void;
   write(chunk: string): void;
   end(): void;
-  cancel?(): void;
 }
 
 interface AsyncTransformEngine {

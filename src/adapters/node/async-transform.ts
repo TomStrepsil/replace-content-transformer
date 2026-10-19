@@ -1,5 +1,5 @@
 import type { TransformCallback, TransformOptions } from "node:stream";
-import { TransformBase } from "./transform-base.js";
+import { TransformBase, toError } from "./transform-base.js";
 import type { AsyncTransformEngine } from "../../engines/types.js";
 
 /**
@@ -45,10 +45,16 @@ export class AsyncReplaceContentTransform extends TransformBase<
   Promise<void>
 > {
   readonly #engine: AsyncTransformEngine;
+  private _runningEngine?: AsyncTransformEngine;
 
   constructor(engine: AsyncTransformEngine, options?: TransformOptions) {
     super(engine, options);
     this.#engine = engine;
+    if (this.destroyed) {
+      engine.cancel?.();
+      return;
+    }
+    this._runningEngine = engine;
   }
 
   override _transform(
@@ -67,10 +73,23 @@ export class AsyncReplaceContentTransform extends TransformBase<
     Promise.resolve(remainder ? this.#engine.write(remainder) : undefined)
       .then(() => this.#engine.end() as void | Promise<void>)
       .then(() => {
-        this._markEngineEnded();
+        this._runningEngine = undefined;
         this._pushHeldHighSurrogate();
         callback();
       })
       .catch(callback);
+  }
+
+  override _destroy(
+    err: Error | null,
+    callback: (error?: Error | null) => void
+  ): void {
+    try {
+      this._runningEngine?.cancel?.();
+    } catch (cancelError) {
+      callback(err ?? toError(cancelError));
+      return;
+    }
+    callback(err);
   }
 }

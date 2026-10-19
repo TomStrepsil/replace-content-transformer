@@ -294,8 +294,7 @@ function mockSyncEngine() {
   return {
     start: vi.fn<(sink: EngineSink) => void>(),
     write: vi.fn<(chunk: string) => void>(),
-    end: vi.fn<() => void>(),
-    cancel: vi.fn<() => void>()
+    end: vi.fn<() => void>()
   } satisfies SyncTransformEngine;
 }
 

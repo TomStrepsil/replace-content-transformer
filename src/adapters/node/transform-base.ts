@@ -1,18 +1,9 @@
 import { Transform, type TransformOptions } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { TransformEngine } from "../../engines/types.js";
+import endsWithHighSurrogate from "./ends-with-high-surrogate.js";
 
-const HIGH_SURROGATE_MIN = 0xd800;
-const HIGH_SURROGATE_MAX = 0xdbff;
-
-function endsWithHighSurrogate(text: string): boolean {
-  const lastCodeUnit = text.charCodeAt(text.length - 1);
-  return (
-    lastCodeUnit >= HIGH_SURROGATE_MIN && lastCodeUnit <= HIGH_SURROGATE_MAX
-  );
-}
-
-function toError(err: unknown): Error {
+export function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
@@ -29,7 +20,6 @@ function toError(err: unknown): Error {
  * across output chunks is encoded as one character.
  */
 export abstract class TransformBase<T> extends Transform {
-  private _runningEngine?: TransformEngine<T>;
   readonly #decoder = new StringDecoder("utf8");
   #heldHighSurrogate = "";
 
@@ -39,28 +29,6 @@ export abstract class TransformBase<T> extends Transform {
       enqueue: (chunk) => this.#pushWholeCodePoints(chunk),
       error: (err) => this.destroy(toError(err))
     });
-    if (this.destroyed)  {
-      engine.cancel?.();
-      return;
-    }
-    this._runningEngine = engine;
-  }
-
-  override _destroy(
-    err: Error | null,
-    callback: (error?: Error | null) => void
-  ): void {
-    try {
-      this._runningEngine?.cancel?.();
-    } catch (cancelError) {
-      callback(err ?? toError(cancelError));
-      return;
-    }
-    callback(err);
-  }
-
-  protected _markEngineEnded(): void {
-    this._runningEngine = undefined;
   }
 
   protected _decode(chunk: Buffer | string): string {

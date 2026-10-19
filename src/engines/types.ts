@@ -25,8 +25,6 @@ export interface TransformEngine<T> {
   /** Attach the output sink. Must be called exactly once before {@link write}. */
   start(sink: EngineSink): void;
   write(chunk: string): T;
-  /** Optional: called by the adapter when the stream is cancelled or destroyed before it ends, to stop in-flight work. */
-  cancel?(): void;
 }
 
 /**
@@ -52,4 +50,6 @@ export interface AsyncTransformEngine extends TransformEngine<Promise<void>> {
   write(chunk: string): Promise<void>;
   /** Flush any buffered tail from the search strategy to the sink. */
   end(): void | Promise<void>;
+  /** Optional: called by the adapter when the stream is cancelled or destroyed before it ends, to stop in-flight work. */
+  cancel?(): void;
 }
