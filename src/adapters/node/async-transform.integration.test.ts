@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
+import { setImmediate } from "node:timers/promises";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
 import { AsyncLookaheadTransformEngine, SemaphoreStrategy, nested } from "../../engines/index.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
-import { deferred, settleMicrotasks } from "../../../test/utilities.js";
+import { deferred } from "../../../test/utilities.js";
 
 // Engine behaviour (scan/schedule/drain, nested re-scanning, backpressure,
 // error forwarding, in-order output) is verified directly in
@@ -120,7 +121,7 @@ describe("AsyncReplaceContentTransform + AsyncLookaheadTransformEngine (Node ada
     await vi.waitFor(() => expect(started).toEqual(["{{a}}", "{{b}}", "{{c}}"]));
     transform.destroy();
     released.resolve();
-    await settleMicrotasks(20);
+    await setImmediate();
 
     expect(completed).toEqual([]);
   });

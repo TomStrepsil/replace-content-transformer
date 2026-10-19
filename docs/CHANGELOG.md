@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at the end of the stream, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
 - Documented that input must be decoded with a `TextDecoder`/`TextDecoderStream` so surrogate pairs are never split. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks)
 - Removed regex strategy tests that should have gone with [3.0.0](#300---2026-07-28)
+- Fixed engine tests that waited a fixed number of microtasks: a "not yet" check that couldn't fail, a `cancel()` test that missed the check it is named for, and 11 waits that did nothing. Tests that need to wait now use `setImmediate()`
 - Fixed `LoopedIndexOfAnchoredSearchStrategy` and `BalancedPairSearchStrategy` re-scanning anchors already consumed when a chunk boundary falls mid-match, which could match the wrong text
 - Fixed benchmarking `looped-indexOf-cancellable` and `regex-callback` enqueuing empty chunks
 - Fixed some nits in `docs/CONTRIBUTING.md`

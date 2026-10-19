@@ -18,7 +18,7 @@ See also:
 | `mockTransformStreamDefaultControllerFactory(outputs)` | A WHATWG controller that pushes enqueued chunks into `outputs`                     |
 | `collectEngineSink()` / `collectWritable()`            | Capture what an engine or Node stream emits                                        |
 | `asyncIterable(...chunks)`, `streamToString(stream)`   | Build and drain async sources                                                      |
-| `deferred()`, `settleMicrotasks(times)`                | Control promise timing in async engine tests                                       |
+| `deferred()`                                           | Control promise timing in async engine tests                                       |
 | `createIterableSlotNode(...)`                          | Slot-tree node skeletons for concurrency strategy tests                            |
 | `startTestHttpServer(handlers)`                        | A local HTTP server that works on Node, Bun and Deno                               |
 
