@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Documented that engines should only be driven by an adapter. See [Engines](../README.md#-engines)
 - Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting a multi-byte UTF-8 character split across `Buffer` chunks: each half was decoded on its own as U+FFFD. See [Node Transform](../README.md#node-transform)
 - Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting an astral character, such as an emoji, when an output chunk ends between the two halves of its surrogate pair (e.g. a match for `/a./` in `"a😀"`): each half was encoded on its own as U+FFFD. A trailing high surrogate is now held back until the next chunk, as `TextEncoderStream` does
 - Fixed a skipped zero-length regex match (e.g. from `/a*/`) splitting an astral character such as an emoji into two output chunks. The skip now advances by one code point. See [Zero-length matches](../src/search-strategies/regex/README.md#️-zero-length-matches)
