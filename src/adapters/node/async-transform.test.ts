@@ -113,6 +113,17 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
     expect(engine.end).not.toHaveBeenCalled();
   });
 
+  it("cancels the engine when the stream is destroyed with an error", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy(new Error("downstream failed"));
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "downstream failed" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
   it("cancels the engine when the stream is destroyed while end() is pending", async () => {
     const engine = mockAsyncEngine();
     const ending = deferred<void>();
@@ -197,6 +208,35 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
 
     const [error] = await once(transform, "error");
     expect(error).toMatchObject({ message: "destroyed" });
+  });
+
+  it("keeps the AbortError when engine.cancel() throws for a stream constructed with an aborted signal", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+
+    const transform = new AsyncReplaceContentTransform(engine, {
+      signal: AbortSignal.abort()
+    });
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the engine.start() error when engine.cancel() also throws", async () => {
+    const engine = mockAsyncEngine();
+    engine.start.mockImplementation((sink) => sink.error(new Error("boom")));
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "boom" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
   });
 
   describe("UTF-8 decoding", () => {

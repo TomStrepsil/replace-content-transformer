@@ -2,6 +2,14 @@ import type { TransformCallback, TransformOptions } from "node:stream";
 import { TransformBase, toError } from "./transform-base.js";
 import type { AsyncTransformEngine } from "../../engines/types.js";
 
+function cancelEngine(engine?: AsyncTransformEngine): Error | undefined {
+  try {
+    engine?.cancel?.();
+  } catch (cancelError) {
+    return toError(cancelError);
+  }
+}
+
 /**
  * An asynchronous Transform stream for Node.js that replaces content in streaming text.
  *
@@ -51,7 +59,7 @@ export class AsyncReplaceContentTransform extends TransformBase<
     super(engine, options);
     this.#engine = engine;
     if (this.destroyed) {
-      engine.cancel?.();
+      cancelEngine(engine);
       return;
     }
     this._runningEngine = engine;
@@ -84,12 +92,7 @@ export class AsyncReplaceContentTransform extends TransformBase<
     err: Error | null,
     callback: (error?: Error | null) => void
   ): void {
-    try {
-      this._runningEngine?.cancel?.();
-    } catch (cancelError) {
-      callback(err ?? toError(cancelError));
-      return;
-    }
-    callback(err);
+    const cancelError = cancelEngine(this._runningEngine);
+    callback(err ?? cancelError);
   }
 }
