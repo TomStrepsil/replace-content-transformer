@@ -177,11 +177,6 @@ function deferred<T>(): PromiseWithResolvers<T> {
   return Promise.withResolvers<T>();
 }
 
-/** Flush `times` rounds of microtasks — lets scheduled dispatches settle. */
-async function settleMicrotasks(times = 2): Promise<void> {
-  for (let i = 0; i < times; i++) await Promise.resolve();
-}
-
 function mockSearchStrategyFactory<TMatch = string>(
   ...results: MatchResult<TMatch>[]
 ): Mocked<SearchStrategy<object, TMatch>> {
@@ -306,7 +301,7 @@ function mockAsyncEngine() {
       .mockResolvedValue(undefined),
     end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     cancel: vi.fn<() => void>()
-  } satisfies AsyncTransformEngine & { cancel: () => void };
+  } satisfies AsyncTransformEngine;
 }
 
 function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
@@ -342,7 +337,6 @@ export {
   mockStoppableSearchStrategy,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
-  settleMicrotasks,
   startTestHttpServer,
   startedSinkOf,
   streamToString,

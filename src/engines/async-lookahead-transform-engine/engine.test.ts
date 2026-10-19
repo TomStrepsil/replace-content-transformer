@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { setImmediate } from "node:timers/promises";
 import { AsyncLookaheadTransformEngine } from "./engine.ts";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
@@ -11,8 +12,7 @@ import {
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
-  mockStoppableSearchStrategy,
-  settleMicrotasks
+  mockStoppableSearchStrategy
 } from "../../../test/utilities.ts";
 
 function heldSlotCounter(concurrency: number) {
@@ -112,7 +112,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       await engine.write("M");
 
       const endPromise = engine.end();
-      await settleMicrotasks(10);
       gate.resolve(asyncIterable("R"));
       await endPromise;
       expect(chunks).toEqual(["R", "T1", "T2", "T3"]);
@@ -158,7 +157,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
       // Later match resolves first.
       gateB.resolve(asyncIterable("b"));
-      await settleMicrotasks(5);
+      await setImmediate();
       expect(chunks).toEqual([]);
 
       gateA.resolve(asyncIterable("a"));
@@ -187,7 +186,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("AB");
-      await settleMicrotasks(5);
       expect(started).toEqual([0, 1]);
       firstGate.resolve(asyncIterable("a"));
       await engine.end();
@@ -310,7 +308,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const writePromise = engine.write("MMM").then(() => {
         writeResolved = true;
       });
-      await settleMicrotasks(10);
+      await setImmediate();
       expect(writeResolved).toBe(false);
 
       gates[0].resolve(asyncIterable("a"));
@@ -458,7 +456,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       engine.start(sink);
 
       const writePromise = engine.write("MMM");
-      await settleMicrotasks(10);
       gate.reject(new Error("drain failed"));
 
       await expect(writePromise).resolves.toBeUndefined();
@@ -552,7 +549,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       ac.abort();
 
       const writePromise = engine.write("X");
-      await settleMicrotasks(10);
       gate.resolve(asyncIterable("R"));
       await writePromise;
       await engine.end();
@@ -730,7 +726,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("M");
-      await settleMicrotasks(5);
       ac.abort();
       gate.resolve(asyncIterable("R"));
       await engine.end();
@@ -786,7 +781,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("M");
-      await settleMicrotasks(5);
       ac.abort();
       gate.resolve();
       await engine.end();
@@ -830,7 +824,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("M");
-      await settleMicrotasks(5);
       ac.abort();
       gate.resolve(asyncIterable("R"));
       await engine.end();
@@ -1129,7 +1122,8 @@ describe("AsyncLookaheadTransformEngine", () => {
 
       // M1 → drain loop (blocked on gate), M2 → fills buffer, M3 → write() blocks
       const writePromise = engine.write("MMM");
-      await settleMicrotasks(10);
+      await setImmediate();
+      expect(callCount).toBe(3);
 
       engine.cancel();
       gate.resolve(asyncIterable(""));
@@ -1157,7 +1151,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       engine.start(sink);
 
       const writePromise = engine.write("MMMM");
-      await settleMicrotasks(10);
+      await setImmediate();
 
       engine.cancel();
       gate.resolve(asyncIterable(""));
@@ -1187,7 +1181,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       ac.abort();
 
       const writePromise = engine.write("X");
-      await settleMicrotasks(10);
 
       engine.cancel();
       gate.resolve(asyncIterable(""));
@@ -1216,7 +1209,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       engine.start(sink);
 
       const writePromise = engine.write("MMM");
-      await settleMicrotasks(10);
+      await setImmediate();
       expect(held()).toBe(3);
 
       engine.cancel();
@@ -1244,7 +1237,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("Mafter");
-      await settleMicrotasks(5);
       // "after" is buffered; the match slot is still awaiting the gate
       engine.cancel();
       gate.resolve();
@@ -1276,7 +1268,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("M");
-      await settleMicrotasks(5);
 
       engine.cancel();
       gate.resolve();
@@ -1302,7 +1293,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("M");
-      await settleMicrotasks(5);
 
       // cancel() rather than ac.abort() — original text must not be emitted
       engine.cancel();
@@ -1338,7 +1328,6 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       engine.start(sink);
       await engine.write("M");
-      await settleMicrotasks(5);
 
       engine.cancel();
       gate.resolve();

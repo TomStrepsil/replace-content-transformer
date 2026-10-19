@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { setImmediate } from "node:timers/promises";
 import { SemaphoreStrategy } from "./semaphore-strategy.ts";
-import { settleMicrotasks } from "../../../../test/utilities.ts";
 
 describe("SemaphoreStrategy", () => {
   it("rejects concurrency < 1", () => {
@@ -26,7 +26,7 @@ describe("SemaphoreStrategy", () => {
         return release;
       });
 
-    await settleMicrotasks(3);
+    await setImmediate();
     expect(secondAcquired).toBe(false);
 
     releaseFirst();
@@ -46,7 +46,7 @@ describe("SemaphoreStrategy", () => {
       })
     );
 
-    await settleMicrotasks(3);
+    await setImmediate();
     expect(order).toEqual([]);
 
     held();
@@ -68,7 +68,7 @@ describe("SemaphoreStrategy", () => {
       .acquire()
       .then(() => (extraAcquired = true));
 
-    await settleMicrotasks(3);
+    await setImmediate();
     expect(extraAcquired).toBe(false);
     next();
   });

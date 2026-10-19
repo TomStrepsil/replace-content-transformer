@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { setImmediate } from "node:timers/promises";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
 import type { MatchResult } from "../search-strategies/types.ts";
 import {
@@ -6,8 +7,7 @@ import {
   collectEngineSink,
   deferred,
   mockSearchStrategyFactory,
-  mockStoppableSearchStrategy,
-  settleMicrotasks
+  mockStoppableSearchStrategy
 } from "../../test/utilities.ts";
 
 async function runEngine<TState>(
@@ -231,7 +231,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       const endPromise = engine.end().then(() => {
         ended = true;
       });
-      await settleMicrotasks(10);
+      await setImmediate();
       expect(ended).toBe(false);
 
       gate.resolve("R");

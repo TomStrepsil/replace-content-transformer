@@ -1,15 +1,10 @@
 import { Transform, type TransformOptions } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { TransformEngine } from "../../engines/types.js";
+import endsWithHighSurrogate from "./ends-with-high-surrogate.js";
 
-const HIGH_SURROGATE_MIN = 0xd800;
-const HIGH_SURROGATE_MAX = 0xdbff;
-
-function endsWithHighSurrogate(text: string): boolean {
-  const lastCodeUnit = text.charCodeAt(text.length - 1);
-  return (
-    lastCodeUnit >= HIGH_SURROGATE_MIN && lastCodeUnit <= HIGH_SURROGATE_MAX
-  );
+export function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
 }
 
 /**
@@ -25,17 +20,14 @@ function endsWithHighSurrogate(text: string): boolean {
  * across output chunks is encoded as one character.
  */
 export abstract class TransformBase<T> extends Transform {
-  protected readonly _engine: TransformEngine<T>;
   readonly #decoder = new StringDecoder("utf8");
   #heldHighSurrogate = "";
 
   constructor(engine: TransformEngine<T>, options?: TransformOptions) {
     super(options);
-    this._engine = engine;
     engine.start({
       enqueue: (chunk) => this.#pushWholeCodePoints(chunk),
-      error: (err) =>
-        this.destroy(err instanceof Error ? err : new Error(String(err)))
+      error: (err) => this.destroy(toError(err))
     });
   }
 

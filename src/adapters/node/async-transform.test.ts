@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { once } from "node:events";
 import { finished } from "node:stream/promises";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
 import {
@@ -99,6 +100,143 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
     await new Promise((resolve) => transform.end(resolve));
 
     expect(outputs).toEqual(["ABC", "END"]);
+  });
+
+  it("cancels the engine when the stream is destroyed before it ends", () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.write("x");
+    transform.destroy();
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+    expect(engine.end).not.toHaveBeenCalled();
+  });
+
+  it("cancels the engine when the stream is destroyed with an error", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy(new Error("downstream failed"));
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "downstream failed" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the engine when the stream is destroyed while end() is pending", async () => {
+    const engine = mockAsyncEngine();
+    const ending = deferred<void>();
+    engine.end.mockReturnValue(ending.promise);
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.resume();
+    transform.end("x");
+    await vi.waitFor(() => expect(engine.end).toHaveBeenCalledOnce());
+    transform.destroy();
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not cancel the engine when the stream is destroyed after it ends", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.resume();
+    transform.end("x");
+    await finished(transform);
+
+    expect(transform.destroyed).toBe(true);
+    expect(engine.cancel).not.toHaveBeenCalled();
+  });
+
+  it("reports an AbortError and cancels the engine when constructed with an aborted signal", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine, {
+      signal: AbortSignal.abort()
+    });
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(engine.start).toHaveBeenCalledOnce();
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not cancel the engine when the stream is destroyed between end() and 'finish'", async () => {
+    const engine = mockAsyncEngine();
+    engine.end.mockImplementation(async () => startedSinkOf(engine).enqueue("LAST"));
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.end("x");
+    for await (const chunk of transform) if (String(chunk) === "LAST") break;
+
+    expect(transform.writableFinished).toBe(false);
+    expect(engine.cancel).not.toHaveBeenCalled();
+  });
+
+  it("cancels the engine once when engine.start() reports an error synchronously", async () => {
+    const engine = mockAsyncEngine();
+    engine.start.mockImplementation((sink) => sink.error(new Error("boom")));
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "boom" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("reports an error thrown by engine.cancel() when destroyed without an error", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy();
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "cancel failed" });
+  });
+
+  it("keeps the destroy error when engine.cancel() also throws", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy(new Error("destroyed"));
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "destroyed" });
+  });
+
+  it("keeps the AbortError when engine.cancel() throws for a stream constructed with an aborted signal", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+
+    const transform = new AsyncReplaceContentTransform(engine, {
+      signal: AbortSignal.abort()
+    });
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the engine.start() error when engine.cancel() also throws", async () => {
+    const engine = mockAsyncEngine();
+    engine.start.mockImplementation((sink) => sink.error(new Error("boom")));
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "boom" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
   });
 
   describe("UTF-8 decoding", () => {
