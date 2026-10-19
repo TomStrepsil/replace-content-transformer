@@ -44,6 +44,7 @@ export class ReplaceContentTransform extends TransformBase<void> {
     const remainder = this._decodeRemainder();
     if (remainder) this.#engine.write(remainder);
     this.#engine.end();
+    this._markEngineEnded();
     this._pushHeldHighSurrogate();
     callback();
   }

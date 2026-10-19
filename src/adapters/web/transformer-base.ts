@@ -34,4 +34,14 @@ export abstract class TransformerBase<
   transform(chunk: string): T {
     return this._engine.write(chunk);
   }
+
+  /**
+   * Called by the stream infrastructure when the readable side is cancelled
+   * or the writable side is aborted. Forwards to the engine's cancel() if
+   * present so the engine can stop in-flight work.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- an optional reason is part of the WHATWG callback signature; accepted for compatibility and unused in this implementation
+  cancel(reason?: unknown): void {
+    this._engine.cancel?.();
+  }
 }

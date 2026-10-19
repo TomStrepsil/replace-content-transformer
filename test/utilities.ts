@@ -294,7 +294,8 @@ function mockSyncEngine() {
   return {
     start: vi.fn<(sink: EngineSink) => void>(),
     write: vi.fn<(chunk: string) => void>(),
-    end: vi.fn<() => void>()
+    end: vi.fn<() => void>(),
+    cancel: vi.fn<() => void>()
   } satisfies SyncTransformEngine;
 }
 
@@ -306,7 +307,7 @@ function mockAsyncEngine() {
       .mockResolvedValue(undefined),
     end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     cancel: vi.fn<() => void>()
-  } satisfies AsyncTransformEngine & { cancel: () => void };
+  } satisfies AsyncTransformEngine;
 }
 
 function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {

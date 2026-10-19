@@ -56,6 +56,32 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     expect(engine.end).toHaveBeenCalledOnce();
   });
 
+  it("calls engine.cancel() when cancel() is called and engine supports it", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+
+    transformer.cancel("test reason");
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not throw when cancel() is called on an engine without cancel support", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cancel: _unused, ...engineWithoutCancel } = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engineWithoutCancel);
+
+    expect(() => transformer.cancel()).not.toThrow();
+  });
+
+  it("calls engine.cancel() when the readable side of a TransformStream is cancelled", async () => {
+    const engine = mockSyncEngine();
+    const stream = new TransformStream(new ReplaceContentTransformer(engine));
+
+    await stream.readable.cancel("gone");
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
   it("pipes end-to-end: engine output via sink is forwarded to the controller", () => {
     let capturedSink!: EngineSink;
     const engine: SyncTransformEngine = {

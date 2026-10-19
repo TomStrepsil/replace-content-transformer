@@ -67,6 +67,7 @@ export class AsyncReplaceContentTransform extends TransformBase<
     Promise.resolve(remainder ? this.#engine.write(remainder) : undefined)
       .then(() => this.#engine.end() as void | Promise<void>)
       .then(() => {
+        this._markEngineEnded();
         this._pushHeldHighSurrogate();
         callback();
       })

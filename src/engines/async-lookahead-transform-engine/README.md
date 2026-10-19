@@ -112,7 +112,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stream teardown
 
-`AsyncReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
+`AsyncReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. `AsyncReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
 
 ### Stopping new replacements (`stopReplacingSignal`)
 

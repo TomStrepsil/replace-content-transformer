@@ -12,6 +12,10 @@ function endsWithHighSurrogate(text: string): boolean {
   );
 }
 
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 /**
  * Base class for the Node `stream.Transform` adapters in this package.
  *
@@ -25,18 +29,38 @@ function endsWithHighSurrogate(text: string): boolean {
  * across output chunks is encoded as one character.
  */
 export abstract class TransformBase<T> extends Transform {
-  protected readonly _engine: TransformEngine<T>;
+  private _runningEngine?: TransformEngine<T>;
   readonly #decoder = new StringDecoder("utf8");
   #heldHighSurrogate = "";
 
   constructor(engine: TransformEngine<T>, options?: TransformOptions) {
     super(options);
-    this._engine = engine;
     engine.start({
       enqueue: (chunk) => this.#pushWholeCodePoints(chunk),
-      error: (err) =>
-        this.destroy(err instanceof Error ? err : new Error(String(err)))
+      error: (err) => this.destroy(toError(err))
     });
+    if (this.destroyed)  {
+      engine.cancel?.();
+      return;
+    }
+    this._runningEngine = engine;
+  }
+
+  override _destroy(
+    err: Error | null,
+    callback: (error?: Error | null) => void
+  ): void {
+    try {
+      this._runningEngine?.cancel?.();
+    } catch (cancelError) {
+      callback(err ?? toError(cancelError));
+      return;
+    }
+    callback(err);
+  }
+
+  protected _markEngineEnded(): void {
+    this._runningEngine = undefined;
   }
 
   protected _decode(chunk: Buffer | string): string {
