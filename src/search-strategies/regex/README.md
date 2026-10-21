@@ -249,7 +249,9 @@ Output: "a" (non-match), then "b" (match)
 Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
 
 > [!NOTE]
-> [`flush()`](../types.ts) yields `MatchResult`s, the same union as `processChunk`.
+> This is the strategy's [`settle()`](../types.ts), which yields `MatchResult`s, the same union as `processChunk`. Its [`flush()`](../types.ts) returns the buffer as it is, without searching it, which is what an engine uses once `stopReplacingSignal` has aborted.
+>
+> If an engine stops iterating `processChunk` or `settle` part-way, e.g. once `stopReplacingSignal` aborts, whatever was not yet yielded is put back in the buffer for `flush()` to return.
 
 ## Partial Match Transformation
 
@@ -282,7 +284,8 @@ type RegexSearchState = {
 - **Complete match found:** Clear buffer, emit match
 - **Partial match detected:** Buffer matched portion
 - **No match (complete or partial):** Emit content as non-match
-- **Flush:** Settle the buffer — emit any matches it still holds, then any trailing content
+- **Settle:** Settle the buffer — emit any matches it still holds, then any trailing content
+- **Flush:** Return the buffer as it is, and clear it
 
 ## Limitations
 
@@ -507,7 +510,7 @@ See [credits](https://github.com/TomStrepsil/regex-partial-match/blob/main/READM
 
 [^9]: `/(ab)\1|(abc)\2/` fed `"ab"`, `"ca"`, `"bc"` yields the single non-match `"abcabc"` instead of the match `"abcabc"` a non-chunked `exec()` finds. The partial regex returns `"a"` at index 3 for `"abca"` rather than the partial match at 0.
 
-[^10]: A skipped zero-length match advances the cursor by one **code unit**, so it can split a surrogate pair across two non-match segments. Output remains lossless, and no match is affected. Chunks are expected never to split a pair in the first place (see [Surrogate pairs split across chunks](#️-surrogate-pairs-split-across-chunks)).
+[^10]: A skipped zero-length match advances the cursor by one **code point**, as `matchAll` does with the `u` or `v` flag, so no non-match segment ends between the two halves of a surrogate pair. Without those flags `matchAll` advances by one code unit. That only makes a difference to a pattern that can match a lone low surrogate (e.g. `/a*|\uDE00/`): this strategy skips the second half of the pair, where `matchAll` would match it.
 
 [^11]: These are almost always a mistake. Nothing is thrown, because deciding "can this pattern _only_ match empty" requires parsing the pattern rather than testing it — `/(?=a)/.test("")` is `false`, and `/a?/.test("")` is `true` despite `/a?/` being perfectly usable.
 

@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
+import { once } from "node:events";
+import { finished } from "node:stream/promises";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
-import { collectWritable, mockAsyncEngine } from "../../../test/utilities.js";
+import {
+  collectWritable,
+  deferred,
+  mockAsyncEngine,
+  startedSinkOf,
+  textWrittenTo
+} from "../../../test/utilities.js";
 import type { AsyncTransformEngine, EngineSink } from "../../engines/types.js";
 
 describe("AsyncReplaceContentTransform (Node async adapter)", () => {
@@ -11,7 +19,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
 
     transform.pipe(writable);
     expect(engine.start).toHaveBeenCalledOnce();
-    const [sink] = engine.start.mock.calls[0];
+    const sink = startedSinkOf(engine);
     sink.enqueue("hello");
     expect(outputs).toContain("hello");
   });
@@ -46,7 +54,9 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
       write: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
       end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
     };
-    const transform = new AsyncReplaceContentTransform(engine, { highWaterMark: 7 });
+    const transform = new AsyncReplaceContentTransform(engine, {
+      highWaterMark: 7
+    });
     expect(transform.writableHighWaterMark).toBe(7);
     expect(transform.readableHighWaterMark).toBe(7);
   });
@@ -72,9 +82,15 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
   it("pipes end-to-end: engine output via sink reaches the writable", async () => {
     let capturedSink!: EngineSink;
     const engine: AsyncTransformEngine = {
-      start: (sink) => { capturedSink = sink; },
-      write: async (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
-      end: async () => { capturedSink.enqueue("END"); }
+      start: (sink) => {
+        capturedSink = sink;
+      },
+      write: async (chunk) => {
+        capturedSink.enqueue(chunk.toUpperCase());
+      },
+      end: async () => {
+        capturedSink.enqueue("END");
+      }
     };
     const transform = new AsyncReplaceContentTransform(engine);
     const { writable, outputs } = collectWritable();
@@ -84,5 +100,276 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
     await new Promise((resolve) => transform.end(resolve));
 
     expect(outputs).toEqual(["ABC", "END"]);
+  });
+
+  it("cancels the engine when the stream is destroyed before it ends", () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.write("x");
+    transform.destroy();
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+    expect(engine.end).not.toHaveBeenCalled();
+  });
+
+  it("cancels the engine when the stream is destroyed with an error", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy(new Error("downstream failed"));
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "downstream failed" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the engine when the stream is destroyed while end() is pending", async () => {
+    const engine = mockAsyncEngine();
+    const ending = deferred<void>();
+    engine.end.mockReturnValue(ending.promise);
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.resume();
+    transform.end("x");
+    await vi.waitFor(() => expect(engine.end).toHaveBeenCalledOnce());
+    transform.destroy();
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not cancel the engine when the stream is destroyed after it ends", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.resume();
+    transform.end("x");
+    await finished(transform);
+
+    expect(transform.destroyed).toBe(true);
+    expect(engine.cancel).not.toHaveBeenCalled();
+  });
+
+  it("reports an AbortError and cancels the engine when constructed with an aborted signal", async () => {
+    const engine = mockAsyncEngine();
+    const transform = new AsyncReplaceContentTransform(engine, {
+      signal: AbortSignal.abort()
+    });
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(engine.start).toHaveBeenCalledOnce();
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not cancel the engine when the stream is destroyed between end() and 'finish'", async () => {
+    const engine = mockAsyncEngine();
+    engine.end.mockImplementation(async () => startedSinkOf(engine).enqueue("LAST"));
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.end("x");
+    for await (const chunk of transform) if (String(chunk) === "LAST") break;
+
+    expect(transform.writableFinished).toBe(false);
+    expect(engine.cancel).not.toHaveBeenCalled();
+  });
+
+  it("cancels the engine once when engine.start() reports an error synchronously", async () => {
+    const engine = mockAsyncEngine();
+    engine.start.mockImplementation((sink) => sink.error(new Error("boom")));
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "boom" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("reports an error thrown by engine.cancel() when destroyed without an error", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy();
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "cancel failed" });
+  });
+
+  it("keeps the destroy error when engine.cancel() also throws", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    transform.destroy(new Error("destroyed"));
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "destroyed" });
+  });
+
+  it("keeps the AbortError when engine.cancel() throws for a stream constructed with an aborted signal", async () => {
+    const engine = mockAsyncEngine();
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+
+    const transform = new AsyncReplaceContentTransform(engine, {
+      signal: AbortSignal.abort()
+    });
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the engine.start() error when engine.cancel() also throws", async () => {
+    const engine = mockAsyncEngine();
+    engine.start.mockImplementation((sink) => sink.error(new Error("boom")));
+    engine.cancel.mockImplementation(() => {
+      throw new Error("cancel failed");
+    });
+
+    const transform = new AsyncReplaceContentTransform(engine);
+
+    const [error] = await once(transform, "error");
+    expect(error).toMatchObject({ message: "boom" });
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  describe("UTF-8 decoding", () => {
+    it.each([
+      { text: "héllo", splitAt: 2 },
+      { text: "a😀b", splitAt: 2 },
+      { text: "a😀b", splitAt: 3 },
+      { text: "a😀b", splitAt: 4 }
+    ])(
+      "keeps a multi-byte character intact when a Buffer chunk boundary falls inside it ($text split at byte $splitAt)",
+      async ({ text, splitAt }) => {
+        const engine = mockAsyncEngine();
+        const transform = new AsyncReplaceContentTransform(engine);
+        const bytes = Buffer.from(text);
+
+        transform.write(bytes.subarray(0, splitAt));
+        transform.write(bytes.subarray(splitAt));
+        await new Promise((resolve) => transform.end(resolve));
+
+        expect(textWrittenTo(engine)).toBe(text);
+      }
+    );
+
+    it("writes an incomplete trailing sequence to the engine as U+FFFD before engine.end, so no bytes are dropped at the end of the stream", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+
+      transform.write(Buffer.from([0x61, 0xe2, 0x82]));
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(textWrittenTo(engine)).toBe("a\uFFFD");
+      expect(engine.write.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        engine.end.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("waits for the engine to accept the trailing sequence before calling engine.end", async () => {
+      const engine = mockAsyncEngine();
+      const trailingSequenceWrite = deferred<void>();
+      engine.write
+        .mockResolvedValueOnce(undefined)
+        .mockReturnValueOnce(trailingSequenceWrite.promise);
+      const transform = new AsyncReplaceContentTransform(engine);
+
+      transform.write(Buffer.from([0x61, 0xe2, 0x82]));
+      const finished = new Promise((resolve) => transform.end(resolve));
+      await vi.waitFor(() => expect(engine.write).toHaveBeenCalledTimes(2));
+      expect(engine.end).not.toHaveBeenCalled();
+
+      trailingSequenceWrite.resolve();
+      await finished;
+      expect(engine.end).toHaveBeenCalledOnce();
+    });
+
+    it("does not write to the engine on flush when no bytes are pending", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+
+      transform.write(Buffer.from("abc"));
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("abc");
+    });
+
+    it("passes string chunks to the engine unchanged when decodeStrings is false, whatever the write() encoding", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine, {
+        decodeStrings: false
+      });
+
+      transform.write("hé", "latin1");
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(textWrittenTo(engine)).toBe("hé");
+    });
+
+    it("decodes a dangling partial sequence as U+FFFD ahead of a following string chunk, preserving order when decodeStrings is false", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine, {
+        decodeStrings: false
+      });
+
+      transform.write(Buffer.from([0xc3]));
+      transform.write("x");
+      await new Promise((resolve) => transform.end(resolve));
+
+      expect(textWrittenTo(engine)).toBe("\uFFFDx");
+    });
+  });
+
+  describe("UTF-8 encoding", () => {
+    it("pushes a surrogate pair split across two enqueued chunks as one character", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const sink = startedSinkOf(engine);
+
+      sink.enqueue("a\uD83D");
+      sink.enqueue("\uDE00b");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs).toEqual(["a", "😀b"]);
+    });
+
+    it("completes a held surrogate pair with a chunk the engine enqueues during end", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const sink = startedSinkOf(engine);
+      engine.end.mockImplementation(async () => sink.enqueue("\uDE00b"));
+
+      sink.enqueue("a\uD83D");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs).toEqual(["a", "😀b"]);
+    });
+
+    it("pushes a high surrogate still held at the end of the stream as U+FFFD, so no output is dropped", async () => {
+      const engine = mockAsyncEngine();
+      const transform = new AsyncReplaceContentTransform(engine);
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+      const sink = startedSinkOf(engine);
+
+      sink.enqueue("a\uD83D");
+      transform.end();
+      await finished(writable);
+
+      expect(outputs.join("")).toBe("a\uFFFD");
+    });
   });
 });

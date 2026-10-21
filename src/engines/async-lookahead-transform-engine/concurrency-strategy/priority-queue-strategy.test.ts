@@ -1,10 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { setImmediate } from "node:timers/promises";
 import { PriorityQueueStrategy } from "./priority-queue-strategy.ts";
 import { breadthFirst, streamOrder } from "./node-comparators.ts";
-import {
-  createIterableSlotNode,
-  settleMicrotasks
-} from "../../../../test/utilities.ts";
+import { createIterableSlotNode } from "../../../../test/utilities.ts";
 
 describe("PriorityQueueStrategy", () => {
   it("rejects concurrency < 1", () => {
@@ -31,7 +29,7 @@ describe("PriorityQueueStrategy", () => {
         return release;
       });
 
-    await settleMicrotasks(3);
+    await setImmediate();
     expect(thirdAcquired).toBe(false);
 
     releaseA();
@@ -101,7 +99,7 @@ describe("PriorityQueueStrategy", () => {
       .acquire(createIterableSlotNode(2, null))
       .then(() => (extraAcquired = true));
 
-    await settleMicrotasks(3);
+    await setImmediate();
     expect(extraAcquired).toBe(false);
     next();
   });

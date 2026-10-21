@@ -21,7 +21,7 @@ Every shape declares which one it exercises, and the timing run groups by it, so
 | Behaviour | What the scan does | Buffering |
 |---|---|---|
 | `settles` | The match completes before the end of the chunk, so it is emitted at once; a match ending exactly on the chunk edge is held like any other | bounded by a match ending on the chunk edge |
-| `defers` | The candidate reaches the end of the haystack, so more input could change it; it is held until the next chunk or `flush` resolves it. On a backreference or lookahead pattern a candidate ending earlier defers too when `hitEnd()` reports the partial regex read to the end — a lookahead counts, since what it inspects reaches past the matched text | bounded by the pending match |
+| `defers` | The candidate reaches the end of the haystack, so more input could change it; it is held until the next chunk or the end of the stream resolves it. On a backreference or lookahead pattern a candidate ending earlier defers too when `hitEnd()` reports the partial regex read to the end — a lookahead counts, since what it inspects reaches past the matched text | bounded by the pending match |
 | `buffers-to-end` | Nothing can stop the match growing, so the buffer runs to the end of the stream | whole stream |
 | `no-match` | Nothing viable anywhere — one partial `exec` per scan position | none |
 
@@ -47,12 +47,12 @@ Roughly 4x per doubling: a pattern with no terminator its own body cannot consum
 
 ## The report
 
-[`report.ts`](./report.ts) is the deterministic companion to the timing run: peak buffer per shape, how many matches settled at a boundary versus at `flush`, and whether the streamed result still agrees with a non-streaming `matchAll` over the same input. No timing, so it can be diffed between branches directly.
+[`report.ts`](./report.ts) is the deterministic companion to the timing run: peak buffer per shape, how many matches settled at a boundary versus at `settle`, and whether the streamed result still agrees with a non-streaming `matchAll` over the same input. No timing, so it can be diffed between branches directly.
 
 Zero-length matches are excluded from the reference count — the strategy skips them by design, passing the position through as ordinary non-match content.
 
 ```
-shape                                            boundary        chunks  matches  flush   ref  peak buf  % held
+shape                                            boundary        chunks  matches settle   ref  peak buf  % held
 terminator — /\{\{[^{}]*\}\}/ over a template    settles             24       60      0    60         8     0.5
 eager class — /[A-Z]+/ over prose                defers              25       60      0    60         8     0.5
 no terminator — /\S+/ over unbroken text         buffers-to-end      24        0      1     1      1500   100.0

@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING:** `SearchStrategy.flush(state)` returns a `Generator<MatchResult<TMatch>, void, undefined>` rather than a `string`, so a match deferred at the final chunk boundary can still settle as a match. There is a [migration report](../codemods/reports/v3-v4/README.md)
-- **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or `flush`, so tests asserting over chunked output may change
+- **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change
+- Once `stopReplacingSignal` aborts, engines stop searching at the next match instead of rendering every later match verbatim. That match, the rest of its chunk and anything the search strategy holds are emitted as one chunk, unsettled, so the output text is unchanged but arrives in fewer, larger chunks
 - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
 - Updated `regex-partial-match` to `^2.1.0` (for `hitEnd()`, `features()` and `isPartialMatchRegExp()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
@@ -22,15 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed cancellation during a pending iterator read so `end()` does not wait for that read to settle; cancellation propagates to active nested child engines
 - Fixed `AsyncLookaheadTransformEngine` `cancel()` and `end()` hanging when an abandoned replacement never settles or never yields its first item. The slot's concurrency permit is released straight away, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`
 - Fixed a child engine retaining its concurrency permit when reading a nested source fails
+- Documented that engines should only be driven by an adapter. See [Engines](../README.md#-engines)
+- Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting a multi-byte UTF-8 character split across `Buffer` chunks: each half was decoded on its own as U+FFFD. See [Node Transform](../README.md#node-transform)
+- Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting an astral character, such as an emoji, when an output chunk ends between the two halves of its surrogate pair (e.g. a match for `/a./` in `"a😀"`): each half was encoded on its own as U+FFFD. A trailing high surrogate is now held back until the next chunk, as `TextEncoderStream` does
+- Fixed a skipped zero-length regex match (e.g. from `/a*/`) splitting an astral character such as an emoji into two output chunks. The skip now advances by one code point. See [Zero-length matches](../src/search-strategies/regex/README.md#️-zero-length-matches)
+- Documented that `TextEncoderStream` is slow on Node 22, Node 24 before 24.21.0 and Node 26 before 26.8.0, with a `TextEncoder` alternative that keeps surrogate pairs split across output chunks intact. See [WHATWG Transformers](../README.md#whatwg-transformers)
 - Fixed streamed regex match metadata: `index` and `indices` now use stream-relative offsets, and the unreliable chunk-local `input` property is omitted
 - Fixed `BalancedPairSearchStrategy` dropping text after a nested match when a chunk ends inside the outer pair, e.g. `"(((a)b)"` followed by `" tail"` lost `" tail"`
 - Fixed chunk-dependent matches in the regex search strategy: premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
 - Fixed lookahead confirmation in the regex search strategy: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
-- Fixed `flush()` stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
+- Fixed the regex end-of-stream settle stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
 - Fixed `AsyncLookaheadTransformEngine` leaking concurrency slots after an error or `cancel()`, which could stall later replacements or hang `write()`
-- Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at `flush`, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
+- Fixed `AsyncReplaceContentTransform` not calling `engine.cancel()` when the stream is destroyed before it ends, so `AsyncLookaheadTransformEngine` kept consuming scheduled replacements after a client disconnected or a `pipeline()` failed
+- Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at the end of the stream, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
 - Documented that input must be decoded with a `TextDecoder`/`TextDecoderStream` so surrogate pairs are never split. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks)
 - Removed regex strategy tests that should have gone with [3.0.0](#300---2026-07-28)
+- Fixed engine tests that waited a fixed number of microtasks: a "not yet" check that couldn't fail, a `cancel()` test that missed the check it is named for, and 11 waits that did nothing. Tests that need to wait now use `setImmediate()`
 - Fixed `LoopedIndexOfAnchoredSearchStrategy` and `BalancedPairSearchStrategy` re-scanning anchors already consumed when a chunk boundary falls mid-match, which could match the wrong text
 - Fixed benchmarking `looped-indexOf-cancellable` and `regex-callback` enqueuing empty chunks
 - Fixed some nits in `docs/CONTRIBUTING.md`
@@ -39,8 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `LeanRegexSearchStrategy`, which takes a `PartialMatchRegExp` built from `regex-partial-match/core` (or `withModules()`) so a bundle leaves out the full class, about 3.1 kB gzipped. `RegexSearchStrategy` is unchanged for callers. See [Lean Bundles](../src/search-strategies/regex/README.md#lean-bundles)
 - Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
-- Tests for engine cancellation and for settling a deferred match on abort
-- `codemods/reports/v3-v4`: a [migration report](../codemods/reports/v3-v4/README.md) for `flush` implementations and call sites, which edits no files
+- Tests for engine cancellation, and for flushing rather than settling on abort
+- `SearchStrategy.settle(state)`, optional, which decides what a strategy still holds once no further input can arrive, so a match deferred at the final chunk boundary can still be reported as a match. Engines call it at the end of the stream in place of `flush`, unless `stopReplacingSignal` has aborted. `RegexSearchStrategy` and `LeanRegexSearchStrategy` implement it. See [Search Strategies](../README.md#-search-strategies)
 - `SearchStrategy`, `MatchResult` and `StreamIndices` are exported from the package root
 - `RegexSearchStrategy` options `maxBufferLength` (ceiling on held-back content, default `Infinity`), `onGuardExceeded` (called with the `streamIndices` of the span settled early when the ceiling is exceeded), `minCandidateLengthToBackOff` (default `1024`) and `bufferGrowthFactorBetweenEvaluations` (default `2`). See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 

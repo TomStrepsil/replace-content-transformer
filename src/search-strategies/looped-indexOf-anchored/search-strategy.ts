@@ -100,11 +100,9 @@ export class LoopedIndexOfAnchoredSearchStrategy
     }
   }
 
-  *flush(
-    state: LoopedIndexOfAnchoredSearchState
-  ): Generator<MatchResult, void, undefined> {
+  flush(state: LoopedIndexOfAnchoredSearchState): string {
     state.currentNeedleIndex = 0;
     state.matchConsumedLength = 0;
-    yield* super.flush(state);
+    return super.flush(state);
   }
 }

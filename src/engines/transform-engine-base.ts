@@ -3,13 +3,14 @@ import type {
   SearchStrategy
 } from "../search-strategies/types.ts";
 import type { EngineSink } from "./types.ts";
+import settleOrFlush from "../search-strategies/settle-or-flush.ts";
 
 /**
  * Abstract base for all transform engines.
  *
  * Holds the shared state (`searchStrategy`, `state`, `sink`, `matchIndex`) and
- * provides `start` plus the abort-flush helper used by the sync and
- * async-serial engines.
+ * provides `start` plus the helpers for settling at the end of the stream and
+ * for emitting what a strategy holds once `stopReplacingSignal` has aborted.
  *
  * `end()` is abstract: each engine routes settled results through its own
  * replacement path.
@@ -23,8 +24,6 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _state: TState;
   protected _sink!: EngineSink;
   protected _matchIndex = 0;
-
-  #didFlushAfterAbort = false;
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
@@ -41,8 +40,8 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
 
   abstract end(): void | Promise<void>;
 
-  protected _flush(): Iterable<MatchResult<TMatch>> {
-    return this._searchStrategy.flush(this._state);
+  protected _settle(): Iterable<MatchResult<TMatch>> {
+    return settleOrFlush(this._searchStrategy, this._state);
   }
 
   protected _renderVerbatim(result: MatchResult<TMatch>): string {
@@ -51,12 +50,12 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
       : result.content;
   }
 
-  protected _flushAfterAbortIfNeeded(): void {
-    if (this.#didFlushAfterAbort) return;
-    this.#didFlushAfterAbort = true;
-    for (const result of this._flush()) {
-      const tail = this._renderVerbatim(result);
-      if (tail) this._sink.enqueue(tail);
-    }
+  protected _takeHeld(before = ""): string {
+    return before + this._searchStrategy.flush(this._state);
+  }
+
+  protected _enqueueHeld(before = ""): void {
+    const held = this._takeHeld(before);
+    if (held) this._sink.enqueue(held);
   }
 }

@@ -28,7 +28,10 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
   /**
    * When aborted, the engine stops calling the replacement function and
    * passes remaining input through verbatim, flushing any buffered partial
-   * match first. Available symmetrically on both Node and web adapters.
+   * match first. It stops searching too, at the next match it finds: that
+   * match, the rest of the current chunk and what the strategy holds are
+   * emitted verbatim as one chunk. Available
+   * symmetrically on both Node and web adapters.
    */
   stopReplacingSignal?: AbortSignal;
 }
@@ -64,7 +67,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
     if (this.#cancelled) return;
 
     if (this._stopReplacingSignal?.aborted) {
-      this._flushAfterAbortIfNeeded();
+      this._enqueueHeld();
       this._sink.enqueue(chunk);
       return;
     }
@@ -74,11 +77,16 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
 
   override async end(): Promise<void> {
     if (this.#cancelled) return;
-    await this.#emit(this._flush());
+    if (this._stopReplacingSignal?.aborted) {
+      this._enqueueHeld();
+      return;
+    }
+    await this.#emit(this._settle());
   }
 
   async #emit(results: Iterable<MatchResult<TMatch>>): Promise<void> {
     const sink = this._sink;
+    let stoppedAt: string | undefined;
 
     for (const result of results) {
       if (this.#cancelled) return;
@@ -89,8 +97,8 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
       }
 
       if (this._stopReplacingSignal?.aborted) {
-        sink.enqueue(this._renderVerbatim(result));
-        continue;
+        stoppedAt = this._renderVerbatim(result);
+        break;
       }
 
       const ctx: ReplacementContext = {
@@ -111,6 +119,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         }
       }
     }
+    if (stoppedAt !== undefined) this._enqueueHeld(stoppedAt);
   }
 
   cancel(): void {

@@ -32,16 +32,19 @@ export class ReplaceContentTransform extends TransformBase<void> {
   }
 
   override _transform(
-    chunk: Buffer,
+    chunk: Buffer | string,
     _encoding: string,
     callback: TransformCallback
   ): void {
-    this.#engine.write(chunk.toString());
+    this.#engine.write(this._decode(chunk));
     callback();
   }
 
   override _flush(callback: TransformCallback): void {
+    const remainder = this._decodeRemainder();
+    if (remainder) this.#engine.write(remainder);
     this.#engine.end();
+    this._pushHeldHighSurrogate();
     callback();
   }
 }

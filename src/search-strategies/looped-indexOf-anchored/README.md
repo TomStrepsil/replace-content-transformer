@@ -185,7 +185,7 @@ type LoopedIndexOfAnchoredSearchState = {
 - **First needle not found + partial match:** Buffer only the partial match suffix
 - **Mid-sequence:** Buffer from first needle onwards until all needles found
 - **Complete match:** Reset `currentNeedleIndex` to 0, clear buffer
-- **Cancel:** if consuming processor breaks iteration, remainder of current chunk pushed to flush buffer
+- **Cancel:** if consuming processor breaks iteration, remainder of current chunk pushed to flush buffer. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit this buffer as one chunk
 - **Flush:** Returns and clears any buffered content
 
 ## Performance Characteristics

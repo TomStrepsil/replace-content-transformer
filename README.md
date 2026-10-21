@@ -86,6 +86,35 @@ const replacedStream = readableStream
 > [!NOTE]
 > String chunks must come from a `TextDecoder`/`TextDecoderStream`, so a surrogate pair is never split across chunks. See [Surrogate pairs split across chunks](./src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
 
+> [!TIP]
+> On Node 22, on Node 24 before 24.21.0 and on Node 26 before 26.8.0, `TextEncoderStream` is slow: it costs about 5–10 ms per MB, often more than the replacement itself ([nodejs/node#65414](https://github.com/nodejs/node/pull/65414)). Upgrade, or encode with a `TextEncoder` in a `TransformStream` that, like `TextEncoderStream`, holds a trailing high surrogate back until the next chunk:
+>
+> ```typescript
+> function utf8EncoderStream() {
+>   const encoder = new TextEncoder();
+>   let pending = "";
+>   return new TransformStream<string, Uint8Array>({
+>     transform(chunk, controller) {
+>       const text = pending + chunk;
+>       const last = text.charCodeAt(text.length - 1);
+>       const splitsPair = last >= 0xd800 && last <= 0xdbff;
+>       pending = splitsPair ? text.slice(-1) : "";
+>       controller.enqueue(encoder.encode(splitsPair ? text.slice(0, -1) : text));
+>     },
+>     flush(controller) {
+>       if (pending) controller.enqueue(encoder.encode(pending));
+>     }
+>   });
+> }
+>
+> const replacedStream = readableStream
+>   .pipeThrough(new TextDecoderStream())
+>   .pipeThrough(new TransformStream(transformer))
+>   .pipeThrough(utf8EncoderStream());
+> ```
+>
+> Calling `encoder.encode(chunk)` on each chunk on its own is not enough: an output chunk can end part-way through a surrogate pair, e.g. a match for `/a./` (no `u` flag) in `"a😀"` is `"a"` plus the first half of the emoji, and each half on its own encodes to U+FFFD.
+
 ### 👨‍🍳 Recipes
 
 #### Single Static String Replacement
@@ -428,7 +457,7 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
 
 > [!CAUTION]
-> **Encoding**: these adapters assume UTF-8 input. Node's default `decodeStrings: true` behaviour re-encodes any string written to the writable side as a UTF-8 `Buffer`; non-UTF-8 byte streams will be mis-decoded silently.
+> **Encoding**: these adapters decode `Buffer` input as UTF-8, keeping a multi-byte character intact across chunk boundaries. Non-UTF-8 byte streams will be mis-decoded silently: decode upstream with a [`TextDecoder`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder) for the source charset (calling `decode(chunk, { stream: true })` per chunk) and write strings with `decodeStrings: false`. Output is always UTF-8, with a surrogate pair split across output chunks encoded as one character; to re-encode it to a legacy charset, use a library such as [`iconv-lite`](https://www.npmjs.com/package/iconv-lite), since `TextEncoder` only produces UTF-8. A string written with Node's default `decodeStrings: true` is converted to a `Buffer` using the encoding passed to `write()` (or `defaultEncoding`) and then decoded as UTF-8; with `decodeStrings: false`, string chunks reach the engine unchanged.
 
 `AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
 
@@ -499,7 +528,9 @@ interface SearchStrategy<TState, TMatch = string> {
     haystack: string,
     state: TState
   ): Generator<MatchResult<TMatch>, void, undefined>;
-  flush(state: TState): Generator<MatchResult<TMatch>, void, undefined>;
+  flush(state: TState): string;
+  settle?(state: TState): Iterable<MatchResult<TMatch>>;
+  matchToString(match: TMatch): string;
 }
 ```
 
@@ -507,7 +538,13 @@ The `TState` type is specific to the strategy, managed by the consuming engine /
 
 The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data, including capture groups and stream-relative indices. Regex matches use the exported `StreamRegexMatch` type, which omits `RegExpExecArray.input`: that property identifies one scan buffer rather than the complete stream.
 
-The `flush` is called by the engine once no further input can arrive, to settle anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. Strategies with nothing to settle yield their buffer as a single non-match result. This also re-sets the provided state parameter for re-use.
+The `flush` returns anything the strategy is still holding as raw text, without searching it, and re-sets the provided state parameter for re-use. The engine calls it at the end of the stream when the strategy has no `settle`, and once `stopReplacingSignal` has aborted.
+
+The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
+
+An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching at the next match rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it. The built-in strategies do this from the `finally` blocks of their generators.
+
+The `matchToString` converts a match back to the raw matched text, for a match emitted verbatim.
 
 > [!NOTE]
 > The `streamIndices` property contains absolute character offsets into the stream passed to the engine as `[startIndex, endIndex]`, thus not chunk-relative.
@@ -593,6 +630,9 @@ interface AsyncTransformEngine {
 }
 ```
 
+> [!CAUTION]
+> Engines should only be driven by an adapter. Adapters call `write()` and `end()` one at a time, which keeps output in order and buffered text intact.
+
 There are three concrete engines:
 
 - **`SyncReplacementTransformEngine`** — synchronous replacement. `replacement` can be a plain `string` for static replacement, or a function returning `string | Iterable<string>` for functional and iterable use-cases
@@ -617,7 +657,12 @@ write(chunk: string) {
   this.#emit(this.searchStrategy.processChunk(chunk, this.searchState));
 }
 end() {
-  this.#emit(this.searchStrategy.flush(this.searchState));
+  if (this.searchStrategy.settle) {
+    this.#emit(this.searchStrategy.settle(this.searchState));
+  } else {
+    const held = this.searchStrategy.flush(this.searchState);
+    if (held) sink.enqueue(held);
+  }
 }
 ```
 
@@ -626,7 +671,7 @@ end() {
 - **Lazy evaluation** - Output is produced only when deemed consumable
 - **Memory efficient** - No need to accumulate entire result
 - **[Backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) support** - Downstream can control the flow rate
-- **Cancellable** - Consumer can abort matching mid-chunk
+- **Cancellable** - Consumer can stop matching mid-chunk, e.g. once `stopReplacingSignal` aborts
 - **Composition** - Easily chain with iterables, async iterables, or streams
 
 ## 🔧 Development
@@ -703,7 +748,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 
 ### ✅ Fully Supported Runtimes
 
-- **Node.js** 22.0.0+
+- **Node.js** 22.0.0+ (`TextEncoderStream` is much faster from 24.21.0 and 26.8.0; see [WHATWG Transformers](#whatwg-transformers))
 - **Bun** 1.0+
 - **Deno** 1.38+
 - **Browsers:**

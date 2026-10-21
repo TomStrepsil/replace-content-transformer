@@ -31,6 +31,8 @@ export interface TransformEngine<T> {
  * A synchronous transform engine. Adapters call {@link start} once, then
  * feed chunks via {@link write}, and signal end-of-stream via {@link end}.
  * All output is pushed synchronously to the sink supplied in {@link start}.
+ * Adapters call {@link write} and {@link end} one at a time, which keeps
+ * output in order; an engine should not be driven otherwise.
  */
 export interface SyncTransformEngine extends TransformEngine<void> {
   /** Process one chunk synchronously, pushing output to the sink. */
@@ -43,13 +45,15 @@ export interface SyncTransformEngine extends TransformEngine<void> {
  * An asynchronous transform engine. Adapters call {@link start} once, then
  * feed chunks via {@link write}, and signal end-of-stream via {@link end}.
  * The returned Promises provide backpressure: the adapter should await each
- * call before proceeding.
+ * call before proceeding. Adapters call {@link write} and {@link end} one at
+ * a time, which keeps output in order; an engine should not be driven
+ * otherwise.
  */
 export interface AsyncTransformEngine extends TransformEngine<Promise<void>> {
   /** Process one chunk, pushing output to the sink. May be awaited for backpressure. */
   write(chunk: string): Promise<void>;
   /** Flush any buffered tail from the search strategy to the sink. */
   end(): void | Promise<void>;
-  /** Optional: called by the adapter when the readable side is cancelled, to stop in-flight work. */
+  /** Optional: called by the adapter when the stream is cancelled or destroyed before it ends, to stop in-flight work. */
   cancel?(): void;
 }

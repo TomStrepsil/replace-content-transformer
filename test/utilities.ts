@@ -177,24 +177,6 @@ function deferred<T>(): PromiseWithResolvers<T> {
   return Promise.withResolvers<T>();
 }
 
-/** Flush `times` rounds of microtasks — lets scheduled dispatches settle. */
-async function settleMicrotasks(times = 2): Promise<void> {
-  for (let i = 0; i < times; i++) await Promise.resolve();
-}
-
-/**
- * A `flush()` implementation for mocked strategies: yields each non-empty text
- * as one non-match result, matching the generator signature `SearchStrategy`
- * requires.
- */
-function flushesText<TMatch = string>(...contents: string[]) {
-  return function* (): Generator<MatchResult<TMatch>, void, undefined> {
-    for (const content of contents) {
-      if (content) yield { isMatch: false, content };
-    }
-  };
-}
-
 function mockSearchStrategyFactory<TMatch = string>(
   ...results: MatchResult<TMatch>[]
 ): Mocked<SearchStrategy<object, TMatch>> {
@@ -205,9 +187,61 @@ function mockSearchStrategyFactory<TMatch = string>(
         yield result;
       }
     }),
-    flush: vi.fn().mockImplementation(flushesText<TMatch>()),
+    flush: vi.fn().mockReturnValue(""),
     matchToString: vi.fn().mockImplementation((match: TMatch) => String(match))
   };
+}
+
+/**
+ * A mock strategy whose `processChunk` and `settle` yield `chunk` and `settled`, and
+ * which keeps to the stop-early contract: when a caller stops either iteration part-way,
+ * it holds `rest` for `flush` to return. `pulled` counts the results the caller took.
+ */
+function mockStoppableSearchStrategy<TMatch = string>({
+  chunk = [],
+  settled = [],
+  rest
+}: {
+  chunk?: MatchResult<TMatch>[];
+  settled?: MatchResult<TMatch>[];
+  rest: string;
+}) {
+  const strategy = mockSearchStrategyFactory<TMatch>();
+  const counts = { pulled: 0 };
+  let held = "";
+  function* yieldUnlessStopped(
+    results: MatchResult<TMatch>[]
+  ): Generator<MatchResult<TMatch>, void, undefined> {
+    let finished = false;
+    try {
+      for (const result of results) {
+        counts.pulled++;
+        yield result;
+      }
+      finished = true;
+    } finally {
+      if (!finished) held = rest;
+    }
+  }
+  strategy.processChunk.mockImplementation(() => yieldUnlessStopped(chunk));
+  strategy.settle = vi.fn(() => yieldUnlessStopped(settled));
+  strategy.flush.mockImplementation(() => {
+    const flushed = held;
+    held = "";
+    return flushed;
+  });
+  return { strategy, counts };
+}
+
+/**
+ * A replacement mock that aborts `controller` on its first call, and returns a fresh
+ * `result()` on every call.
+ */
+function abortingOnFirstCall<T>(controller: AbortController, result: () => T) {
+  return vi.fn(() => {
+    if (!controller.signal.aborted) controller.abort();
+    return result();
+  });
 }
 
 function mockTransformStreamDefaultControllerFactory<T = string>(
@@ -267,7 +301,19 @@ function mockAsyncEngine() {
       .mockResolvedValue(undefined),
     end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     cancel: vi.fn<() => void>()
-  } satisfies AsyncTransformEngine & { cancel: () => void };
+  } satisfies AsyncTransformEngine;
+}
+
+function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
+  return engine.write.mock.calls.map(([chunk]) => chunk).join("");
+}
+
+function startedSinkOf(engine: {
+  start: { mock: { lastCall: [EngineSink] | undefined } };
+}): EngineSink {
+  const lastCall = engine.start.mock.lastCall;
+  if (!lastCall) throw new Error("engine.start has not been called");
+  return lastCall[0];
 }
 
 export type { CanonicalSegment } from "./search-strategy-results.ts";
@@ -275,12 +321,12 @@ export type { CanonicalSegment } from "./search-strategy-results.ts";
 export {
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
-  flushToString,
+  collectStoppedSearchStrategyResults,
   regexMatchDetailsOf
 } from "./search-strategy-results.ts";
 
 export {
-  flushesText,
+  abortingOnFirstCall,
   collectEngineSink,
   collectWritable,
   asyncIterable,
@@ -288,9 +334,11 @@ export {
   deferred,
   mockAsyncEngine,
   mockSearchStrategyFactory,
+  mockStoppableSearchStrategy,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
-  settleMicrotasks,
   startTestHttpServer,
-  streamToString
+  startedSinkOf,
+  streamToString,
+  textWrittenTo
 };

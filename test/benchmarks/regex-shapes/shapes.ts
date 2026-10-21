@@ -16,7 +16,7 @@
  *   emitted at once. A match that happens to end exactly on the chunk edge is
  *   held like any other (see `defers`).
  * - `defers` — the candidate reaches the end of the haystack, so more input
- *   could change it and it is held until the next chunk (or `flush`) resolves
+ *   could change it and it is held until the next chunk (or `settle`) resolves
  *   it. On a backreference or lookahead pattern a candidate that ends earlier
  *   defers too when `hitEnd()` says the partial regex read to the end, since
  *   what a lookahead inspects reaches past the matched text. Buffering is
@@ -162,7 +162,7 @@ export const shapes: ContentShape[] = [
   {
     name: "boundary-aligned — /END/ over matches ending on chunk edges",
     description:
-      "Every chunk ends with a complete, exact-length match that nothing can extend. A match reaching the end of the haystack is always held until the next chunk, because `flush` can settle it with the original pattern, so every one of these defers and is emitted with the following chunk. Isolates the cost of that deferral.",
+      "Every chunk ends with a complete, exact-length match that nothing can extend. A match reaching the end of the haystack is always held until the next chunk, because `settle` can decide it with the original pattern, so every one of these defers and is emitted with the following chunk. Isolates the cost of that deferral.",
     boundary: "defers",
     pattern: /END/,
     content: boundaryAligned,

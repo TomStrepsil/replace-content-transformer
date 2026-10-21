@@ -112,11 +112,11 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stream teardown
 
-`AsyncReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
+`AsyncReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. `AsyncReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
-When aborted, the **scanner** stops calling `replacement()`. Matches discovered after the signal fires are emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring); any partial match the search strategy had buffered is flushed first so output stays in order. Replacements that were already scheduled before the signal fired run to completion unaffected.
+When aborted, the **scanner** stops calling `replacement()` and stops searching at the next match it finds. That match is emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring), together with the rest of the current chunk and whatever the strategy holds, as one chunk, and later chunks pass through unchanged. Replacements that were already scheduled before the signal fired run to completion unaffected.
 
 ```typescript
 const abortController = new AbortController();
@@ -132,7 +132,7 @@ const engine = new AsyncLookaheadTransformEngine({
 
 When aborted, **both the scanner and the drain loop** switch mode:
 
-- **Scanner** — stops calling `replacement()`, the same as `stopReplacingSignal`. Matches discovered after the signal fires are emitted verbatim via `SearchStrategy.matchToString`; any buffered partial match is flushed first.
+- **Scanner** — stops calling `replacement()` and stops searching, the same as `stopReplacingSignal`. The next match it finds is emitted verbatim via `SearchStrategy.matchToString`, and the rest of the input passes through as raw text.
 - **Drain loop, queued slot** — the replacement function has returned but the drain loop hasn't started consuming its output yet. The iterable is closed immediately and the raw matched text is emitted in its place.
 - **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
 
