@@ -451,7 +451,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       try {
         for await (const chunk of source) {
           await child.write(chunk);
-          if (this.#cancelled) break;
+          if (this.#cancelled || childErr !== null) break;
         }
         await child.end();
       } catch (err) {

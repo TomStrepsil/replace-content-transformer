@@ -1755,6 +1755,34 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(pulls).toBe(pullsBeforeCancel);
     });
 
+    it("does not pull a nested source again after its child engine fails during a write", async () => {
+      let pulls = 0;
+      const source = (async function* () {
+        for (;;) {
+          pulls++;
+          yield "x";
+        }
+      })();
+      const childReplacement = deferred<AsyncIterable<string>>();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchEveryChunk(),
+        replacement: async (_match, { depth }) =>
+          depth === 0 ? nested(source) : childReplacement.promise,
+        concurrencyStrategy: new SemaphoreStrategy(8),
+        highWaterMark: 1
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("outer");
+      await setImmediate();
+      const pullsBeforeFailure = pulls;
+
+      childReplacement.reject(new Error("child failed"));
+      await expect(engine.end()).rejects.toThrow("child failed");
+      await setImmediate();
+
+      expect(pulls).toBe(pullsBeforeFailure);
+    });
+
     it("cancels a child engine when reading its nested source fails", async () => {
       const strategy = {
         createState: vi.fn().mockReturnValue({}),
