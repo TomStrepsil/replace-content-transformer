@@ -1136,6 +1136,41 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("first second");
     });
 
+    it.each<[string, (engine: AsyncLookaheadTransformEngine<object, string>, abandon: AbortController) => void]>([
+      ["cancel()", (engine) => engine.cancel()],
+      ["abandonPendingSignal", (_engine, abandon) => abandon.abort()]
+    ])("closes the source of a nested() replacement abandoned by %s", async (_, abandonSlot) => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const abandon = new AbortController();
+      const gate = deferred<ReturnType<typeof nested>>();
+      let sourceCancelled = false;
+      const source = new ReadableStream<string>({
+        pull(controller) {
+          controller.enqueue("nested");
+        },
+        cancel() {
+          sourceCancelled = true;
+        }
+      });
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: abandon.signal
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("M");
+
+      abandonSlot(engine, abandon);
+      await engine.end();
+      gate.resolve(nested(source));
+      await setImmediate();
+
+      expect(sourceCancelled).toBe(true);
+    });
+
     it("surfaces an error thrown while iterating the nested source", async () => {
       async function* failingSource(): AsyncGenerator<string> {
         yield "ok ";

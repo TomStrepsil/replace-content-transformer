@@ -71,8 +71,8 @@ function untilAborted<T>(
 }
 
 async function closeAbandoned(result: AsyncIterable<string> | Nested): Promise<void> {
-  if (result instanceof Nested) return;
-  const iter = result[Symbol.asyncIterator]();
+  const replacement = result instanceof Nested ? result.source : result;
+  const iter = replacement[Symbol.asyncIterator]();
   await iter.next();
   await iter.return?.();
 }
