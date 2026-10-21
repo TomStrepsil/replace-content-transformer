@@ -165,7 +165,6 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   readonly #depth: number;
   readonly #cancelAbortController: AbortController;
   readonly #abandonSignal: AbortSignal;
-  readonly #activeChildren = new Set<AsyncLookaheadTransformEngine<TState, TMatch>>();
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
@@ -211,8 +210,6 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   cancel(): void {
     this.#cancelled = true;
     this.#cancelAbortController.abort();
-    for (const child of this.#activeChildren) child.cancel();
-    this.#activeChildren.clear();
     this.#queue.close();
   }
 
@@ -434,7 +431,6 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       parent,
       this.#depth + 1
     );
-    this.#activeChildren.add(child);
     child.start({
       enqueue: (c) => {
         buffer.push(c);
@@ -448,37 +444,32 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     });
     void child.#drainDone?.catch(ignore);
 
-    const onCancel = () => wake();
-    this.#cancelAbortController.signal.addEventListener("abort", onCancel, { once: true });
+    const cancelChild = () => child.cancel();
+    this.#cancelAbortController.signal.addEventListener("abort", cancelChild, { once: true });
 
     void (async () => {
       try {
         for await (const chunk of source) {
-          if (this.#cancelled) break;
           await child.write(chunk);
+          if (this.#cancelled) break;
         }
-        if (this.#cancelled) child.cancel();
-        else await child.end();
+        await child.end();
       } catch (err) {
         child.cancel();
         childErr ??= err;
       } finally {
-        this.#activeChildren.delete(child);
-        this.#cancelAbortController.signal.removeEventListener("abort", onCancel);
+        this.#cancelAbortController.signal.removeEventListener("abort", cancelChild);
         childDone = true;
         wake();
       }
     })();
 
     while (true) {
-      if (this.#cancelled) return;
       while (buffer.length > 0) yield buffer.shift()!;
-      if (this.#cancelled) return;
       if (childErr) throw childErr;
       if (childDone) return;
       await new Promise<void>((resolve) => {
         notify = resolve;
-        if (this.#cancelled) wake();
       });
     }
   }

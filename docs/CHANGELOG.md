@@ -19,8 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed cancellation during a pending iterator read so `end()` does not wait for that read to settle; cancellation propagates to active nested child engines
-- Fixed `AsyncLookaheadTransformEngine` `cancel()` and `end()` hanging when an abandoned replacement never settles or never yields its first item. The slot's concurrency permit is released straight away, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`
+- Fixed `AsyncLookaheadTransformEngine` `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away and an abandoned replacement is closed in the background, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
 - Fixed a child engine retaining its concurrency permit when reading a nested source fails
 - Documented that engines should only be driven by an adapter. See [Engines](../README.md#-engines)
 - Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting a multi-byte UTF-8 character split across `Buffer` chunks: each half was decoded on its own as U+FFFD. See [Node Transform](../README.md#node-transform)

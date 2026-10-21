@@ -45,6 +45,22 @@ function stalledBeforeFirstItem(): AsyncIterable<string> {
   })();
 }
 
+function matchEveryChunk() {
+  return {
+    createState: vi.fn().mockReturnValue({}),
+    processChunk: vi.fn().mockImplementation(function* (chunk: string) {
+      yield { isMatch: true, content: chunk, streamIndices: [0, chunk.length] };
+    }),
+    flush: vi.fn().mockReturnValue(""),
+    matchToString: vi.fn().mockImplementation((match: string) => match)
+  };
+}
+
+async function* stalledAfterFirstItem(): AsyncGenerator<string> {
+  yield "child";
+  await never<void>();
+}
+
 async function runEngine(
   engine: AsyncLookaheadTransformEngine<object, string>,
   sink: EngineSink,
@@ -909,6 +925,89 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(fn).not.toHaveBeenCalled();
       expect(chunks).toEqual(["M"]);
     });
+
+    it("does not wait for replacements that never settle or never yield, and frees their permits", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: true, content: "B", streamIndices: [1, 2] }
+      );
+      const ac = new AbortController();
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(2);
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (match) => (match === "A" ? never() : stalledBeforeFirstItem()),
+        concurrencyStrategy,
+        abandonPendingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("AB");
+      await setImmediate();
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks).toEqual(["A", "B"]);
+      expect(held()).toBe(0);
+    });
+
+    it("runs an abandoned generator's finally once its replacement settles", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const ac = new AbortController();
+      const gate = deferred<AsyncIterable<string>>();
+      let finallyRan = false;
+      const { sink } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("M");
+      ac.abort();
+      await engine.end();
+
+      gate.resolve(
+        (async function* () {
+          try {
+            yield "R";
+          } finally {
+            finallyRan = true;
+          }
+        })()
+      );
+      await setImmediate();
+
+      expect(finallyRan).toBe(true);
+    });
+
+    it("ignores a replacement that rejects after being abandoned", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] }
+      );
+      const ac = new AbortController();
+      const gate = deferred<AsyncIterable<string>>();
+      const { sink, chunks, errors } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        abandonPendingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("M");
+      ac.abort();
+      await engine.end();
+
+      gate.reject(new Error("late"));
+      await setImmediate();
+
+      expect(chunks).toEqual(["M"]);
+      expect(errors).toEqual([]);
+    });
   });
 
   describe("nested re-scanning", () => {
@@ -1606,6 +1705,56 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(pulls).toBe(pullsAfterCancel);
     });
 
+    it("cancel() frees the permit of a nested child replacement stalled mid-stream", async () => {
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(2);
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchEveryChunk(),
+        replacement: async (_match, { depth }) =>
+          depth === 0
+            ? nested((async function* () {
+              yield "inner";
+              await never<void>();
+            })())
+            : stalledAfterFirstItem(),
+        concurrencyStrategy
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("outer");
+      await setImmediate();
+      expect(held()).toBe(1);
+
+      engine.cancel();
+      await engine.end();
+
+      expect(held()).toBe(0);
+    });
+
+    it("does not pull a nested source again after cancel() while a child write is pending", async () => {
+      let pulls = 0;
+      const source = (async function* () {
+        for (;;) {
+          pulls++;
+          yield "x";
+        }
+      })();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchEveryChunk(),
+        replacement: async (_match, { depth }) => (depth === 0 ? nested(source) : never()),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        highWaterMark: 1
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("outer");
+      await setImmediate();
+      const pullsBeforeCancel = pulls;
+
+      engine.cancel();
+      await engine.end();
+      await setImmediate();
+
+      expect(pulls).toBe(pullsBeforeCancel);
+    });
+
     it("cancels a child engine when reading its nested source fails", async () => {
       const strategy = {
         createState: vi.fn().mockReturnValue({}),
@@ -1635,6 +1784,26 @@ describe("AsyncLookaheadTransformEngine", () => {
       await expect(engine.end()).rejects.toThrow("nested source failed");
 
       expect(held()).toBe(0);
+    });
+
+    it("rejects end() with a child engine failure while its nested source is still being read", async () => {
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: matchEveryChunk(),
+        replacement: async (_match, { depth }) => {
+          if (depth > 0) throw new Error("child failed");
+          return nested((async function* () {
+            yield "a";
+            await setImmediate();
+            yield "b";
+          })());
+        },
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("outer");
+
+      await expect(engine.end()).rejects.toThrow("child failed");
+      await setImmediate();
     });
 
     it("closes a nested source when the child engine fails while writing it", async () => {
