@@ -1,4 +1,5 @@
 import PartialMatchRegExp from "regex-partial-match";
+import { isPartialMatchRegExp } from "regex-partial-match/features";
 import { LeanRegexSearchStrategy } from "./lean-search-strategy.js";
 import type { RegexSearchStrategyOptions } from "./types.js";
 
@@ -9,6 +10,12 @@ import type { RegexSearchStrategyOptions } from "./types.js";
  * most standard regex features (capture groups, positive lookaheads, character classes, etc.).
  * It correctly handles matches that span chunk boundaries by maintaining a buffer and
  * using partial match detection to avoid splitting incomplete patterns.
+ *
+ * Given a `PartialMatchRegExp`, the strategy uses it as it is, so one built with
+ * `withModules()` keeps its modules' options, such as a larger `longestPartial`
+ * for backreferences. It must come from the copy of `regex-partial-match`
+ * installed as this package's peer dependency; any other is rebuilt with the
+ * default modules.
  *
  * To leave the full `PartialMatchRegExp` class out of a bundle, use
  * {@link LeanRegexSearchStrategy} with a `PartialMatchRegExp` built from
@@ -37,6 +44,9 @@ import type { RegexSearchStrategyOptions } from "./types.js";
  */
 export class RegexSearchStrategy extends LeanRegexSearchStrategy {
   constructor(needle: RegExp, options?: RegexSearchStrategyOptions) {
-    super(new PartialMatchRegExp(needle), options);
+    super(
+      isPartialMatchRegExp(needle) ? needle : new PartialMatchRegExp(needle),
+      options
+    );
   }
 }

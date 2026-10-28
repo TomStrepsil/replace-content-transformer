@@ -5,6 +5,8 @@ import type { MatchResult } from "../types.js";
 import validateInput from "./input-validation.js";
 import optionsValidation from "./options-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
+import { withModules } from "regex-partial-match/core";
+import { backreferencesWith } from "regex-partial-match/modules/backreferences";
 import {
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
@@ -16,6 +18,10 @@ import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
 vi.mock("./input-validation.js");
 vi.mock("./options-validation.js");
+
+const WithLongerPartials = withModules(
+  backreferencesWith({ longestPartial: 256 })
+);
 
 function getValue(result: MatchResult<StreamRegexMatch>): string {
   return result.isMatch ? result.content[0] : result.content;
@@ -162,6 +168,12 @@ describe("RegexSearchStrategy", () => {
     expect(validateInput).toHaveBeenCalledWith(
       expect.objectContaining({ source: someRegex.source })
     );
+  });
+
+  it("should use a PartialMatchRegExp it is given as it is", () => {
+    const partial = new WithLongerPartials(/(\w+)-\1/);
+    new RegexSearchStrategy(partial);
+    expect(vi.mocked(validateInput).mock.lastCall?.[0]).toBe(partial);
   });
 
   describe("option validation", () => {
@@ -2061,6 +2073,68 @@ describe("RegexSearchStrategy", () => {
             { isMatch: false, text: " tail" }
           ]
         );
+      });
+    });
+
+    describe("top-level alternatives sharing a prefix", () => {
+      describeChunkInvariantCases([
+        {
+          name: "the shorter alternative first",
+          pattern: /(ab)\1|(abc)\2/,
+          haystack: "abcabc",
+          expected: [{ isMatch: true, text: "abcabc" }]
+        },
+        {
+          name: "the longer alternative first",
+          pattern: /(abc)\1|(ab)\2/,
+          haystack: "abcabc",
+          expected: [{ isMatch: true, text: "abcabc" }]
+        }
+      ]);
+    });
+
+    describe("a chunk ending far into the text a backreference repeats", () => {
+      const pattern = /(\w+)-\1/;
+      const word = "a".repeat(100);
+      const haystack = `${word}-${word}`;
+      const backreferenceStart = word.length + 1;
+
+      function splitIntoBackreference(depth: number): string[] {
+        const at = backreferenceStart + depth;
+        return [haystack.slice(0, at), haystack.slice(at)];
+      }
+
+      function segmentsOf(strategy: RegexSearchStrategy, chunks: string[]) {
+        return collectCanonicalSearchStrategyResults(strategy, chunks).segments;
+      }
+
+      it("matches as unsplit when the chunk ends 64 characters into the backreference", () => {
+        expect(
+          segmentsOf(new RegexSearchStrategy(pattern), splitIntoBackreference(64))
+        ).toEqual([{ isMatch: true, text: haystack }]);
+      });
+
+      it("matches differently when the chunk ends 65 characters into it", () => {
+        const run = "a".repeat(65);
+        expect(
+          segmentsOf(new RegexSearchStrategy(pattern), splitIntoBackreference(65))
+        ).toEqual([
+          { isMatch: false, text: "a".repeat(35) },
+          { isMatch: true, text: `${run}-${run}` },
+          { isMatch: false, text: "a".repeat(35) }
+        ]);
+      });
+
+      it("matches as unsplit at every two-way split, given a PartialMatchRegExp with a larger longestPartial", () => {
+        for (const chunks of everyTwoWaySplit(haystack)) {
+          const strategy = new RegexSearchStrategy(
+            new WithLongerPartials(pattern)
+          );
+          expect({ chunks, segments: segmentsOf(strategy, chunks) }).toEqual({
+            chunks,
+            segments: [{ isMatch: true, text: haystack }]
+          });
+        }
       });
     });
   });

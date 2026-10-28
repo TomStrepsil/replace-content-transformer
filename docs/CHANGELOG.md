@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING:** regex matches no longer depend on chunk boundaries. A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change
+- **BREAKING:** `regex-partial-match` is a peer dependency rather than a dependency, so a `PartialMatchRegExp` you build and the one this package checks for come from the same copy. npm 7+, pnpm 8+, Bun and Deno install it automatically; with Yarn, Classic or Berry, add it yourself. See [Installation](../README.md#-installation)
+- **BREAKING:** regex matches no longer depend on chunk boundaries, except where a chunk ends more than 64 characters into the text a backreference repeats. A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change.
 - Once `stopReplacingSignal` aborts, engines stop searching at the next match instead of rendering every later match verbatim. That match, the rest of its chunk and anything the search strategy holds are emitted as one chunk, unsettled, so the output text is unchanged but arrives in fewer, larger chunks
 - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - Removed per-match `yield*` delegation from `RegexSearchStrategy` and `AsyncLookaheadTransformEngine`: up to 1.9x faster on match-dense input
-- Updated `regex-partial-match` to `^2.1.0` (for `hitEnd()`, `features()` and `isPartialMatchRegExp()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, and speeds up backreference patterns about 20x
+- Updated `regex-partial-match` to `^2.2.1` (for `hitEnd()`, `features()` and `isPartialMatchRegExp()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, speeds up backreference patterns about 20x, no longer overflows V8's stack on a long run of an atom repeated by `*`, `+` or `{n,}`, and no longer drops a match where top-level alternatives with backreferences share a prefix, as `/(ab)\1|(abc)\2/` did. A backreference now matches part way only within the first 64 characters of its capture; see [Backreferences](../src/search-strategies/regex/README.md#️-backreferences) to raise that limit
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
 - The published `package.json` keeps only consumer-facing fields; `scripts`, `devDependencies`, `devEngines`, `workspaces` and git-hook config are no longer published
 
@@ -49,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for engine cancellation, and for flushing rather than settling on abort
 - `SearchStrategy.settle(state)`, optional, which decides what a strategy still holds once no further input can arrive, so a match deferred at the final chunk boundary can still be reported as a match. Engines call it at the end of the stream in place of `flush`, unless `stopReplacingSignal` has aborted. `RegexSearchStrategy` and `LeanRegexSearchStrategy` implement it. See [Search Strategies](../README.md#-search-strategies)
 - `SearchStrategy`, `MatchResult` and `StreamIndices` are exported from the package root
+- `RegexSearchStrategy` uses a `PartialMatchRegExp` it is given as it is, rather than rebuilding it with the default modules, so one built with `withModules(backreferencesWith({ longestPartial }))` keeps its limit. See [Backreferences](../src/search-strategies/regex/README.md#️-backreferences)
 - `RegexSearchStrategy` options `maxBufferLength` (ceiling on held-back content, default `Infinity`), `onGuardExceeded` (called with the `streamIndices` of the span settled early when the ceiling is exceeded), `minCandidateLengthToBackOff` (default `1024`) and `bufferGrowthFactorBetweenEvaluations` (default `2`). See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 
 ## [3.0.2] - 2026-08-27

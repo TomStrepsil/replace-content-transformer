@@ -21,7 +21,7 @@ Every shape declares which one it exercises, and the timing run groups by it, so
 | Behaviour | What the scan does | Buffering |
 |---|---|---|
 | `settles` | The match completes before the end of the chunk, so it is emitted at once; a match ending exactly on the chunk edge is held like any other | bounded by a match ending on the chunk edge |
-| `defers` | The candidate reaches the end of the haystack, so more input could change it; it is held until the next chunk or the end of the stream resolves it. On a backreference or lookahead pattern a candidate ending earlier defers too when `hitEnd()` reports the partial regex read to the end — a lookahead counts, since what it inspects reaches past the matched text | bounded by the pending match |
+| `defers` | The candidate reaches the end of the haystack, so more input could change it; it is held until the next chunk or the end of the stream resolves it. On a lookahead pattern a candidate ending earlier defers too when `hitEnd()` reports the partial regex read to the end, since what the lookahead inspects reaches past the matched text | bounded by the pending match |
 | `buffers-to-end` | Nothing can stop the match growing, so the buffer runs to the end of the stream | whole stream |
 | `no-match` | Nothing viable anywhere — one partial `exec` per scan position | none |
 
@@ -65,6 +65,6 @@ Timing on a laptop drifts over the minutes a suite takes, in one direction, so i
 
 Keep the suite identical across both worktrees, or compare only the `src/` under test, since each runs its own copy [^2]. [#27](https://github.com/TomStrepsil/replace-content-transformer/issues/27) tracks replacing this with tooling; until then, any figure quoted from this suite in a PR should say which method produced it.
 
-[^1]: Backreferences cannot use the cheap static partial regex and re-expand the captured value atom by atom; every lookahead candidate costs a second, anchored `exec` against the original pattern before it can settle; astral characters are chunked between whole characters, as a `TextDecoder` delivers them; `/END/` defers regardless of whether anything could extend it.
+[^1]: A backreference that fails reads up to 64 characters ahead before giving up; every lookahead candidate costs a second, anchored `exec` against the original pattern before it can settle; astral characters are chunked between whole characters, as a `TextDecoder` delivers them; `/END/` defers regardless of whether anything could extend it.
 
 [^2]: Otherwise a change to the shapes or the driver is measured as if it were a change to the strategy. The drift correction is also a blunt instrument: it cancels a monotonic trend, not a machine that is busy in bursts.

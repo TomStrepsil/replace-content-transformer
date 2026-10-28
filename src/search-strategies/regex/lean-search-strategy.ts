@@ -19,12 +19,6 @@ import type {
 } from "./types.js";
 import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
 
-const FEATURES_NEEDING_PROBE_BEFORE_END = [
-  "backreference",
-  "namedBackreference",
-  "lookahead"
-] as const;
-
 /**
  * The regex search strategy, taking a `PartialMatchRegExp` the consumer has
  * built rather than a `RegExp`, so that a bundle need not include the
@@ -67,7 +61,6 @@ export class LeanRegexSearchStrategy
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
-  private readonly probesCandidatesEndingBeforeHaystackEnd: boolean;
   private readonly maxBufferLength: number;
   private readonly minCandidateLengthToBackOff: number;
   private readonly bufferGrowthFactorBetweenEvaluations: number;
@@ -96,12 +89,7 @@ export class LeanRegexSearchStrategy
     this.bufferGrowthFactorBetweenEvaluations =
       bufferGrowthFactorBetweenEvaluations;
     this.onGuardExceeded = onGuardExceeded;
-    const patternFeatures = features(partialMatchRegex);
-    this.probesCandidatesEndingBeforeHaystackEnd =
-      FEATURES_NEEDING_PROBE_BEFORE_END.some((feature) =>
-        patternFeatures.has(feature)
-      );
-    this.lookaheadConfirmationRegex = patternFeatures.has("lookahead")
+    this.lookaheadConfirmationRegex = features(partialMatchRegex).has("lookahead")
       ? new RegExp(partialMatchRegex.source, `${partialMatchRegex.flags}y`)
       : null;
   }
@@ -128,11 +116,9 @@ export class LeanRegexSearchStrategy
   ): RegExpExecArray | null {
     if (candidate === null) return null;
     if (endsAtHaystackEnd(candidate, haystack)) return null;
-    if (!this.probesCandidatesEndingBeforeHaystackEnd) return candidate;
-    if (hitEnd(this.partialMatchRegex, candidate)) return null;
-
     const confirmation = this.lookaheadConfirmationRegex;
     if (confirmation === null) return candidate;
+    if (hitEnd(this.partialMatchRegex, candidate)) return null;
 
     confirmation.lastIndex = candidate.index;
     const completeMatch = confirmation.exec(haystack);

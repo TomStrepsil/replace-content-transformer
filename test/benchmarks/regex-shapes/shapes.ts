@@ -17,9 +17,9 @@
  *   held like any other (see `defers`).
  * - `defers` — the candidate reaches the end of the haystack, so more input
  *   could change it and it is held until the next chunk (or `settle`) resolves
- *   it. On a backreference or lookahead pattern a candidate that ends earlier
- *   defers too when `hitEnd()` says the partial regex read to the end, since
- *   what a lookahead inspects reaches past the matched text. Buffering is
+ *   it. On a lookahead pattern a candidate that ends earlier defers too when
+ *   `hitEnd()` says the partial regex read to the end, since what a lookahead
+ *   inspects reaches past the matched text. Buffering is
  *   bounded by the length of the pending match.
  * - `buffers-to-end` — nothing can ever stop the match growing, so the buffer
  *   runs to the end of the stream. This is the worst case the deferral buys.
@@ -126,7 +126,7 @@ export const shapes: ContentShape[] = [
   {
     name: "backreference — /(\\w+) \\1/ over repeated words",
     description:
-      "A genuine backreference cannot use the cheap static partial regex: the partial `exec` re-expands the captured value atom by atom. The most expensive scan the strategy supports.",
+      "Each backreference can run out of input part way through its capture, and one that fails reads up to 64 characters ahead before giving up. The most expensive scan the strategy supports.",
     boundary: "defers",
     pattern: /(\w+) \1/,
     content: duplicated,
