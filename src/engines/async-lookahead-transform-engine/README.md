@@ -133,7 +133,7 @@ const engine = new AsyncLookaheadTransformEngine({
 When aborted, **both the scanner and the drain loop** switch mode:
 
 - **Scanner** — stops calling `replacement()` and stops searching, the same as `stopReplacingSignal`. The next match it finds is emitted verbatim via `SearchStrategy.matchToString`, and the rest of the input passes through as raw text.
-- **Drain loop, queued slot** — the replacement function has returned but the drain loop hasn't started consuming its output yet. The iterable is closed immediately and the raw matched text is emitted in its place.
+- **Drain loop, queued slot** — the drain loop hasn't started consuming the slot's output, whether or not the replacement function has returned. The raw matched text is emitted in its place straight away and the slot's concurrency permit is released. The replacement is closed in the background once it settles, so a `finally` in a replacement generator still runs.
 - **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
 
 ```typescript
