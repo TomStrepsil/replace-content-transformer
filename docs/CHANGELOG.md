@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `AsyncLookaheadTransformEngine` `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away and an abandoned replacement is closed in the background, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
+- Fixed a child engine retaining its concurrency permit when reading a nested source fails
+- Fixed `AsyncLookaheadTransformEngine` never closing the source of an abandoned `nested()` replacement, so a source such as a `fetch` body was left open when `cancel()` or `abandonPendingSignal` abandoned its slot. It is now closed in the background, like a plain replacement
 - Documented that engines should only be driven by an adapter. See [Engines](../README.md#-engines)
 - Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting a multi-byte UTF-8 character split across `Buffer` chunks: each half was decoded on its own as U+FFFD. See [Node Transform](../README.md#node-transform)
 - Fixed `ReplaceContentTransform` and `AsyncReplaceContentTransform` corrupting an astral character, such as an emoji, when an output chunk ends between the two halves of its surrogate pair (e.g. a match for `/a./` in `"a😀"`): each half was encoded on its own as U+FFFD. A trailing high surrogate is now held back until the next chunk, as `TextEncoderStream` does
