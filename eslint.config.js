@@ -27,7 +27,8 @@ export default [
       "@typescript-eslint": tseslint
     },
     rules: {
-      ...tseslint.configs.recommended.rules
+      ...tseslint.configs.recommended.rules,
+      "no-redeclare": "off"
     }
   },
   {

@@ -594,11 +594,11 @@ If tree-shaking is not a concern, a factory method for generating a search strat
 
 ```ts
 import { searchStrategyFactory } from "replace-content-transformer";
-const searchStrategy =
-  searchStrategyFactory(input: string | string[] | RegExp, options?: BufferGuardOptions);
+searchStrategyFactory(input: RegExp, options?: RegexSearchStrategyOptions): RegexSearchStrategy;
+searchStrategyFactory(input: string | string[], options?: BufferGuardOptions): StringAnchorSearchStrategy;
 ```
 
-The `options` are [`maxBufferLength` and `onGuardExceeded`](#buffering-and-the-guard), passed to whichever strategy is built.
+The `options` are [`maxBufferLength` and `onGuardExceeded`](#buffering-and-the-guard), passed to whichever strategy is built. Given a `RegExp`, they may also include `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` (see [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers)). An input typed only as `string | string[] | RegExp` takes `BufferGuardOptions`, and returns either strategy.
 
 > [!IMPORTANT]
 > The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described below.
