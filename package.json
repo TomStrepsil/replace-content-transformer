@@ -117,8 +117,8 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
   },
-  "dependencies": {
-    "regex-partial-match": "^2.1.0"
+  "peerDependencies": {
+    "regex-partial-match": "^2.2.1"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
@@ -135,6 +135,7 @@
     "eslint-plugin-vitest-globals": "^1.6.1",
     "globals": "^17.4.0",
     "lint-staged": "^16.4.0",
+    "regex-partial-match": "^2.2.1",
     "rimraf": "^6.1.3",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^6.0.2",

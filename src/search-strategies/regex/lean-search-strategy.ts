@@ -19,11 +19,7 @@ import type {
 } from "./types.js";
 import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
 
-const FEATURES_NEEDING_PROBE_BEFORE_END = [
-  "backreference",
-  "namedBackreference",
-  "lookahead"
-] as const;
+const FEATURES_NEEDING_PROBE_BEFORE_END = ["lookahead"] as const;
 
 /**
  * The regex search strategy, taking a `PartialMatchRegExp` the consumer has

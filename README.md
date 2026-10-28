@@ -52,6 +52,12 @@ Perfect for server-side rendering, edge composition, log processing, template en
 npm install replace-content-transformer
 ```
 
+[`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/) is a peer dependency. npm 7+, pnpm 8+, Bun and Deno install it automatically. Yarn doesn't, in either Classic (1.x) or Berry (2+), so add both:
+
+```bash
+yarn add replace-content-transformer regex-partial-match
+```
+
 ## 🚀 Usage
 
 See [Design](#-design) on composable parts to import and combine.
@@ -728,7 +734,7 @@ For each pattern in a curated table, the regex search strategy is driven over **
 - **Chunk invariance** - the match sequence is identical however the input was split, and equal to the non-streaming result
 - **Lossless output** - concatenating every yield plus `flush()` reproduces the input exactly
 
-The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, a terminator the pattern's own body can consume, and lookaheads whose assertion reaches past the text the match consumes — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced.
+The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, a terminator the pattern's own body can consume, and lookaheads whose assertion reaches past the text the match consumes — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced, except where a chunk ends more than 64 characters into the text a backreference repeats (see [Backreferences](./src/search-strategies/regex/README.md#️-backreferences)).
 
 ### Functional Validation Tests
 
