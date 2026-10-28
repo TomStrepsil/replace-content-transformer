@@ -148,11 +148,11 @@ Tests use [Vitest](https://vitest.dev/) with globals enabled. CI runs the suite 
 
 Production code doesn't carry explanatory comments (see [Code Style](#-code-style)). Good naming carries most of the explanation; whatever naming can't express lives in the test that pins the behaviour down. When you add a branch, guard or edge case, write a test whose description states the behaviour and why it matters, for example:
 
-- `"resets balancedBuffer after yielding a match so subsequent matches start fresh"`
+- `"starts the next match fresh after yielding a nested one"`
 - `"flushes buffered partial content before passthrough when abort is set between chunks"`
 - `"preserves non-match tail content from a chunk that ended mid-nesting"`
 
-If you find yourself writing a comment to explain some code, first try to make the code explain itself. Pull the expression into a variable, constant or helper whose name says what it means, e.g. `const isMidMatch = state.currentNeedleIndex > 0` rather than a bare comparison with a comment beside it. Only when the logic still isn't self-documenting, typically because the *why* depends on stream behaviour the code can't show, put that extra detail in the test description. When the code changes, the test fails, so the explanation can't silently go stale the way a comment can.
+If you find yourself writing a comment to explain some code, first try to make the code explain itself. Pull the expression into a variable, constant or helper whose name says what it means, e.g. `const exceedsGuard = heldBack.length > this.guard.maxBufferLength` rather than a bare comparison with a comment beside it. Only when the logic still isn't self-documenting, typically because the *why* depends on stream behaviour the code can't show, put that extra detail in the test description. When the code changes, the test fails, so the explanation can't silently go stale the way a comment can.
 
 Group related cases under nested `describe` blocks named for the behaviour area (`"nested matches"`, `"cross-chunk processing"`, `"stream offset tracking"`). Use `it.each` / `describe.each` when the same assertion runs over a table of inputs.
 

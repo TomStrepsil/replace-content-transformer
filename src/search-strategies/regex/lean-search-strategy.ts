@@ -3,6 +3,7 @@ import type PartialMatchRegExp from "regex-partial-match";
 import features from "regex-partial-match/features";
 import hitEnd from "regex-partial-match/hitEnd";
 import { DEFAULT_OPTIONS } from "./default-options.js";
+import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
 import validateInput from "./input-validation.js";
 import validateOptions from "./options-validation.js";
 import advanceToMatch from "./advance-to-match.js";
@@ -38,9 +39,12 @@ import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
  * boundaries, the `^`/`$` anchors — or the `g`, `y` or `m` flags. See
  * [Limitations](./README.md#limitations).
  *
+ * @throws {TypeError} If `maxBufferLength`, `minCandidateLengthToBackOff` or
+ * `bufferGrowthFactorBetweenEvaluations` is not a number.
+ *
  * @throws {RangeError} If `maxBufferLength` or `minCandidateLengthToBackOff` is
- * not a number of at least 0, or `bufferGrowthFactorBetweenEvaluations` is not a
- * number of at least 1. `Infinity` is allowed; `undefined` selects the default.
+ * less than 0, `bufferGrowthFactorBetweenEvaluations` is less than 1, or either is
+ * `NaN`. `Infinity` is allowed; `undefined` selects the default.
  *
  * @example
  * ```typescript
@@ -61,34 +65,30 @@ export class LeanRegexSearchStrategy
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
-  private readonly maxBufferLength: number;
+  private readonly guard: BufferGuard;
   private readonly minCandidateLengthToBackOff: number;
   private readonly bufferGrowthFactorBetweenEvaluations: number;
-  private readonly onGuardExceeded: RegexSearchStrategyOptions["onGuardExceeded"];
 
   constructor(
     partialMatchRegex: PartialMatchRegExp,
     {
-      maxBufferLength = DEFAULT_OPTIONS.maxBufferLength,
       minCandidateLengthToBackOff = DEFAULT_OPTIONS.minCandidateLengthToBackOff,
       bufferGrowthFactorBetweenEvaluations = DEFAULT_OPTIONS.bufferGrowthFactorBetweenEvaluations,
-      onGuardExceeded
+      ...guardOptions
     }: RegexSearchStrategyOptions = {}
   ) {
     super();
+    this.guard = bufferGuard(guardOptions);
     validateOptions({
-      maxBufferLength,
       minCandidateLengthToBackOff,
       bufferGrowthFactorBetweenEvaluations
     });
     validateInput(partialMatchRegex);
     this.partialMatchRegex = partialMatchRegex;
     this.completeMatchRegex = new RegExp(partialMatchRegex.source, partialMatchRegex.flags);
-    this.maxBufferLength = maxBufferLength;
     this.minCandidateLengthToBackOff = minCandidateLengthToBackOff;
     this.bufferGrowthFactorBetweenEvaluations =
       bufferGrowthFactorBetweenEvaluations;
-    this.onGuardExceeded = onGuardExceeded;
     this.lookaheadConfirmationRegex = features(partialMatchRegex).has("lookahead")
       ? new RegExp(partialMatchRegex.source, `${partialMatchRegex.flags}y`)
       : null;
@@ -106,7 +106,7 @@ export class LeanRegexSearchStrategy
       state.evaluatedBufferLength >= this.minCandidateLengthToBackOff &&
       bufferedLength <=
         state.evaluatedBufferLength * this.bufferGrowthFactorBetweenEvaluations &&
-      bufferedLength <= this.maxBufferLength
+      bufferedLength <= this.guard.maxBufferLength
     );
   }
 
@@ -155,7 +155,7 @@ export class LeanRegexSearchStrategy
         if (settledMatch === null) {
           const heldBackFrom = cursor.reportedUpTo + matchStart;
           const heldBack = haystack.slice(heldBackFrom);
-          const exceedsGuard = heldBack.length > this.maxBufferLength;
+          const exceedsGuard = heldBack.length > this.guard.maxBufferLength;
           cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
           state.buffer = exceedsGuard ? "" : heldBack;
           state.evaluatedBufferLength = state.buffer.length;
@@ -163,7 +163,7 @@ export class LeanRegexSearchStrategy
             yield nonMatch(remainingHaystack.slice(0, matchStart));
           if (!exceedsGuard) return;
           settling = true;
-          this.onGuardExceeded?.({
+          this.guard.onGuardExceeded?.({
             streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
           });
           continue;

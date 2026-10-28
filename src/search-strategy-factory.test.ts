@@ -12,7 +12,7 @@ describe("search strategy factory", () => {
     it("creates RegexSearchStrategy", () => {
       const strategy = searchStrategyFactory(/test-regex/);
       expect(strategy).toBeInstanceOf(RegexSearchStrategy);
-      expect(RegexSearchStrategy).toHaveBeenCalledWith(/test-regex/);
+      expect(RegexSearchStrategy).toHaveBeenCalledWith(/test-regex/, undefined);
     });
   });
 
@@ -20,9 +20,10 @@ describe("search strategy factory", () => {
     it("creates StringAnchorSearchStrategy, passing the needle", () => {
       const strategy = searchStrategyFactory("test-needle");
       expect(strategy).toBeInstanceOf(StringAnchorSearchStrategy);
-      expect(StringAnchorSearchStrategy).toHaveBeenCalledWith([
-        "test-needle"
-      ]);
+      expect(StringAnchorSearchStrategy).toHaveBeenCalledWith(
+        ["test-needle"],
+        undefined
+      );
     });
   });
 
@@ -33,10 +34,27 @@ describe("search strategy factory", () => {
         "test-needle-2"
       ]);
       expect(strategy).toBeInstanceOf(StringAnchorSearchStrategy);
-      expect(StringAnchorSearchStrategy).toHaveBeenCalledWith([
-        "test-needle-1",
-        "test-needle-2"
-      ]);
+      expect(StringAnchorSearchStrategy).toHaveBeenCalledWith(
+        ["test-needle-1", "test-needle-2"],
+        undefined
+      );
+    });
+  });
+
+  describe("given options", () => {
+    const options = { maxBufferLength: 8, onGuardExceeded: () => {} };
+
+    it("passes them to RegexSearchStrategy", () => {
+      searchStrategyFactory(/test-regex/, options);
+      expect(RegexSearchStrategy).toHaveBeenLastCalledWith(/test-regex/, options);
+    });
+
+    it("passes them to StringAnchorSearchStrategy", () => {
+      searchStrategyFactory(["{{", "}}"], options);
+      expect(StringAnchorSearchStrategy).toHaveBeenLastCalledWith(
+        ["{{", "}}"],
+        options
+      );
     });
   });
 });

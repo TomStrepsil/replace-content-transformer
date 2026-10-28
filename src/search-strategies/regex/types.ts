@@ -1,5 +1,5 @@
 import type { DEFAULT_OPTIONS } from "./default-options.js";
-import type { StreamIndices, StringBufferState } from "../types.js";
+import type { BufferGuardOptions, StringBufferState } from "../types.js";
 
 /** A stream-relative regex match without RegExpExecArray.input, which identifies only one scan buffer. */
 export type StreamRegexMatch = Omit<RegExpExecArray, "input">;
@@ -10,18 +10,11 @@ export type RegexSearchState = StringBufferState & {
   evaluatedBufferLength: number;
 };
 
-/** Passed to `onGuardExceeded` when held-back content exceeds `maxBufferLength`. */
-export type GuardExceededInfo = {
-  /**
-   * Absolute stream offsets, as [startIndex, endIndex] with endIndex exclusive,
-   * of the held-back content that is settled early.
-   */
-  streamIndices: StreamIndices;
-};
-
 export type ScanCursor = { reportedUpTo: number };
 
-export type RegexSearchStrategyOptions = Partial<typeof DEFAULT_OPTIONS> & {
-  /** Called when `maxBufferLength` is exceeded and the buffer is settled early. */
-  onGuardExceeded?: (info: GuardExceededInfo) => void;
-};
+/**
+ * Held-back content past `maxBufferLength` is settled with the original pattern,
+ * as at end of stream.
+ */
+export type RegexSearchStrategyOptions = Partial<typeof DEFAULT_OPTIONS> &
+  BufferGuardOptions;

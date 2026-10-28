@@ -3,10 +3,14 @@ import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
 import {
+  collectCanonicalSearchStrategyResults,
+  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectSearchStrategyResults,
-  collectStoppedSearchStrategyResults
+  collectStoppedSearchStrategyResults,
+  heldTextWork,
+  longestHeldWhileDriving
 } from "../../../test/utilities.js";
-import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
+import { chunksOf, everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
@@ -97,7 +101,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     // Process first chunk - ends with 'a', not '{', so no buffering
     const results1 = [...strategy.processChunk("chunk ends with a", state)];
-    expect(state.buffer).toBe("");
     expect(results1).toEqual([{ isMatch: false, content: "chunk ends with a" }]);
 
     // Process second chunk - no buffered content to prepend
@@ -111,7 +114,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     // Process chunk ending with partial match
     const results1 = [...strategy.processChunk("text ends with {", state)];
-    expect(state.buffer).toBe("{");
     expect(results1).toEqual([{ isMatch: false, content: "text ends with " }]);
 
     // Complete the match
@@ -248,8 +250,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       }
 
       // At this point, generator returned naturally after setting buffer in finally
-      // Mid-match (currentNeedleIndex = 1): buffer from matchStartPosition
-      expect(state.currentNeedleIndex).toBe(1);
       expect(strategy.flush(state)).toBe("{{ something");
     });
 
@@ -309,10 +309,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const result = generator1.next();
       expect(result.done).toBe(true); // No more yields, still looking for "!"
 
-      // State should be mid-match (currentNeedleIndex = 2)
-      expect(state.currentNeedleIndex).toBe(2);
-      expect(state.buffer).toBe("{{ }}");
-
       // Now cancel before processing next chunk
       // The buffered mid-match content should be in the buffer
       expect(strategy.flush(state)).toBe("{{ }}");
@@ -356,9 +352,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
-      // Simulate mid-match continuation from previous chunk
-      state.buffer = "{{";
-      state.currentNeedleIndex = 1;
+      Array.from(strategy.processChunk("{{", state));
 
       // This chunk continues the match but gets cancelled before completion
       let generator = strategy.processChunk("middle", state);
@@ -708,5 +702,154 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
         }
       }
     );
+  });
+
+  describe("buffer guard", () => {
+    const WORK_PER_CODE_UNIT = 8;
+    const text = (content: string) => ({ isMatch: false, text: content });
+    const match = (content: string) => ({ isMatch: true, text: content });
+
+    it.each([
+      ["a match at the limit", ["{{", "}}"], 8, "a{{1234}}b", [text("a"), match("{{1234}}"), text("b")]],
+      ["a match one over the limit, which passes through as text", ["{{", "}}"], 8, "a{{12345}}b", [text("a{{12345}}b")]],
+      ["a later first anchor inside the abandoned span", ["{{", "}}"], 8, "{{ab{{c}}d", [text("{{ab"), match("{{c}}"), text("d")]],
+      ["a candidate one code unit after the abandoned one", ["{{", "}}"], 6, "{{{{a}}", [text("{"), match("{{{a}}")]],
+      ["an anchor sequence over the limit, then one within it", ["<", "-", ">"], 4, "<a-b> <-->", [text("<a-b> "), match("<-->")]],
+      ["a later candidate re-using a middle anchor's search", ["<", "-", ">"], 3, "<-<->", [text("<-"), match("<->")]],
+      ["a run of first anchors with no closing anchor", ["{{", "}}"], 8, "{{{{{{{{{{{", [text("{{{{{{{{{{{")]],
+      ["a limit of zero, under which nothing matches", ["{{", "}}"], 0, "{{}}", [text("{{}}")]],
+      ["a single anchor longer than the limit", ["{{name}}"], 4, "a{{name}}", [text("a{{name}}")]]
+    ])(
+      "decides %s the same however the input is split",
+      (_label, needles, maxBufferLength, input, expected) => {
+        for (const chunks of everySplitOf(input)) {
+          const { segments, output } = collectCanonicalSearchStrategyResults(
+            new LoopedIndexOfAnchoredSearchStrategy(needles, { maxBufferLength }),
+            chunks
+          );
+          expect(segments, chunks.join("|")).toEqual(expected);
+          expect(output).toBe(input);
+        }
+      }
+    );
+
+    it("reports each abandoned candidate once, with the span held when it was abandoned", () => {
+      const reported = (chunks: string[]) => {
+        const onGuardExceeded = vi.fn();
+        collectSearchStrategyResults(
+          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
+            maxBufferLength: 6,
+            onGuardExceeded
+          }),
+          chunks
+        );
+        return onGuardExceeded.mock.calls;
+      };
+
+      expect(reported(["{{{{a}}"])).toEqual([[{ streamIndices: [0, 7] }]]);
+      expect(reported(["{{{{a", "}}"])).toEqual([[{ streamIndices: [0, 7] }]]);
+      expect(reported(["x{{abcd", "efgh"])).toEqual([[{ streamIndices: [1, 11] }]]);
+    });
+
+    it("keeps the unconsumed input exactly once when the callback throws", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
+        maxBufferLength: 4,
+        onGuardExceeded: () => {
+          throw new Error("callback failed");
+        }
+      });
+      const state = strategy.createState();
+      let reported = "";
+      const drain = (chunk: string) => {
+        for (const result of strategy.processChunk(chunk, state)) {
+          reported += result.content;
+        }
+      };
+
+      drain("x{{a");
+      expect(() => drain("bcd")).toThrow("callback failed");
+      expect(reported + strategy.flush(state)).toBe("x{{abcd");
+    });
+
+    it("decides as if the callback had not thrown when driven on after it throws, though engines stop driving a strategy that throws", () => {
+      const chunks = ["x{{a", "bcdef", "}}{{e}}"];
+      const failure = new Error("callback failed");
+      const { segments, errors } = collectCanonicalSearchStrategyResultsDrivenPastErrors(
+        new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
+          maxBufferLength: 6,
+          onGuardExceeded: vi.fn().mockImplementationOnce(() => {
+            throw failure;
+          })
+        }),
+        chunks
+      );
+
+      expect(errors).toEqual([failure]);
+      expect(segments).toEqual(
+        collectCanonicalSearchStrategyResults(
+          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], { maxBufferLength: 6 }),
+          chunks
+        ).segments
+      );
+    });
+
+    it("defaults to a limit of 64 Ki code units", () => {
+      const input = (length: number) => `{{${"x".repeat(length - 4)}}}`;
+      const matchesIn = (haystack: string) =>
+        collectSearchStrategyResults(
+          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+          [haystack]
+        ).results.filter(({ isMatch }) => isMatch).length;
+
+      expect(matchesIn(input(65_536))).toBe(1);
+      expect(matchesIn(input(65_537))).toBe(0);
+    });
+
+    it("lets output through after an unclosed first anchor, holding no more than the limit and a chunk", () => {
+      const chunkLength = 16 * 1024;
+      const longestHeld = longestHeldWhileDriving(
+        new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        chunksOf(`{{${"x".repeat(1024 * 1024)}`, chunkLength)
+      );
+
+      expect(longestHeld).toBeLessThanOrEqual(65_536 + chunkLength);
+    });
+
+    it("holds an unclosed first anchor with work proportional to the content after it, when unlimited", () => {
+      const input = `{{${"x".repeat(64 * 1024)}`;
+      const work = heldTextWork(() =>
+        longestHeldWhileDriving(
+          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
+            maxBufferLength: Infinity
+          }),
+          chunksOf(input, 16)
+        )
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it("abandons a dense run of first anchors with work proportional to the input", () => {
+      const input = "{{".repeat(32 * 1024);
+      const work = heldTextWork(() =>
+        longestHeldWhileDriving(
+          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
+            maxBufferLength: 1024
+          }),
+          chunksOf(input, 16)
+        )
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it("rejects an invalid maxBufferLength", () => {
+      expect(
+        () =>
+          new LoopedIndexOfAnchoredSearchStrategy(["{{"], {
+            maxBufferLength: -1
+          })
+      ).toThrow(RangeError);
+    });
   });
 });

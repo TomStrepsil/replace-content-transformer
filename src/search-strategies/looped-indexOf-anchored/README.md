@@ -43,31 +43,31 @@ This optimization provides **~27% performance improvement** in scenarios with fe
 
 ## Implementation Details
 
-This is a **generator-based strategy** implementing `SearchStrategy<TState>` with cancellation support:
+This is a **generator-based strategy** implementing `SearchStrategy<TState>`. Positions are stream offsets, and the content not yet reported is held in a `HeldText`, which keeps each chunk as received rather than joining it onto what is already held:
 
 ```typescript
 *processChunk(
   chunk: string,
   state: LoopedIndexOfAnchoredSearchState
 ): Generator<MatchResult, void, undefined> {
-  // Sequentially searches for each needle in order
-  // Only buffers when partial matches detected at boundaries
+  // Appends the chunk, then finds each anchor in order from the match's start
+  // Only holds back a tail that could begin the first anchor, or a match in progress
   // Yields matches and non-matches
 }
 ```
 
 ## Sequential Matching Process
 
-The strategy maintains state to track progress through the needle sequence:
+From the next possible start, the strategy finds the first anchor, then each later anchor from where the previous one ended:
 
 ```
 Needles: ['{{', '!', '}}']
 Chunk:   "Text {{!content}} more"
 
 Process:
-  1. Find '{{' at position 5 (currentNeedleIndex: 0 → 1)
-  2. From position 7, find '!' at position 7 (currentNeedleIndex: 1 → 2)
-  3. From position 8, find '}}' at position 15 (currentNeedleIndex: 2 → 0)
+  1. Find '{{' at position 5
+  2. From position 7, find '!' at position 7
+  3. From position 8, find '}}' at position 15
   4. Complete match! Yield "{{!content}}" as match
 
 ┌──────────────────────────────────────────────┐
@@ -87,52 +87,20 @@ Process:
 
 ### Smart Partial Matching at Chunk Boundaries
 
-The key optimization over blind buffering happens when no match is found for the first needle:
-
-```typescript
-// When index === -1 and currentNeedleIndex === 0
-const unreportedLength = length - position;
-for (
-  let partialLength = Math.min(currentNeedle.length - 1, unreportedLength);
-  partialLength >= 1;
-  partialLength--
-) {
-  const haystackSuffix = haystack.slice(-partialLength);
-  const needlePrefix = currentNeedle.slice(0, partialLength);
-  if (haystackSuffix === needlePrefix) {
-    // Found partial match - report what precedes it, leave the cursor on it
-    const beforePartial = haystack.slice(position, -partialLength);
-    position = length - partialLength;
-    if (beforePartial) {
-      yield { isMatch: false, content: beforePartial };
-    }
-    return;
-  }
-}
-// No partial match - output everything
-```
-
-**Example with 2-character needle:**
+When the first anchor is not found, everything is reported except the longest tail that could begin it:
 
 ```
 Needles: ['{{', '}}']
 Chunk ends: "Hello world{"
+  → Output "Hello world", hold "{"
 
-Loop checks:
-  1. partialLength = 1: Does "{" === "{"? YES!
-     → Output "Hello world", buffer "{"
-
-Needles: ['{{', '}}']
 Chunk ends: "Hello world!"
-
-Loop checks:
-  1. partialLength = 1: Does "!" === "{"? NO
-     → Output "Hello world!", no buffering
+  → Output "Hello world!", hold nothing
 ```
 
-### Cross-Chunk Matching with Smart Buffering
+### Cross-Chunk Matching
 
-When a match spans multiple chunks, only necessary content is buffered:
+When a match spans chunks, it is held from its first anchor until it completes:
 
 ```
 Needles: ['{{', '}}']
@@ -140,53 +108,51 @@ Chunk 1: "Hello {{"
 Chunk 2: "world}}"
 
 Process Chunk 1:
-  - Find '{{' at position 6 (currentNeedleIndex: 0 → 1)
-  - Cannot find '}}' in remaining content
-  - Buffer: "{{" (mid-match, must buffer from first needle)
+  - Find '{{' at position 6
+  - Cannot find '}}' yet
+  - Output "Hello ", hold "{{"
 
 Process Chunk 2:
-  - Combined: "{{world}}"
-  - Find '}}' at position 7 (currentNeedleIndex: 1 → 0)
+  - Find '}}' at position 13, searching only content '}}' could end in
   - Complete match! Yield "{{world}}" as match
 ```
 
-**Compared to blind buffering:**
+Each anchor's search resumes where its last search left off, so a match held across many chunks costs time linear in its length: no content is searched or copied twice while it waits.
 
+## Buffer Guard
+
+A match longer than `maxBufferLength` (65,536 code units by default) never matches. Its first anchor passes through as text, and the search resumes one code unit after it, so a later first anchor inside the held span is still found:
+
+```typescript
+const strategy = new StringAnchorSearchStrategy(["{{", "}}"], {
+  maxBufferLength: 8
+});
+// "a{{1234}}b"  → "a", match "{{1234}}", "b"  (8 code units: at the limit)
+// "a{{12345}}b" → "a{{12345}}b"               (9: passes through)
+// "{{ab{{c}}d"  → "{{ab", match "{{c}}", "d"  ("{{ab{{c}}" is 9)
+// "{{" + 1 MiB with no "}}" → passed through once more than 8 code units are held
 ```
-Needles: ['{{', '}}']
-Chunk 1: "Hello world"
 
-Buffered Strategy:
-  - Always buffers last 1 character: "d"
-
-Looped Strategy:
-  - Checks: Does "d" match prefix of "{{"? NO
-  - Buffers: "" (nothing)
-  - Benefit: Avoids unnecessary buffering and string operations
-```
+The rule depends on a match's length, not on where chunks fall, so results are the same however the input is split. `onGuardExceeded` is called once for each candidate given up on. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
 
 ## State Management
 
-The strategy maintains state to track partial matches and needle sequence progress:
-
 ```typescript
 type LoopedIndexOfAnchoredSearchState = {
-  /** Buffer holding partial content that may span chunks */
-  buffer: string;
-  /** Index of the current needle being matched (0 to needles.length - 1) */
-  currentNeedleIndex: number;
+  /** Content received but not yet reported. */
+  held: HeldText;
+  /** Stream position at or after which the next match may start. */
+  candidateFrom: number;
 };
 ```
 
 **State behavior:**
 
-- **Initial:** `buffer = ""`, `currentNeedleIndex = 0`
-- **First needle not found + no partial:** Output all content, no buffering
-- **First needle not found + partial match:** Buffer only the partial match suffix
-- **Mid-sequence:** Buffer from first needle onwards until all needles found
-- **Complete match:** Reset `currentNeedleIndex` to 0, clear buffer
-- **Cancel:** if consuming processor breaks iteration, remainder of current chunk pushed to flush buffer. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit this buffer as one chunk
-- **Flush:** Returns and clears any buffered content
+- **First anchor not found:** report everything but a tail that could begin it
+- **Match in progress:** hold from its first anchor, until it completes or exceeds `maxBufferLength`
+- **Complete match:** report it, and search on from its end
+- **Cancel:** if the consumer stops iterating, whatever was not yet yielded stays held for `flush`. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit what is held as one chunk
+- **Flush:** returns what is held, and re-sets the state
 
 ## Performance Characteristics
 
@@ -202,7 +168,7 @@ type LoopedIndexOfAnchoredSearchState = {
 ## Usage Examples
 
 > [!IMPORTANT]
-> Anchors must be non-empty, and at least one is required — both are rejected at construction. `indexOf("")` returns the current position, so an empty anchor would leave the scan cursor where it is and never advance. This also covers [`BalancedPairSearchStrategy`](../balanced-pair/README.md), which delegates its `opening`/`closing` pair to this strategy.
+> Anchors must be non-empty, and at least one is required — both are rejected at construction. `indexOf("")` returns the current position, so an empty anchor would leave the scan cursor where it is and never advance. [`BalancedPairSearchStrategy`](../balanced-pair/README.md) applies the same check to its `opening`/`closing` pair.
 
 ### Two-Token Pattern (Opening/Closing Delimiters)
 

@@ -9,6 +9,7 @@ import type {
   EngineSink,
   SyncTransformEngine
 } from "../src/engines/types.ts";
+import HeldText from "../src/search-strategies/held-text.ts";
 import { SLOT_KIND } from "../src/engines/async-lookahead-transform-engine/slot-tree/constants.ts";
 import { Writable } from "node:stream";
 import { vi, type Mocked } from "vitest";
@@ -308,6 +309,37 @@ function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
   return engine.write.mock.calls.map(([chunk]) => chunk).join("");
 }
 
+/**
+ * Code units `HeldText` searched (up to each occurrence found) and sliced while
+ * `run` ran. Every anchor strategy searches and copies held text through these
+ * two methods, so this counts its work deterministically, where timing is noisy.
+ */
+function heldTextWork(run: () => void): number {
+  const prototype = HeldText.prototype as unknown as {
+    search(text: string, anchorIndex: number, from: number): number;
+    slice(from: number, to: number): string;
+  };
+  const { search, slice } = prototype;
+  let work = 0;
+  prototype.search = function (text, anchorIndex, from) {
+    const found = search.call(this, text, anchorIndex, from);
+    work += (found === -1 ? text.length : found + 1) - from;
+    return found;
+  };
+  prototype.slice = function (from, to) {
+    const text = slice.call(this, from, to);
+    work += text.length;
+    return text;
+  };
+  try {
+    run();
+    return work;
+  } finally {
+    prototype.search = search;
+    prototype.slice = slice;
+  }
+}
+
 function startedSinkOf(engine: {
   start: { mock: { lastCall: [EngineSink] | undefined } };
 }): EngineSink {
@@ -320,8 +352,10 @@ export type { CanonicalSegment } from "./search-strategy-results.ts";
 
 export {
   collectCanonicalSearchStrategyResults,
+  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
+  longestHeldWhileDriving,
   regexMatchDetailsOf
 } from "./search-strategy-results.ts";
 
@@ -332,6 +366,7 @@ export {
   asyncIterable,
   createIterableSlotNode,
   deferred,
+  heldTextWork,
   mockAsyncEngine,
   mockSearchStrategyFactory,
   mockStoppableSearchStrategy,

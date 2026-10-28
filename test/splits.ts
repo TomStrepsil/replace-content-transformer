@@ -41,4 +41,19 @@ function everySplitOf(haystack: string): string[][] {
   ];
 }
 
-export { characterBySplit, everySplitOf, everyThreeWaySplit, everyTwoWaySplit };
+/** `haystack` cut into consecutive chunks of `length` code units, the last possibly shorter. */
+function chunksOf(haystack: string, length: number): string[] {
+  const chunks: string[] = [];
+  for (let start = 0; start < haystack.length; start += length) {
+    chunks.push(haystack.slice(start, start + length));
+  }
+  return chunks;
+}
+
+export {
+  characterBySplit,
+  chunksOf,
+  everySplitOf,
+  everyThreeWaySplit,
+  everyTwoWaySplit
+};

@@ -14,7 +14,7 @@ import {
   regexMatchDetailsOf
 } from "../../../test/utilities.js";
 import type { CanonicalSegment } from "../../../test/utilities.js";
-import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
+import { chunksOf, everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
 vi.mock("./input-validation.js");
 vi.mock("./options-validation.js");
@@ -177,22 +177,28 @@ describe("RegexSearchStrategy", () => {
   });
 
   describe("option validation", () => {
-    it("should validate the options, with defaults filled in", () => {
-      new RegexSearchStrategy(/test-regex/, { maxBufferLength: 100 });
+    it("should validate the backoff options, with defaults filled in", () => {
+      new RegexSearchStrategy(/test-regex/, { minCandidateLengthToBackOff: 100 });
       expect(optionsValidation).toHaveBeenCalledWith({
-        maxBufferLength: 100,
-        minCandidateLengthToBackOff: 1024,
+        minCandidateLengthToBackOff: 100,
         bufferGrowthFactorBetweenEvaluations: 2
       });
     });
 
     it("should validate the defaults when an option is explicitly undefined", () => {
-      new RegexSearchStrategy(/test-regex/, { maxBufferLength: undefined });
+      new RegexSearchStrategy(/test-regex/, {
+        bufferGrowthFactorBetweenEvaluations: undefined
+      });
       expect(optionsValidation).toHaveBeenLastCalledWith({
-        maxBufferLength: Infinity,
         minCandidateLengthToBackOff: 1024,
         bufferGrowthFactorBetweenEvaluations: 2
       });
+    });
+
+    it("should reject an invalid maxBufferLength", () => {
+      expect(
+        () => new RegexSearchStrategy(/test-regex/, { maxBufferLength: -1 })
+      ).toThrow(RangeError);
     });
   });
 
@@ -2488,9 +2494,12 @@ describe("RegexSearchStrategy", () => {
       unbrokenRun.slice(192)
     ];
 
-    it("holds the whole run when no ceiling is set", () => {
+    it("holds the whole run when the ceiling is Infinity", () => {
       const onGuardExceeded = vi.fn();
-      const strategy = new RegexSearchStrategy(/\S+/, { onGuardExceeded });
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: Infinity,
+        onGuardExceeded
+      });
       const state = strategy.createState();
       for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
       expect(state.buffer).toBe(unbrokenRun);
@@ -2593,6 +2602,30 @@ describe("RegexSearchStrategy", () => {
       }
       expect(reported).toBe("aXXb");
       expect(reported + strategy.flush(state)).toBe(input);
+    });
+
+    it("defaults the ceiling to 64 Ki code units", () => {
+      const exceeded = (runLength: number) => {
+        const onGuardExceeded = vi.fn();
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/, { onGuardExceeded }),
+          [...chunksOf("a".repeat(runLength), 1024), " "]
+        );
+        return onGuardExceeded.mock.calls.length;
+      };
+
+      expect(exceeded(65_536)).toBe(0);
+      expect(exceeded(65_537)).toBe(1);
+    });
+
+    it("passes a long run of a repeated group through under the default, rather than overflowing V8's stack", () => {
+      const input = "x".repeat(8 * 1024 * 1024);
+      const { output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?:\w|-)+/),
+        chunksOf(input, 16 * 1024)
+      );
+
+      expect(output).toBe(input);
     });
 
     it("resets the ceiling's bookkeeping on flush", () => {

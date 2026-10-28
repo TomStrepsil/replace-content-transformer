@@ -548,7 +548,7 @@ The `flush` returns anything the strategy is still holding as raw text, without 
 
 The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
 
-An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching at the next match rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it. The built-in strategies do this from the `finally` blocks of their generators.
+An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching at the next match rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it. The built-in strategies do this by updating the state before each yield, or from a `finally` block.
 
 The `matchToString` converts a match back to the raw matched text, for a match emitted verbatim.
 
@@ -564,6 +564,30 @@ Each strategy contains the pattern-matching logic for a specific use case:
 
 See [search strategies](./src/search-strategies/README.md) for detail of functionality, and development of the strategies.
 
+#### Buffering and the guard
+
+A match can span chunks, so a strategy holds back content that could still become part of one: a tail that could begin a match, or a match part-way through. Every strategy limits how much it holds with `maxBufferLength`, in UTF-16 code units, and reports each time it gives up on held content to `onGuardExceeded`:
+
+```ts
+new StringAnchorSearchStrategy(["<esi:include", "/>"], {
+  maxBufferLength: 64 * 1024,
+  onGuardExceeded: ({ streamIndices: [start, end] }) =>
+    console.warn(`gave up on content held from ${start} to ${end}`)
+});
+```
+
+`StringAnchorSearchStrategy`, `BalancedPairSearchStrategy`, `RegexSearchStrategy`, `LeanRegexSearchStrategy` and `searchStrategyFactory` all take these options. Output is lossless either way; what changes past the limit is the decision:
+
+| Strategy                                         | Past `maxBufferLength`                                                                                                              | Same matches however the input is split |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `StringAnchorSearchStrategy`                     | A match longer than the limit never matches. Its first anchor passes through as text, and the search resumes one code unit after it | ✅                                      |
+| `BalancedPairSearchStrategy`                     | A pair longer than the limit never matches. Its opening delimiter passes through as text, and the pairs inside it still match       | ✅                                      |
+| `RegexSearchStrategy`, `LeanRegexSearchStrategy` | The held content is settled with the original pattern, as at end of stream                                                          | ❌ for the span settled                 |
+
+`onGuardExceeded` receives the `streamIndices` of the content held when the strategy gave up, `[startIndex, endIndex]` with `endIndex` exclusive. An anchor or balanced pair strategy calls it once for each candidate it gives up on.
+
+The default of 65,536 is far above any templating token, ESI tag or attribute, and caps both the wait before output resumes after an unclosed opening (a stray `{{`, or an `<esi:include` with no `/>`) and the memory each stream holds. A pattern that needs more, such as a balanced pair around a whole document section, can raise it. `maxBufferLength: Infinity` removes the ceiling: an unclosed opening then holds the rest of the stream, and on V8 a regex candidate a few MiB long can overflow the call stack for some patterns, such as a repeated group (see regex-partial-match's [Very long repetitions](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#very-long-repetitions)).
+
 ### 🏭 Search Strategy Factory
 
 If tree-shaking is not a concern, a factory method for generating a search strategy based on appropriate input is available:
@@ -571,8 +595,10 @@ If tree-shaking is not a concern, a factory method for generating a search strat
 ```ts
 import { searchStrategyFactory } from "replace-content-transformer";
 const searchStrategy =
-  searchStrategyFactory(input: string | string[] | RegExp);
+  searchStrategyFactory(input: string | string[] | RegExp, options?: BufferGuardOptions);
 ```
+
+The `options` are [`maxBufferLength` and `onGuardExceeded`](#buffering-and-the-guard), passed to whichever strategy is built.
 
 > [!IMPORTANT]
 > The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described below.

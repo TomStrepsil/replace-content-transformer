@@ -1,14 +1,14 @@
-import type { MatchResult, SearchStrategy, StringBufferState } from "../types.js";
-import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
-import partialMatchLength from "./partial-match-length.js";
+import type { BufferGuardOptions, MatchResult, SearchStrategy } from "../types.js";
+import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
+import HeldText from "../held-text.js";
 import validateNeedles from "./validate-needles.js";
 
 /** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}. */
-export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
-  /** Index of the current needle being matched in a multi-needle sequence */
-  currentNeedleIndex: number;
-  /** Length of the buffered partial match already consumed by earlier anchors */
-  matchConsumedLength: number;
+export type LoopedIndexOfAnchoredSearchState = {
+  /** Content received but not yet reported. */
+  held: HeldText;
+  /** Stream position at or after which the next match may start. */
+  candidateFrom: number;
 };
 
 /**
@@ -20,89 +20,81 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * of a chunk could be the start of the first anchor, or while a match is
  * part-way through its sequence.
  *
+ * A match longer than `maxBufferLength` never matches: its first anchor passes
+ * through as text, and the search resumes one code unit after it. See
+ * [Buffering and the guard](../../../README.md#buffering-and-the-guard).
+ *
  * Exposed publicly as `StringAnchorSearchStrategy`.
  *
  * @throws If `needles` is empty, or any needle is an empty string.
+ * @throws {TypeError} If `maxBufferLength` is not a number.
+ * @throws {RangeError} If `maxBufferLength` is less than 0, or `NaN`.
  */
 export class LoopedIndexOfAnchoredSearchStrategy
-  extends StringBufferStrategyBase
   implements SearchStrategy<LoopedIndexOfAnchoredSearchState>
 {
   private readonly needles: string[];
+  private readonly guard: BufferGuard;
 
-  constructor(needles: string[]) {
-    super();
+  constructor(needles: string[], options?: BufferGuardOptions) {
     validateNeedles(needles);
     this.needles = [...needles];
+    this.guard = bufferGuard(options);
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {
-    return { ...super.createState(), currentNeedleIndex: 0, matchConsumedLength: 0 };
+    return { held: new HeldText(this.needles), candidateFrom: 0 };
   }
 
   *processChunk(
     haystack: string,
     state: LoopedIndexOfAnchoredSearchState
   ): Generator<MatchResult, void, undefined> {
-    const bufferLength = state.buffer.length;
-    const baseOffset = state.streamOffset - bufferLength;
-    haystack = state.buffer + haystack;
-    const length = haystack.length;
-    let position = state.matchConsumedLength;
-    let matchStartPosition = 0;
-    try {
-      while (position < length) {
-        const searchingFirstNeedle = state.currentNeedleIndex === 0;
-        const currentNeedle = this.needles[state.currentNeedleIndex];
-        const index = haystack.indexOf(currentNeedle, position);
-
-        if (index === -1) {
-          if (searchingFirstNeedle) {
-            const unreportedLength = length - position;
-            const resumeAt =
-              length -
-              partialMatchLength(haystack, currentNeedle, unreportedLength);
-            const nonMatch = haystack.slice(position, resumeAt);
-            position = resumeAt;
-            if (nonMatch) yield { isMatch: false, content: nonMatch };
-          }
-          return;
+    const { held } = state;
+    held.append(haystack);
+    for (;;) {
+      const start = held.find(0, state.candidateFrom);
+      if (start === -1) {
+        state.candidateFrom = held.partialAnchorStart(0, state.candidateFrom);
+        if (state.candidateFrom > held.start) {
+          yield { isMatch: false, content: held.take(state.candidateFrom) };
         }
-
-        if (searchingFirstNeedle) {
-          if (index > position) {
-            const nonMatch = haystack.slice(position, index);
-            position = index;
-            yield { isMatch: false, content: nonMatch };
-          }
-          matchStartPosition = index;
-        }
-
-        position = index + currentNeedle.length;
-        state.currentNeedleIndex =
-          (state.currentNeedleIndex + 1) % this.needles.length;
-        if (state.currentNeedleIndex === 0) {
-          yield {
-            isMatch: true,
-            content: haystack.slice(matchStartPosition, position),
-            streamIndices: [
-              baseOffset + matchStartPosition,
-              baseOffset + position
-            ]
-          };
-        }
+        return;
       }
-    } finally {
-      const isMidMatch = state.currentNeedleIndex > 0;
-      state.matchConsumedLength = isMidMatch ? position - matchStartPosition : 0;
-      state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
-      state.streamOffset += haystack.length - bufferLength;
+
+      const end = this.matchEnd(held, start);
+      if ((end === -1 ? held.end : end) - start > this.guard.maxBufferLength) {
+        state.candidateFrom = start + 1;
+        this.guard.onGuardExceeded?.({ streamIndices: [start, held.end] });
+        continue;
+      }
+
+      if (start > held.start) {
+        yield { isMatch: false, content: held.take(start) };
+      }
+      if (end === -1) return;
+      state.candidateFrom = end;
+      yield { isMatch: true, content: held.take(end), streamIndices: [start, end] };
     }
   }
 
   flush(state: LoopedIndexOfAnchoredSearchState): string {
-    state.currentNeedleIndex = 0;
-    state.matchConsumedLength = 0;
-    return super.flush(state);
+    const flushed = state.held.take(state.held.end);
+    Object.assign(state, this.createState());
+    return flushed;
+  }
+
+  matchToString(match: string): string {
+    return match;
+  }
+
+  private matchEnd(held: HeldText, start: number): number {
+    let end = start + this.needles[0].length;
+    for (let index = 1; index < this.needles.length; index++) {
+      const found = held.find(index, end);
+      if (found === -1) return -1;
+      end = found + this.needles[index].length;
+    }
+    return end;
   }
 }

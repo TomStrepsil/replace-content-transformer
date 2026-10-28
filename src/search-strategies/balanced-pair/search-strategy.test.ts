@@ -2,10 +2,13 @@
 import { describe, it, expect } from "vitest";
 import {
   collectCanonicalSearchStrategyResults,
+  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectSearchStrategyResults,
-  collectStoppedSearchStrategyResults
+  collectStoppedSearchStrategyResults,
+  heldTextWork,
+  longestHeldWhileDriving
 } from "../../../test/utilities.js";
-import { everySplitOf } from "../../../test/splits.js";
+import { chunksOf, everySplitOf } from "../../../test/splits.js";
 import { BalancedPairSearchStrategy } from "./search-strategy.js";
 
 describe("BalancedPairSearchStrategy", () => {
@@ -93,8 +96,8 @@ describe("BalancedPairSearchStrategy", () => {
       const strategy = new BalancedPairSearchStrategy("(", ")");
       const state = strategy.createState();
 
-      // ((a) (b)) — each inner pair is balanced (net 0 per increment), only the
-      // surplus opening at position 0 drives nestingLevel to 1 until the final )
+      // ((a) (b)) — each inner pair closes, leaving only the opening at 0 open
+      // until the final )
       const results = [...strategy.processChunk("((a) (b))", state)];
       strategy.flush(state);
 
@@ -107,8 +110,7 @@ describe("BalancedPairSearchStrategy", () => {
       const strategy = new BalancedPairSearchStrategy("(", ")");
       const state = strategy.createState();
 
-      // Each increment " (b)" and " (c)" contributes net 0 (1 open, 1 close),
-      // so only the extra ( at position 0 keeps nestingLevel at 1 until the final )
+      // Each inner pair closes, leaving only the opening at 0 open until the final )
       const results = [...strategy.processChunk("((a) (b) (c))", state)];
       strategy.flush(state);
 
@@ -157,18 +159,15 @@ describe("BalancedPairSearchStrategy", () => {
       ]);
     });
 
-    it("resets balancedBuffer after yielding a match so subsequent matches start fresh", () => {
+    it("starts the next match fresh after yielding a nested one", () => {
       const strategy = new BalancedPairSearchStrategy("(", ")");
       const state = strategy.createState();
 
-      // First match: nested, accumulates into balancedBuffer during processing
+      // First match: nested
       const results1 = [...strategy.processChunk("((a) b)", state)];
       expect(results1).toEqual([
         { isMatch: true, content: "((a) b)", streamIndices: [0, 7] }
       ]);
-      // balancedBuffer must be cleared so the next match accumulates independently
-      expect(state.balancedBuffer).toBe("");
-
       // Second match must accumulate independently with the correct stream indices
       const results2 = [...strategy.processChunk("((c) d)", state)];
       expect(results2).toEqual([
@@ -286,8 +285,7 @@ describe("BalancedPairSearchStrategy", () => {
       [...strategy.processChunk("((inner)", state)];
       strategy.flush(state);
 
-      expect(state.nestingLevel).toBe(0);
-      expect(state.balancedBuffer).toBe("");
+      expect(state).toEqual(strategy.createState());
 
       // After flush, the state is reset: a fresh simple match should yield correctly
       const results = [...strategy.processChunk("(fresh)", state)];
@@ -375,16 +373,6 @@ describe("BalancedPairSearchStrategy", () => {
       }
     );
 
-    it("resumes at the start of the buffer when a chunk ends mid-nesting", () => {
-      const strategy = new BalancedPairSearchStrategy("(", ")");
-      const state = strategy.createState();
-
-      [...strategy.processChunk("((inner)", state)];
-
-      expect(state.matchConsumedLength).toBe(0);
-      expect(state.buffer).toBe("");
-    });
-
     it("matches an opening anchor that contains the closing anchor, split inside the opening", () => {
       const { results } = collectSearchStrategyResults(
         new BalancedPairSearchStrategy("**", "*"),
@@ -423,5 +411,169 @@ describe("BalancedPairSearchStrategy", () => {
         }
       }
     );
+  });
+
+  describe("buffer guard", () => {
+    const WORK_PER_CODE_UNIT = 8;
+    const text = (content: string) => ({ isMatch: false, text: content });
+    const match = (content: string) => ({ isMatch: true, text: content });
+
+    it.each([
+      ["a pair at the limit", "{{", "}}", 8, "a{{1234}}b", [text("a"), match("{{1234}}"), text("b")]],
+      ["a pair one over the limit, which passes through as text", "{{", "}}", 8, "a{{12345}}b", [text("a{{12345}}b")]],
+      [
+        "complete pairs inside an abandoned outer pair",
+        "{{", "}}", 10,
+        "{{ {{a}} {{b}} xx",
+        [text("{{ "), match("{{a}}"), text(" "), match("{{b}}"), text(" xx")]
+      ],
+      [
+        "an inner pair over the limit inside an abandoned outer pair",
+        "(", ")", 6,
+        "((abcdefg)(b)",
+        [text("((abcdefg)"), match("(b)")]
+      ],
+      ["a pair nested in a kept pair", "(", ")", 6, "x((a))", [text("x"), match("((a))")]],
+      ["a run of openings with no closing", "(", ")", 4, "((((((((((", [text("((((((((((")]],
+      ["an opening containing the closing, at the limit", "**", "*", 4, "**a**", [match("**a*"), text("*")]],
+      ["an opening containing the closing, over the limit", "**", "*", 3, "**a**", [text("**a**")]],
+      ["a limit of zero, under which nothing matches", "(", ")", 0, "()", [text("()")]]
+    ])(
+      "decides %s the same however the input is split",
+      (_label, opening, closing, maxBufferLength, input, expected) => {
+        for (const chunks of everySplitOf(input)) {
+          const { segments, output } = collectCanonicalSearchStrategyResults(
+            new BalancedPairSearchStrategy(opening, closing, { maxBufferLength }),
+            chunks
+          );
+          expect(segments, chunks.join("|")).toEqual(expected);
+          expect(output).toBe(input);
+        }
+      }
+    );
+
+    it("reports each abandoned opening once, with the span held when it was abandoned", () => {
+      const onGuardExceeded = vi.fn();
+      collectSearchStrategyResults(
+        new BalancedPairSearchStrategy("(", ")", {
+          maxBufferLength: 6,
+          onGuardExceeded
+        }),
+        ["((abcdefg)(b)"]
+      );
+
+      expect(onGuardExceeded.mock.calls).toEqual([
+        [{ streamIndices: [0, 13] }],
+        [{ streamIndices: [1, 13] }]
+      ]);
+    });
+
+    it("keeps the unconsumed input exactly once when the callback throws", () => {
+      const strategy = new BalancedPairSearchStrategy("(", ")", {
+        maxBufferLength: 4,
+        onGuardExceeded: () => {
+          throw new Error("callback failed");
+        }
+      });
+      const state = strategy.createState();
+      let reported = "";
+      const drain = (chunk: string) => {
+        for (const result of strategy.processChunk(chunk, state)) {
+          reported += result.content;
+        }
+      };
+
+      drain("x((a)");
+      expect(() => drain("bcd")).toThrow("callback failed");
+      expect(reported + strategy.flush(state)).toBe("x((a)bcd");
+    });
+
+    it("decides as if the callback had not thrown when driven on after it throws, though engines stop driving a strategy that throws", () => {
+      const chunks = ["((a)", "bcd", "))(e)"];
+      const failure = new Error("callback failed");
+      const { segments, errors } = collectCanonicalSearchStrategyResultsDrivenPastErrors(
+        new BalancedPairSearchStrategy("(", ")", {
+          maxBufferLength: 6,
+          onGuardExceeded: vi.fn().mockImplementationOnce(() => {
+            throw failure;
+          })
+        }),
+        chunks
+      );
+
+      expect(errors).toEqual([failure]);
+      expect(segments).toEqual(
+        collectCanonicalSearchStrategyResults(
+          new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 6 }),
+          chunks
+        ).segments
+      );
+    });
+
+    it("leaves whatever it has not yielded for flush, wherever iteration stops after abandoning", () => {
+      const strategy = new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 6 });
+      const input = "((a)(b)(c)xx(d)";
+      for (const chunks of everySplitOf(input)) {
+        const { results, settledResults } = collectSearchStrategyResults(strategy, chunks);
+        for (let limit = 1; limit <= results.length + settledResults.length; limit++) {
+          const { output } = collectStoppedSearchStrategyResults(strategy, chunks, limit);
+          expect(output, `${chunks.join("|")} after ${limit}`).toBe(input);
+        }
+      }
+    });
+
+    it("defaults to a limit of 64 Ki code units", () => {
+      const input = (length: number) => `{{${"x".repeat(length - 4)}}}`;
+      const matchesIn = (haystack: string) =>
+        collectSearchStrategyResults(new BalancedPairSearchStrategy("{{", "}}"), [
+          haystack
+        ]).results.filter(({ isMatch }) => isMatch).length;
+
+      expect(matchesIn(input(65_536))).toBe(1);
+      expect(matchesIn(input(65_537))).toBe(0);
+    });
+
+    it("lets output through after an unclosed opening, holding no more than the limit and a chunk", () => {
+      const chunkLength = 16 * 1024;
+      const longestHeld = longestHeldWhileDriving(
+        new BalancedPairSearchStrategy("{{", "}}"),
+        chunksOf(`{{${"x".repeat(1024 * 1024)}`, chunkLength)
+      );
+
+      expect(longestHeld).toBeLessThanOrEqual(65_536 + chunkLength);
+    });
+
+    it("holds an unclosed opening with work proportional to the content after it, when unlimited", () => {
+      const input = `{{${"x".repeat(64 * 1024)}`;
+      const work = heldTextWork(() =>
+        longestHeldWhileDriving(
+          new BalancedPairSearchStrategy("{{", "}}", { maxBufferLength: Infinity }),
+          chunksOf(input, 16)
+        )
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it.each([
+      ["a run of openings", "("],
+      ["openings outnumbering closings", "((()"]
+    ])("abandons %s with work proportional to the input", (_label, unit) => {
+      const input = unit.repeat((64 * 1024) / unit.length);
+      const work = heldTextWork(() =>
+        longestHeldWhileDriving(
+          new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 1024 }),
+          chunksOf(input, 16)
+        )
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it("rejects an invalid maxBufferLength", () => {
+      expect(
+        () => new BalancedPairSearchStrategy("(", ")", { maxBufferLength: -1 })
+      ).toThrow(RangeError);
+    });
   });
 });

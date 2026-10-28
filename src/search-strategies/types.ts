@@ -93,6 +93,27 @@ export interface SearchStrategy<TState, TMatch = string> {
   matchToString(match: TMatch): string;
 }
 
+/** Passed to `onGuardExceeded` when held-back content exceeds `maxBufferLength`. */
+export type GuardExceededInfo = {
+  /**
+   * Absolute stream offsets, as [startIndex, endIndex] with endIndex exclusive,
+   * of the held-back content given up on.
+   */
+  streamIndices: StreamIndices;
+};
+
+/** A ceiling on the content a search strategy holds back awaiting a decision. */
+export type BufferGuardOptions = {
+  /**
+   * Longest span, in UTF-16 code units, held back awaiting a decision. `Infinity`
+   * removes the ceiling.
+   * @default 65536
+   */
+  maxBufferLength?: number;
+  /** Called each time held-back content exceeds `maxBufferLength` and is given up on. */
+  onGuardExceeded?: (info: GuardExceededInfo) => void;
+};
+
 export type StringBufferState = {
   buffer: string;
   streamOffset: number;

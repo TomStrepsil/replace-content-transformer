@@ -11,7 +11,7 @@ These strategies have been chosen from an array of alternatives based on perform
 Single or Multiple-token sequential matching using smart buffering (only when the tail of a chunk might be the prefix of a match). Uses native `indexOf` for fast exact string matching. Ideal for matching patterns like `{replace me}`, `[START]...[END]` or more complex multi-delimiter sequences.
 
 - **Algorithm**: Selective buffering with sequential token matching
-- **Performance**: O(n+m), very fast due to native `indexOf` optimizations
+- **Performance**: O(n+m), very fast due to native `indexOf` optimizations, with no content searched twice while a match spans chunks
 - **Use Case**: Single or Sequential multi-delimiter patterns in streaming content
 - **Exported As**: `StringAnchorSearchStrategy`
 
@@ -19,10 +19,10 @@ Single or Multiple-token sequential matching using smart buffering (only when th
 
 **[balanced-pair](./balanced-pair/README.md)** - Nesting-aware delimiter matching strategy implementation
 
-Matches opening/closing delimiters where nesting is meaningful: the match only completes once every inner opening has a corresponding closing. Built on top of `StringAnchorSearchStrategy`, adding a nesting-level counter that keeps the match open until the outermost pair is balanced.
+Matches opening/closing delimiters where nesting is meaningful: the match only completes once every inner opening has a corresponding closing. Each opening awaiting its closing is kept on a stack, and the match completes when the outermost one is closed.
 
-- **Algorithm**: Nesting-level tracking over sequential anchor matching
-- **Performance**: O(n+m) for scanning + O(k) per match increment to count inner openings (k = length of new match content)
+- **Algorithm**: A stack of open delimiters, popped by each closing delimiter
+- **Performance**: O(n+m), each delimiter found once and pushed or popped once
 - **Use Case**: Balanced/nested structures — parentheses, braces, custom multi-character delimiters
 - **Exported As**: `BalancedPairSearchStrategy`
 
@@ -36,6 +36,8 @@ Matches opening/closing delimiters where nesting is meaningful: the match only c
 - **Performance**: O(n×p), variable depending on pattern complexity
 - **Use Case**: Complex patterns, wildcards, character classes
 - **Exports**: `RegexSearchStrategy`, and `LeanRegexSearchStrategy` for a smaller bundle (see [Lean Bundles](./regex/README.md#lean-bundles))
+
+Every strategy holds back no more than `maxBufferLength` code units (65,536 by default) awaiting a decision. See [Buffering and the guard](../../README.md#buffering-and-the-guard).
 
 ## 📊 Benchmark Strategies
 

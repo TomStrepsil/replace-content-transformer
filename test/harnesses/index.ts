@@ -14,4 +14,4 @@ export * from "./regex-callback.ts";
 export * from "./regex-canonical.ts";
 export * from "./regex-anchor-sequence.ts";
 export * from "./balanced-pair.ts";
-export * from "./balanced-pair-regex-count.ts";
+export * from "./balanced-pair-regex-search.ts";

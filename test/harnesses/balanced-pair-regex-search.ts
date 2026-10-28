@@ -1,10 +1,10 @@
 import { SyncReplacementTransformEngine } from "../../src/engines/sync-transform-engine.ts";
 import { syncHarnessTransformer } from "./engine-harness.ts";
-import { BalancedPairRegexCountSearchStrategy } from "../../src/search-strategies/benchmarking/balanced-pair-regex-count/search-strategy.ts";
+import { BalancedPairRegexSearchStrategy } from "../../src/search-strategies/benchmarking/balanced-pair-regex-search/search-strategy.ts";
 import type { ReplacementContext } from "../../src/engines/types.ts";
 
-export const BalancedPairRegexCountHarness = {
-  name: "Balanced Pair (regex count)",
+export const BalancedPairRegexSearchHarness = {
+  name: "Balanced Pair (regex search)",
   isAsync: false,
   createSearchStrategy: ({
     tokens
@@ -12,13 +12,13 @@ export const BalancedPairRegexCountHarness = {
     tokens: string[];
     replacement?: (match: string, context: ReplacementContext) => string;
   }) => {
-    return new BalancedPairRegexCountSearchStrategy(tokens[0], tokens[1]);
+    return new BalancedPairRegexSearchStrategy(tokens[0], tokens[1]);
   },
   createTransformer: ({
     strategy,
     replacement
   }: {
-    strategy: BalancedPairRegexCountSearchStrategy;
+    strategy: BalancedPairRegexSearchStrategy;
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     syncHarnessTransformer(
