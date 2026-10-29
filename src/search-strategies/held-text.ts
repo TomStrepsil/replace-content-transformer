@@ -25,7 +25,6 @@ export default class HeldText {
   }
 
   append(text: string): void {
-    if (text === "") return;
     const last = this.chunks.length - 1;
     if (this.end - this.start <= text.length) {
       this.chunks[0] = this.slice(this.start, this.end) + text;
@@ -53,7 +52,7 @@ export default class HeldText {
     const found = this.indexOf(anchorIndex, searchFrom);
     this.found[anchorIndex] = found;
     this.searchedTo[anchorIndex] =
-      found === -1 ? Math.max(searchFrom, this.end - anchor.length + 1) : found + 1;
+      found === -1 ? this.end - anchor.length + 1 : found + 1;
     return found;
   }
 
@@ -96,13 +95,13 @@ export default class HeldText {
   private indexOf(anchorIndex: number, from: number): number {
     const anchor = this.anchors[anchorIndex];
     if (from > this.end - anchor.length) return -1;
-    for (let index = this.chunkAt(from); index < this.chunks.length; index++) {
+    for (let index = this.chunkAt(from); ; index++) {
       const chunk = this.chunks[index];
       const offset = this.offsets[index];
       const searchFrom = Math.max(from - offset, 0);
       const found = this.search(chunk, anchorIndex, searchFrom);
       if (found !== -1) return offset + found;
-      if (index + 1 === this.chunks.length) break;
+      if (index + 1 === this.chunks.length) return -1;
       const straddleFrom = Math.max(searchFrom, chunk.length - anchor.length + 1);
       const straddle = this.search(
         chunk.slice(straddleFrom) + this.chunks[index + 1].slice(0, anchor.length - 1),
@@ -111,7 +110,6 @@ export default class HeldText {
       );
       if (straddle !== -1) return offset + straddleFrom + straddle;
     }
-    return -1;
   }
 
   private chunkAt(position: number): number {

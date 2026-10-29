@@ -38,6 +38,26 @@ describe("HeldText", () => {
       }
     );
 
+    it("never starts a chunk's search at a negative position, which Uint8Array.prototype.indexOf would count from the end", () => {
+      class RecordingHeldText extends HeldText {
+        starts: number[] = [];
+        protected override search(text: string, anchorIndex: number, from: number) {
+          this.starts.push(from);
+          return super.search(text, anchorIndex, from);
+        }
+      }
+      for (const chunks of everySplitOf("ab{cd{{ef{g{{")) {
+        const held = new RecordingHeldText(["{{"]);
+        let from = 0;
+        for (const chunk of chunks) {
+          held.append(chunk);
+          const found = held.find(0, from);
+          if (found !== -1) from = found + 1;
+        }
+        expect(Math.min(...held.starts), chunks.join("|")).toBeGreaterThanOrEqual(0);
+      }
+    });
+
     it("finds nothing before the content to contain it has arrived", () => {
       const held = holding(["{{"], ["a{"]);
       expect(held.find(0, 0)).toBe(-1);
@@ -62,6 +82,30 @@ describe("HeldText", () => {
 
       expect(held.find(0, 4)).toBe(4);
       expect(held.slice(4, 6)).toBe("{{");
+    });
+
+    it("still finds and slices once a chunk longer than what is held arrives, after a take part-way through the chunks", () => {
+      const held = holding(["{{"], ["abcdef", "g", "h"]);
+      held.take(6);
+      held.append("i{{jklmn");
+
+      expect(held.find(0, 6)).toBe(9);
+      expect(held.slice(6, 16)).toBe("ghi{{jklmn");
+    });
+
+    it("stops keeping the text it has handed back, so a long stream held in small pieces needs bounded memory", () => {
+      const held = new HeldText(["{{"]);
+      const kept = () =>
+        (held as unknown as { chunks: string[] }).chunks.join("").length;
+      held.append("x".repeat(64));
+      let longestKept = 0;
+      for (let chunk = 0; chunk < 10_000; chunk++) {
+        held.append("y");
+        held.take(held.end - 64);
+        longestKept = Math.max(longestKept, kept());
+      }
+
+      expect(longestKept).toBeLessThanOrEqual(3 * 64);
     });
   });
 
