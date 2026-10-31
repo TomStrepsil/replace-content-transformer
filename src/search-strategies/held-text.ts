@@ -5,10 +5,8 @@
  * a long span costs time linear in its length.
  */
 export default class HeldText {
-  /** Stream position of the first code unit still held. */
-  start = 0;
-  /** Stream position just after the last code unit received. */
-  end = 0;
+  takenTo = 0;
+  receivedTo = 0;
   private readonly anchors: readonly string[];
   private readonly found: number[];
   private readonly searchedTo: number[];
@@ -26,18 +24,18 @@ export default class HeldText {
 
   append(text: string): void {
     const last = this.chunks.length - 1;
-    if (this.end - this.start <= text.length) {
-      this.chunks[0] = this.slice(this.start, this.end) + text;
-      this.offsets[0] = this.start;
+    if (this.receivedTo - this.takenTo <= text.length) {
+      this.chunks[0] = this.slice(this.takenTo, this.receivedTo) + text;
+      this.offsets[0] = this.takenTo;
       if (this.chunks.length > 1) this.chunks.length = this.offsets.length = 1;
       this.first = 0;
     } else if (this.chunks[last].length < this.minimumChunkLength) {
       this.chunks[last] += text;
     } else {
       this.chunks.push(text);
-      this.offsets.push(this.end);
+      this.offsets.push(this.receivedTo);
     }
-    this.end += text.length;
+    this.receivedTo += text.length;
   }
 
   /**
@@ -52,15 +50,15 @@ export default class HeldText {
     const found = this.indexOf(anchorIndex, searchFrom);
     this.found[anchorIndex] = found;
     this.searchedTo[anchorIndex] =
-      found === -1 ? this.end - anchor.length + 1 : found + 1;
+      found === -1 ? this.receivedTo - anchor.length + 1 : found + 1;
     return found;
   }
 
   partialAnchorStart(anchorIndex: number, from: number): number {
     const anchor = this.anchors[anchorIndex];
-    let start = Math.max(from, this.end - anchor.length + 1);
-    const tail = this.slice(start, this.end);
-    while (start < this.end && !anchor.startsWith(tail.slice(start - this.end))) {
+    let start = Math.max(from, this.receivedTo - anchor.length + 1);
+    const tail = this.slice(start, this.receivedTo);
+    while (start < this.receivedTo && !anchor.startsWith(tail.slice(start - this.receivedTo))) {
       start++;
     }
     return start;
@@ -77,8 +75,8 @@ export default class HeldText {
   }
 
   take(to: number): string {
-    const text = this.slice(this.start, to);
-    this.start = to;
+    const text = this.slice(this.takenTo, to);
+    this.takenTo = to;
     this.first = this.chunkAt(to);
     if (this.first * 2 >= this.chunks.length) {
       this.chunks.splice(0, this.first);
@@ -94,7 +92,7 @@ export default class HeldText {
 
   private indexOf(anchorIndex: number, from: number): number {
     const anchor = this.anchors[anchorIndex];
-    if (from > this.end - anchor.length) return -1;
+    if (from > this.receivedTo - anchor.length) return -1;
     for (let index = this.chunkAt(from); ; index++) {
       const chunk = this.chunks[index];
       const offset = this.offsets[index];

@@ -24,7 +24,7 @@ describe("HeldText", () => {
             held.append(chunk);
             received += chunk;
             anchors.forEach((anchor, index) => {
-              for (;;) {
+              while(true) {
                 const found = held.find(index, from[index]);
                 expect(found, chunks.join("|")).toBe(
                   received.indexOf(anchor, from[index])
@@ -71,9 +71,9 @@ describe("HeldText", () => {
       const held = holding(["{{"], ["ab", "cd", "ef"]);
 
       expect(held.take(3)).toBe("abc");
-      expect(held.start).toBe(3);
+      expect(held.takenTo).toBe(3);
       expect(held.take(6)).toBe("def");
-      expect(held.start).toBe(held.end);
+      expect(held.takenTo).toBe(held.receivedTo);
     });
 
     it("still finds anchors after earlier text was taken", () => {
@@ -101,7 +101,7 @@ describe("HeldText", () => {
       let longestKept = 0;
       for (let chunk = 0; chunk < 10_000; chunk++) {
         held.append("y");
-        held.take(held.end - 64);
+        held.take(held.receivedTo - 64);
         longestKept = Math.max(longestKept, kept());
       }
 

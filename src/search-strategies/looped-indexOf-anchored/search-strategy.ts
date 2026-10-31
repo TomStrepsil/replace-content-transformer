@@ -52,24 +52,24 @@ export class LoopedIndexOfAnchoredSearchStrategy
   ): Generator<MatchResult, void, undefined> {
     const { held } = state;
     held.append(haystack);
-    for (;;) {
+    while(true) {
       const start = held.find(0, state.candidateFrom);
       if (start === -1) {
         state.candidateFrom = held.partialAnchorStart(0, state.candidateFrom);
-        if (state.candidateFrom > held.start) {
+        if (state.candidateFrom > held.takenTo) {
           yield { isMatch: false, content: held.take(state.candidateFrom) };
         }
         return;
       }
 
       const end = this.matchEnd(held, start);
-      if ((end === -1 ? held.end : end) - start > this.guard.maxBufferLength) {
+      if ((end === -1 ? held.receivedTo : end) - start > this.guard.maxBufferLength) {
         state.candidateFrom = start + 1;
-        this.guard.onGuardExceeded?.({ streamIndices: [start, held.end] });
+        this.guard.onGuardExceeded?.({ streamIndices: [start, held.receivedTo] });
         continue;
       }
 
-      if (start > held.start) {
+      if (start > held.takenTo) {
         yield { isMatch: false, content: held.take(start) };
       }
       if (end === -1) return;
@@ -79,7 +79,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
   }
 
   flush(state: LoopedIndexOfAnchoredSearchState): string {
-    const flushed = state.held.take(state.held.end);
+    const flushed = state.held.take(state.held.receivedTo);
     Object.assign(state, this.createState());
     return flushed;
   }

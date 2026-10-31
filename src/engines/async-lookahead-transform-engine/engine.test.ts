@@ -1714,7 +1714,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       let pulls = 0;
       const endless = (async function* () {
-        for (;;) {
+        while(true) {
           pulls++;
           await setImmediate();
           yield "x";
@@ -1767,7 +1767,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("does not pull a nested source again after cancel() while a child write is pending", async () => {
       let pulls = 0;
       const source = (async function* () {
-        for (;;) {
+        while(true) {
           pulls++;
           yield "x";
         }
@@ -1793,7 +1793,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("does not pull a nested source again after its child engine fails during a write", async () => {
       let pulls = 0;
       const source = (async function* () {
-        for (;;) {
+        while(true) {
           pulls++;
           yield "x";
         }

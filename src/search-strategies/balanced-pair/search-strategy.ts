@@ -92,13 +92,13 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
     const { held, pairs } = state;
     const [{ length: openingLength }, { length: closingLength }] = this.delimiters;
     held.append(haystack);
-    for (;;) {
+    while(true) {
       if (
         state.outermost < pairs.length &&
         pairs[state.outermost][1] !== AWAITING_CLOSING
       ) {
         const pair = pairs[state.outermost++];
-        if (pair[0] > held.start) {
+        if (pair[0] > held.takenTo) {
           yield { isMatch: false, content: held.take(pair[0]) };
         }
         yield { isMatch: true, content: held.take(pair[1]), streamIndices: pair };
@@ -109,7 +109,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
         const opening = held.find(OPENING, state.openingFrom);
         if (opening === -1) {
           state.openingFrom = held.partialAnchorStart(OPENING, state.openingFrom);
-          if (state.openingFrom > held.start) {
+          if (state.openingFrom > held.takenTo) {
             yield { isMatch: false, content: held.take(state.openingFrom) };
           }
           return;
@@ -127,7 +127,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
       const tokenEnd = opens
         ? opening + openingLength
         : closing === -1
-          ? held.end
+          ? held.receivedTo
           : closing + closingLength;
       const [outermostStart] = pairs[state.outermost];
 
@@ -137,7 +137,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
         pairs.push([opening, AWAITING_CLOSING]);
         state.openingFrom = tokenEnd;
       } else if (closing === -1) {
-        if (outermostStart > held.start) {
+        if (outermostStart > held.takenTo) {
           yield { isMatch: false, content: held.take(outermostStart) };
         }
         return;
@@ -150,7 +150,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
           pairs.push(pair);
           continue;
         }
-        if (start > held.start) {
+        if (start > held.takenTo) {
           yield { isMatch: false, content: held.take(start) };
         }
         yield { isMatch: true, content: held.take(tokenEnd), streamIndices: pair };
@@ -159,7 +159,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
   }
 
   flush(state: BalancedPairSearchState): string {
-    const flushed = state.held.take(state.held.end);
+    const flushed = state.held.take(state.held.receivedTo);
     Object.assign(state, this.createState());
     return flushed;
   }
@@ -175,6 +175,6 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
       pairs.splice(0, state.outermost);
       state.outermost = 0;
     }
-    this.guard.onGuardExceeded?.({ streamIndices: [start, held.end] });
+    this.guard.onGuardExceeded?.({ streamIndices: [start, held.receivedTo] });
   }
 }
