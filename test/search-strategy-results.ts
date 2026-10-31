@@ -89,27 +89,25 @@ function collectCanonicalSearchStrategyResults<TState, TMatch = string>(
     strategy,
     chunks
   );
-  const segments = canonicalSegmentsOf(strategy, [...results, ...settledResults]);
-  return { segments, output: segments.map(({ text }) => text).join("") };
-}
-
-function canonicalSegmentsOf<TMatch>(
-  strategy: Pick<SearchStrategy<unknown, TMatch>, "matchToString">,
-  results: MatchResult<TMatch>[]
-): CanonicalSegment[] {
   const segments: CanonicalSegment[] = [];
-  for (const result of results) {
-    const text = resultToString(strategy, result);
-    const last = segments.at(-1);
-    if (result.isMatch) {
-      segments.push({ isMatch: true, text });
-    } else if (last && !last.isMatch) {
-      last.text += text;
-    } else if (text !== "") {
-      segments.push({ isMatch: false, text });
+
+  function append(isMatch: boolean, text: string): void {
+    if (!isMatch) {
+      if (text === "") return;
+      const last = segments.at(-1);
+      if (last && !last.isMatch) {
+        last.text += text;
+        return;
+      }
     }
+    segments.push({ isMatch, text });
   }
-  return segments;
+
+  for (const result of [...results, ...settledResults]) {
+    append(result.isMatch, resultToString(strategy, result));
+  }
+
+  return { segments, output: segments.map(({ text }) => text).join("") };
 }
 
 /**
@@ -165,32 +163,6 @@ function collectStoppedSearchStrategyResults<TState, TMatch = string>(
 }
 
 /**
- * As {@link collectCanonicalSearchStrategyResults}, but carrying on with the next
- * chunk whenever `processChunk` throws, and collecting the errors thrown. No engine
- * drives a strategy on after it throws, so this pins only that the state left
- * behind stays consistent.
- */
-function collectCanonicalSearchStrategyResultsDrivenPastErrors<TState, TMatch = string>(
-  strategy: SearchStrategy<TState, TMatch>,
-  chunks: string[]
-): { segments: CanonicalSegment[]; errors: unknown[] } {
-  const state = strategy.createState();
-  const results: MatchResult<TMatch>[] = [];
-  const errors: unknown[] = [];
-  for (const chunk of chunks) {
-    try {
-      for (const result of strategy.processChunk(chunk, state)) {
-        results.push(result);
-      }
-    } catch (error) {
-      errors.push(error);
-    }
-  }
-  results.push(...settleOrFlush(strategy, state));
-  return { segments: canonicalSegmentsOf(strategy, results), errors };
-}
-
-/**
  * Drive `strategy` over `chunks`, returning the most code units received but not
  * yet reported, after any chunk.
  */
@@ -241,7 +213,6 @@ export type { CanonicalSegment };
 export {
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
-  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectStoppedSearchStrategyResults,
   longestHeldWhileDriving,
   regexMatchDetailsOf

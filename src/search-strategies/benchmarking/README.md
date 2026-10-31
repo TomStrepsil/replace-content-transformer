@@ -48,7 +48,6 @@ Pattern matching using **regular expressions**, with partial match detection for
 Composable strategy for sequential pattern matching across multiple sub-strategies.
 
 - **[anchor-sequence](./anchor-sequence/README.md)** - Composes multiple "cancellable" strategies for sequential matching.
-- **[balanced-pair-regex-search](./balanced-pair-regex-search/README.md)** - The publicly exported [`balanced-pair`](../balanced-pair/README.md) strategy, finding each delimiter with a [`RegExp`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/exec) compiled at construction instead of `indexOf`.
 
 ## 📊 Algorithm Comparison
 

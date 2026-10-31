@@ -352,7 +352,6 @@ export type { CanonicalSegment } from "./search-strategy-results.ts";
 
 export {
   collectCanonicalSearchStrategyResults,
-  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   longestHeldWhileDriving,

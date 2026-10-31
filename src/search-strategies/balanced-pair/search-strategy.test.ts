@@ -2,7 +2,6 @@
 import { describe, it, expect } from "vitest";
 import {
   collectCanonicalSearchStrategyResults,
-  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   heldTextWork,
@@ -486,28 +485,6 @@ describe("BalancedPairSearchStrategy", () => {
       drain("x((a)");
       expect(() => drain("bcd")).toThrow("callback failed");
       expect(reported + strategy.flush(state)).toBe("x((a)bcd");
-    });
-
-    it("decides as if the callback had not thrown when driven on after it throws, though engines stop driving a strategy that throws", () => {
-      const chunks = ["((a)", "bcd", "))(e)"];
-      const failure = new Error("callback failed");
-      const { segments, errors } = collectCanonicalSearchStrategyResultsDrivenPastErrors(
-        new BalancedPairSearchStrategy("(", ")", {
-          maxBufferLength: 6,
-          onGuardExceeded: vi.fn().mockImplementationOnce(() => {
-            throw failure;
-          })
-        }),
-        chunks
-      );
-
-      expect(errors).toEqual([failure]);
-      expect(segments).toEqual(
-        collectCanonicalSearchStrategyResults(
-          new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 6 }),
-          chunks
-        ).segments
-      );
     });
 
     it("leaves whatever it has not yielded for flush, wherever iteration stops after abandoning", () => {

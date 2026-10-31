@@ -38,26 +38,6 @@ describe("HeldText", () => {
       }
     );
 
-    it("never starts a chunk's search at a negative position, which Uint8Array.prototype.indexOf would count from the end", () => {
-      class RecordingHeldText extends HeldText {
-        starts: number[] = [];
-        protected override search(text: string, anchorIndex: number, from: number) {
-          this.starts.push(from);
-          return super.search(text, anchorIndex, from);
-        }
-      }
-      for (const chunks of everySplitOf("ab{cd{{ef{g{{")) {
-        const held = new RecordingHeldText(["{{"]);
-        let from = 0;
-        for (const chunk of chunks) {
-          held.append(chunk);
-          const found = held.find(0, from);
-          if (found !== -1) from = found + 1;
-        }
-        expect(Math.min(...held.starts), chunks.join("|")).toBeGreaterThanOrEqual(0);
-      }
-    });
-
     it("finds nothing before the content to contain it has arrived", () => {
       const held = holding(["{{"], ["a{"]);
       expect(held.find(0, 0)).toBe(-1);

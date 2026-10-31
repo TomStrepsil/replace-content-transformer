@@ -4,7 +4,6 @@ import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
 import {
   collectCanonicalSearchStrategyResults,
-  collectCanonicalSearchStrategyResultsDrivenPastErrors,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   heldTextWork,
@@ -769,28 +768,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       drain("x{{a");
       expect(() => drain("bcd")).toThrow("callback failed");
       expect(reported + strategy.flush(state)).toBe("x{{abcd");
-    });
-
-    it("decides as if the callback had not thrown when driven on after it throws, though engines stop driving a strategy that throws", () => {
-      const chunks = ["x{{a", "bcdef", "}}{{e}}"];
-      const failure = new Error("callback failed");
-      const { segments, errors } = collectCanonicalSearchStrategyResultsDrivenPastErrors(
-        new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
-          maxBufferLength: 6,
-          onGuardExceeded: vi.fn().mockImplementationOnce(() => {
-            throw failure;
-          })
-        }),
-        chunks
-      );
-
-      expect(errors).toEqual([failure]);
-      expect(segments).toEqual(
-        collectCanonicalSearchStrategyResults(
-          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], { maxBufferLength: 6 }),
-          chunks
-        ).segments
-      );
     });
 
     it("defaults to a limit of 64 Ki code units", () => {

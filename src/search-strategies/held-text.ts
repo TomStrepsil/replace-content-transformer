@@ -86,7 +86,7 @@ export default class HeldText {
     return text;
   }
 
-  protected search(text: string, anchorIndex: number, from: number): number {
+  private search(text: string, anchorIndex: number, from: number): number {
     return text.indexOf(this.anchors[anchorIndex], from);
   }
 
@@ -96,7 +96,7 @@ export default class HeldText {
     for (let index = this.chunkAt(from); ; index++) {
       const chunk = this.chunks[index];
       const offset = this.offsets[index];
-      const searchFrom = Math.max(from - offset, 0);
+      const searchFrom = from - offset;
       const found = this.search(chunk, anchorIndex, searchFrom);
       if (found !== -1) return offset + found;
       if (index + 1 === this.chunks.length) return -1;
