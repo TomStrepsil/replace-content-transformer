@@ -23,6 +23,7 @@ export default class HeldText {
   }
 
   append(text: string): void {
+    if (text === "") return;
     const last = this.chunks.length - 1;
     if (this.receivedTo - this.takenTo <= text.length) {
       this.chunks[0] = this.slice(this.takenTo, this.receivedTo) + text;

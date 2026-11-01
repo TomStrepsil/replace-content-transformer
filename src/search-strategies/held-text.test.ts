@@ -89,6 +89,17 @@ describe("HeldText", () => {
     });
   });
 
+  describe("append", () => {
+    it("keeps no new chunk for an empty chunk, so a stream of empty chunks needs bounded memory", () => {
+      const held = holding(["{", "}"], ["{"]);
+      const chunks = () => (held as unknown as { chunks: string[] }).chunks.length;
+      for (let chunk = 0; chunk < 1_000; chunk++) held.append("");
+
+      expect(chunks()).toBe(1);
+      expect(held.slice(0, held.receivedTo)).toBe("{");
+    });
+  });
+
   describe("slice", () => {
     it("returns text across chunk boundaries", () => {
       const held = holding(["{{"], ["ab", "c", "def"]);
