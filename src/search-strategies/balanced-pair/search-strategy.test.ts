@@ -296,6 +296,34 @@ describe("BalancedPairSearchStrategy", () => {
     });
   });
 
+  describe("one instance driving several streams", () => {
+    it("keeps each stream apart while both hold a pair across chunks", () => {
+      const strategy = new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 8 });
+      const first = strategy.createState();
+      const second = strategy.createState();
+      const drive = (chunk: string, state: typeof first) => [
+        ...strategy.processChunk(chunk, state)
+      ];
+
+      expect(drive("((a", first)).toEqual([]);
+      expect(drive("(x(", second)).toEqual([]);
+      expect(drive(")b)(cccc", first)).toEqual([
+        { isMatch: true, content: "((a)b)", streamIndices: [0, 6] }
+      ]);
+      expect(drive("y))", second)).toEqual([
+        { isMatch: true, content: "(x(y))", streamIndices: [0, 6] }
+      ]);
+      expect(drive("cccc)", first)).toEqual([
+        { isMatch: false, content: "(cccccccc)" }
+      ]);
+      expect(drive("(z)", second)).toEqual([
+        { isMatch: true, content: "(z)", streamIndices: [6, 9] }
+      ]);
+      expect(strategy.flush(first)).toBe("");
+      expect(strategy.flush(second)).toBe("");
+    });
+  });
+
   describe("stream offset tracking", () => {
     it("reports correct indices for a match following non-match content", () => {
       const strategy = new BalancedPairSearchStrategy("(", ")");

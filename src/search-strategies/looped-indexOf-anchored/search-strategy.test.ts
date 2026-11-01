@@ -466,6 +466,37 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     });
   });
 
+  describe("one instance driving several streams", () => {
+    it("keeps each stream apart while both hold a match across chunks", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {
+        maxBufferLength: 8
+      });
+      const first = strategy.createState();
+      const second = strategy.createState();
+      const drive = (chunk: string, state: typeof first) => [
+        ...strategy.processChunk(chunk, state)
+      ];
+
+      expect(drive("a{{b", first)).toEqual([{ isMatch: false, content: "a" }]);
+      expect(drive("{{x", second)).toEqual([]);
+      expect(drive("c}}d{{eeee", first)).toEqual([
+        { isMatch: true, content: "{{bc}}", streamIndices: [1, 7] },
+        { isMatch: false, content: "d" }
+      ]);
+      expect(drive("y}}{", second)).toEqual([
+        { isMatch: true, content: "{{xy}}", streamIndices: [0, 6] }
+      ]);
+      expect(drive("eeee}}", first)).toEqual([
+        { isMatch: false, content: "{{eeeeeeee}}" }
+      ]);
+      expect(drive("{z}}", second)).toEqual([
+        { isMatch: true, content: "{{z}}", streamIndices: [6, 11] }
+      ]);
+      expect(strategy.flush(first)).toBe("");
+      expect(strategy.flush(second)).toBe("");
+    });
+  });
+
   describe("matchToString", () => {
     it("returns the matched string unchanged", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
