@@ -1,6 +1,6 @@
 import validateNeedles from "../looped-indexOf-anchored/validate-needles.js";
-import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
-import HeldText from "../held-text.js";
+import bufferGuard, { anchorsFit, passThrough, type BufferGuard } from "../buffer-guard.js";
+import HeldText, { flushHeld } from "../held-text.js";
 import type {
   BufferGuardOptions,
   MatchResult,
@@ -26,6 +26,8 @@ export type BalancedPairSearchState = {
    */
   pairs: StreamIndices[];
   outermost: number;
+  /** How many of the opening delimiters from index `outermost` await their closing delimiter. */
+  unclosed: number;
 };
 
 /**
@@ -40,7 +42,9 @@ export type BalancedPairSearchState = {
  *
  * A pair longer than `maxBufferLength` never matches: its opening delimiter
  * passes through as text, and the pairs nested inside it are matched as if it
- * were absent. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
+ * were absent. If the delimiters together are longer than `maxBufferLength`,
+ * nothing can match, so every chunk passes straight through and
+ * `onGuardExceeded` is never called. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
  *
  * See [README](./README.md) for the algorithm.
  *
@@ -73,6 +77,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
     validateNeedles([opening, closing]);
     this.delimiters = [opening, closing];
     this.guard = bufferGuard(options);
+    if (!anchorsFit(this.delimiters, this.guard)) this.processChunk = passThrough;
   }
 
   createState(): BalancedPairSearchState {
@@ -81,7 +86,8 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
       openingFrom: 0,
       closingFrom: 0,
       pairs: [],
-      outermost: 0
+      outermost: 0,
+      unclosed: 0
     };
   }
 
@@ -92,7 +98,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
     const { held, pairs } = state;
     const [{ length: openingLength }, { length: closingLength }] = this.delimiters;
     held.append(haystack);
-    while(true) {
+    while (true) {
       if (
         state.outermost < pairs.length &&
         pairs[state.outermost][1] !== AWAITING_CLOSING
@@ -108,14 +114,14 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
       if (state.outermost === pairs.length) {
         const opening = held.find(OPENING, state.openingFrom);
         if (opening === -1) {
-          state.openingFrom = held.partialAnchorStart(OPENING, state.openingFrom);
-          if (state.openingFrom > held.takenTo) {
-            yield { isMatch: false, content: held.take(state.openingFrom) };
-          }
+          const text = held.takeBeforePartialAnchor(OPENING, state.openingFrom);
+          state.openingFrom = held.takenTo;
+          if (text !== "") yield { isMatch: false, content: text };
           return;
         }
         pairs.length = state.outermost = 0;
         pairs.push([opening, AWAITING_CLOSING]);
+        state.unclosed = 1;
         state.openingFrom = state.closingFrom = opening + openingLength;
       }
 
@@ -132,9 +138,11 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
       const [outermostStart] = pairs[state.outermost];
 
       if (tokenEnd - outermostStart > this.guard.maxBufferLength) {
-        this.abandonOutermost(state);
+        const closesOutermost = !opens && closing !== -1 && state.unclosed === 1;
+        this.abandonOutermost(state, closesOutermost ? tokenEnd : held.receivedTo);
       } else if (opens) {
         pairs.push([opening, AWAITING_CLOSING]);
+        state.unclosed++;
         state.openingFrom = tokenEnd;
       } else if (closing === -1) {
         if (outermostStart > held.takenTo) {
@@ -143,6 +151,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
         return;
       } else {
         state.openingFrom = state.closingFrom = tokenEnd;
+        state.unclosed--;
         let [start, end] = pairs.pop()!;
         while (end !== AWAITING_CLOSING) [start, end] = pairs.pop()!;
         const pair: StreamIndices = [start, tokenEnd];
@@ -159,22 +168,21 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
   }
 
   flush(state: BalancedPairSearchState): string {
-    const flushed = state.held.take(state.held.receivedTo);
-    Object.assign(state, this.createState());
-    return flushed;
+    return flushHeld(state, this.createState());
   }
 
   matchToString(match: string): string {
     return match;
   }
 
-  private abandonOutermost(state: BalancedPairSearchState): void {
-    const { held, pairs } = state;
+  private abandonOutermost(state: BalancedPairSearchState, end: number): void {
+    const { pairs } = state;
     const [start] = pairs[state.outermost++];
+    state.unclosed--;
     if (state.outermost * 2 >= pairs.length) {
       pairs.splice(0, state.outermost);
       state.outermost = 0;
     }
-    this.guard.onGuardExceeded?.({ streamIndices: [start, held.receivedTo] });
+    this.guard.onGuardExceeded?.({ streamIndices: [start, end] });
   }
 }

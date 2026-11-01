@@ -479,7 +479,7 @@ describe("BalancedPairSearchStrategy", () => {
       }
     );
 
-    it("reports each abandoned opening once, with the span held when it was abandoned", () => {
+    it("reports each abandoned opening once, with the pair if its closing has arrived, else the span held", () => {
       const onGuardExceeded = vi.fn();
       collectSearchStrategyResults(
         new BalancedPairSearchStrategy("(", ")", {
@@ -491,8 +491,22 @@ describe("BalancedPairSearchStrategy", () => {
 
       expect(onGuardExceeded.mock.calls).toEqual([
         [{ streamIndices: [0, 13] }],
-        [{ streamIndices: [1, 13] }]
+        [{ streamIndices: [1, 10] }]
       ]);
+    });
+
+    it("holds nothing and reports nothing abandoned when the delimiters are longer than the limit, however the input is split", () => {
+      const input = "a{{{}}}b{{";
+      for (const chunks of everySplitOf(input)) {
+        const onGuardExceeded = vi.fn();
+        const strategy = new BalancedPairSearchStrategy("{{", "}}", {
+          maxBufferLength: 3,
+          onGuardExceeded
+        });
+
+        expect(longestHeldWhileDriving(strategy, chunks), chunks.join("|")).toBe(0);
+        expect(onGuardExceeded).not.toHaveBeenCalled();
+      }
     });
 
     it("keeps the unconsumed input exactly once when the callback throws", () => {

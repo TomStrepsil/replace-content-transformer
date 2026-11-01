@@ -24,7 +24,7 @@ describe("HeldText", () => {
             held.append(chunk);
             received += chunk;
             anchors.forEach((anchor, index) => {
-              while(true) {
+              while (true) {
                 const found = held.find(index, from[index]);
                 expect(found, chunks.join("|")).toBe(
                   received.indexOf(anchor, from[index])

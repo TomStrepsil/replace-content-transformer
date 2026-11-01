@@ -310,23 +310,24 @@ function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
 }
 
 /**
- * Code units `HeldText` searched (up to each occurrence found) and sliced while
- * `run` ran. Every anchor strategy searches and copies held text through these
- * two methods, so this counts its work deterministically, where timing is noisy.
+ * Code units examined by `String.prototype.indexOf` (up to the end of each
+ * occurrence found) and sliced by `HeldText` while `run` ran. Every anchor
+ * strategy searches with the one and copies held text with the other, so this
+ * counts its work deterministically, where timing is noisy.
  */
 function heldTextWork(run: () => void): number {
-  const prototype = HeldText.prototype as unknown as {
-    search(text: string, anchorIndex: number, from: number): number;
-    slice(from: number, to: number): string;
-  };
-  const { search, slice } = prototype;
+  const strings = String.prototype;
+  const held = HeldText.prototype;
+  const { indexOf } = strings;
+  const { slice } = held;
   let work = 0;
-  prototype.search = function (text, anchorIndex, from) {
-    const found = search.call(this, text, anchorIndex, from);
-    work += (found === -1 ? text.length : found + 1) - from;
+  strings.indexOf = function (this: string, searchString: string, position = 0) {
+    const found = indexOf.call(this, searchString, position);
+    const searchedTo = found === -1 ? this.length : found + searchString.length;
+    work += Math.max(0, searchedTo - Math.max(0, position));
     return found;
   };
-  prototype.slice = function (from, to) {
+  held.slice = function (from, to) {
     const text = slice.call(this, from, to);
     work += text.length;
     return text;
@@ -335,8 +336,8 @@ function heldTextWork(run: () => void): number {
     run();
     return work;
   } finally {
-    prototype.search = search;
-    prototype.slice = slice;
+    strings.indexOf = indexOf;
+    held.slice = slice;
   }
 }
 

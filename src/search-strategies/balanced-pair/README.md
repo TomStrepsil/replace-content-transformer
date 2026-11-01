@@ -57,7 +57,7 @@ const strategy = new BalancedPairSearchStrategy("{{", "}}", {
 // "{{" + 1 MiB with no "}}" → passed through once more than 10 code units are held
 ```
 
-The rule depends on a pair's length, not on where chunks fall, so results are the same however the input is split. `onGuardExceeded` is called once for each opening delimiter given up on. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
+The rule depends on a pair's length, not on where chunks fall, so results are the same however the input is split. `onGuardExceeded` is called once for each opening delimiter given up on, with the pair if its closing delimiter has arrived, or else the content held from the opening. If the delimiters together are longer than `maxBufferLength`, nothing can match: content passes straight through and `onGuardExceeded` is never called. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
 
 ## State Management
 
@@ -75,6 +75,8 @@ type BalancedPairSearchState = {
    */
   pairs: StreamIndices[];
   outermost: number;
+  /** How many of the opening delimiters from index `outermost` await their closing delimiter. */
+  unclosed: number;
 };
 ```
 

@@ -1,3 +1,5 @@
+import type { DEFAULT_BUFFER_GUARD } from "./buffer-guard.js";
+
 /**
  * Inclusive/exclusive stream indices for a discovered match.
  *
@@ -97,19 +99,14 @@ export interface SearchStrategy<TState, TMatch = string> {
 export type GuardExceededInfo = {
   /**
    * Absolute stream offsets, as [startIndex, endIndex] with endIndex exclusive,
-   * of the held-back content given up on.
+   * of the content given up on: the over-long match, if its end has arrived, or
+   * else everything held from its start.
    */
   streamIndices: StreamIndices;
 };
 
 /** A ceiling on the content a search strategy holds back awaiting a decision. */
-export type BufferGuardOptions = {
-  /**
-   * Longest span, in UTF-16 code units, held back awaiting a decision. `Infinity`
-   * removes the ceiling.
-   * @default 65536
-   */
-  maxBufferLength?: number;
+export type BufferGuardOptions = Partial<typeof DEFAULT_BUFFER_GUARD> & {
   /** Called each time held-back content exceeds `maxBufferLength` and is given up on. */
   onGuardExceeded?: (info: GuardExceededInfo) => void;
 };

@@ -133,7 +133,7 @@ const strategy = new StringAnchorSearchStrategy(["{{", "}}"], {
 // "{{" + 1 MiB with no "}}" → passed through once more than 8 code units are held
 ```
 
-The rule depends on a match's length, not on where chunks fall, so results are the same however the input is split. `onGuardExceeded` is called once for each candidate given up on. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
+The rule depends on a match's length, not on where chunks fall, so results are the same however the input is split. `onGuardExceeded` is called once for each candidate given up on, with the match if its last anchor has arrived, or else the content held from its first anchor. If the anchors together are longer than `maxBufferLength`, nothing can match: content passes straight through and `onGuardExceeded` is never called. See [Buffering and the guard](../../../README.md#buffering-and-the-guard).
 
 ## State Management
 

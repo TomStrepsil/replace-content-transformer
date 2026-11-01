@@ -1,9 +1,3 @@
-/**
- * Text held back from a stream, addressed by stream position, and searchable for
- * a fixed list of anchors. Appending a chunk copies none of the text already held,
- * and each anchor's search resumes where its previous search left off, so holding
- * a long span costs time linear in its length.
- */
 export default class HeldText {
   takenTo = 0;
   receivedTo = 0;
@@ -25,8 +19,9 @@ export default class HeldText {
   append(text: string): void {
     if (text === "") return;
     const last = this.chunks.length - 1;
-    if (this.receivedTo - this.takenTo <= text.length) {
-      this.chunks[0] = this.slice(this.takenTo, this.receivedTo) + text;
+    const heldLength = this.receivedTo - this.takenTo;
+    if (heldLength <= text.length) {
+      this.chunks[0] = heldLength === 0 ? text : this.slice(this.takenTo, this.receivedTo) + text;
       this.offsets[0] = this.takenTo;
       if (this.chunks.length > 1) this.chunks.length = this.offsets.length = 1;
       this.first = 0;
@@ -39,33 +34,58 @@ export default class HeldText {
     this.receivedTo += text.length;
   }
 
-  /**
-   * Stream position of the first occurrence of the anchor at `anchorIndex` at or
-   * after `from`, or -1 if none has arrived yet. Successive calls for the same
-   * anchor must not decrease `from`.
-   */
   find(anchorIndex: number, from: number): number {
     if (this.found[anchorIndex] >= from) return this.found[anchorIndex];
     const anchor = this.anchors[anchorIndex];
     const searchFrom = Math.max(from, this.searchedTo[anchorIndex]);
-    const found = this.indexOf(anchorIndex, searchFrom);
+    let found = -1;
+    if (searchFrom <= this.receivedTo - anchor.length) {
+      if (this.chunks.length > 1) {
+        found = this.indexOf(anchorIndex, searchFrom);
+      } else {
+        const offset = this.offsets[0];
+        found = this.chunks[0].indexOf(anchor, searchFrom - offset);
+        if (found !== -1) found += offset;
+      }
+    }
     this.found[anchorIndex] = found;
     this.searchedTo[anchorIndex] =
       found === -1 ? this.receivedTo - anchor.length + 1 : found + 1;
     return found;
   }
 
+  takeBeforePartialAnchor(anchorIndex: number, from: number): string {
+    return this.take(this.partialAnchorStart(anchorIndex, from));
+  }
+
   partialAnchorStart(anchorIndex: number, from: number): number {
     const anchor = this.anchors[anchorIndex];
-    let start = Math.max(from, this.receivedTo - anchor.length + 1);
+    const start = Math.max(from, this.receivedTo - anchor.length + 1);
     const tail = this.slice(start, this.receivedTo);
-    while (start < this.receivedTo && !anchor.startsWith(tail.slice(start - this.receivedTo))) {
-      start++;
+    const firstCode = anchor.charCodeAt(0);
+    for (let index = 0; index < tail.length; index++) {
+      if (tail.charCodeAt(index) === firstCode && anchor.startsWith(tail.slice(index))) {
+        return start + index;
+      }
     }
-    return start;
+    return this.receivedTo;
   }
 
   slice(from: number, to: number): string {
+    if (this.chunks.length === 1) {
+      return this.chunks[0].slice(from - this.offsets[0], to - this.offsets[0]);
+    }
+    return this.sliceChunks(from, to);
+  }
+
+  take(to: number): string {
+    const text = this.slice(this.takenTo, to);
+    this.takenTo = to;
+    if (this.chunks.length > 1) this.release(to);
+    return text;
+  }
+
+  private sliceChunks(from: number, to: number): string {
     let index = this.chunkAt(from);
     let offset = this.offsets[index];
     let text = this.chunks[index].slice(from - offset, to - offset);
@@ -75,38 +95,28 @@ export default class HeldText {
     return text;
   }
 
-  take(to: number): string {
-    const text = this.slice(this.takenTo, to);
-    this.takenTo = to;
+  private release(to: number): void {
     this.first = this.chunkAt(to);
     if (this.first * 2 >= this.chunks.length) {
       this.chunks.splice(0, this.first);
       this.offsets.splice(0, this.first);
       this.first = 0;
     }
-    return text;
-  }
-
-  private search(text: string, anchorIndex: number, from: number): number {
-    return text.indexOf(this.anchors[anchorIndex], from);
   }
 
   private indexOf(anchorIndex: number, from: number): number {
     const anchor = this.anchors[anchorIndex];
-    if (from > this.receivedTo - anchor.length) return -1;
     for (let index = this.chunkAt(from); ; index++) {
       const chunk = this.chunks[index];
       const offset = this.offsets[index];
       const searchFrom = from - offset;
-      const found = this.search(chunk, anchorIndex, searchFrom);
+      const found = chunk.indexOf(anchor, searchFrom);
       if (found !== -1) return offset + found;
       if (index + 1 === this.chunks.length) return -1;
       const straddleFrom = Math.max(searchFrom, chunk.length - anchor.length + 1);
-      const straddle = this.search(
-        chunk.slice(straddleFrom) + this.chunks[index + 1].slice(0, anchor.length - 1),
-        anchorIndex,
-        0
-      );
+      const straddle = (
+        chunk.slice(straddleFrom) + this.chunks[index + 1].slice(0, anchor.length - 1)
+      ).indexOf(anchor);
       if (straddle !== -1) return offset + straddleFrom + straddle;
     }
   }
@@ -121,4 +131,10 @@ export default class HeldText {
     }
     return low;
   }
+}
+
+export function flushHeld<TState extends { held: HeldText }>(state: TState, fresh: TState): string {
+  const flushed = state.held.take(state.held.receivedTo);
+  Object.assign(state, fresh);
+  return flushed;
 }

@@ -763,7 +763,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       }
     );
 
-    it("reports each abandoned candidate once, with the span held when it was abandoned", () => {
+    it("reports each abandoned candidate once, with the match if its end has arrived, else the span held", () => {
       const reported = (chunks: string[]) => {
         const onGuardExceeded = vi.fn();
         collectSearchStrategyResults(
@@ -779,7 +779,27 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       expect(reported(["{{{{a}}"])).toEqual([[{ streamIndices: [0, 7] }]]);
       expect(reported(["{{{{a", "}}"])).toEqual([[{ streamIndices: [0, 7] }]]);
       expect(reported(["x{{abcd", "efgh"])).toEqual([[{ streamIndices: [1, 11] }]]);
+      expect(reported(["{{abcdefgh}} tail {{x}}"])).toEqual([[{ streamIndices: [0, 12] }]]);
     });
+
+    it.each([
+      ["a single anchor", ["{{{{"], 0, "a{{{{b{{{"],
+      ["an anchor sequence", ["{{", "}}"], 3, "a{{}}b{{x}}{"]
+    ])(
+      "holds nothing and reports nothing abandoned when %s is longer than the limit, however the input is split",
+      (_label, needles, maxBufferLength, input) => {
+        for (const chunks of everySplitOf(input)) {
+          const onGuardExceeded = vi.fn();
+          const strategy = new LoopedIndexOfAnchoredSearchStrategy(needles, {
+            maxBufferLength,
+            onGuardExceeded
+          });
+
+          expect(longestHeldWhileDriving(strategy, chunks), chunks.join("|")).toBe(0);
+          expect(onGuardExceeded).not.toHaveBeenCalled();
+        }
+      }
+    );
 
     it("keeps the unconsumed input exactly once when the callback throws", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], {

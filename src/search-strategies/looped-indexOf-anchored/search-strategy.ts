@@ -1,6 +1,6 @@
 import type { BufferGuardOptions, MatchResult, SearchStrategy } from "../types.js";
-import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
-import HeldText from "../held-text.js";
+import bufferGuard, { anchorsFit, passThrough, type BufferGuard } from "../buffer-guard.js";
+import HeldText, { flushHeld } from "../held-text.js";
 import validateNeedles from "./validate-needles.js";
 
 /** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}. */
@@ -21,7 +21,9 @@ export type LoopedIndexOfAnchoredSearchState = {
  * part-way through its sequence.
  *
  * A match longer than `maxBufferLength` never matches: its first anchor passes
- * through as text, and the search resumes one code unit after it. See
+ * through as text, and the search resumes one code unit after it. If the
+ * anchors together are longer than `maxBufferLength`, nothing can match, so
+ * every chunk passes straight through and `onGuardExceeded` is never called. See
  * [Buffering and the guard](../../../README.md#buffering-and-the-guard).
  *
  * Exposed publicly as `StringAnchorSearchStrategy`.
@@ -40,6 +42,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
     validateNeedles(needles);
     this.needles = [...needles];
     this.guard = bufferGuard(options);
+    if (!anchorsFit(this.needles, this.guard)) this.processChunk = passThrough;
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {
@@ -52,20 +55,20 @@ export class LoopedIndexOfAnchoredSearchStrategy
   ): Generator<MatchResult, void, undefined> {
     const { held } = state;
     held.append(haystack);
-    while(true) {
+    while (true) {
       const start = held.find(0, state.candidateFrom);
       if (start === -1) {
-        state.candidateFrom = held.partialAnchorStart(0, state.candidateFrom);
-        if (state.candidateFrom > held.takenTo) {
-          yield { isMatch: false, content: held.take(state.candidateFrom) };
-        }
+        const text = held.takeBeforePartialAnchor(0, state.candidateFrom);
+        state.candidateFrom = held.takenTo;
+        if (text !== "") yield { isMatch: false, content: text };
         return;
       }
 
       const end = this.matchEnd(held, start);
-      if ((end === -1 ? held.receivedTo : end) - start > this.guard.maxBufferLength) {
+      const heldTo = end === -1 ? held.receivedTo : end;
+      if (heldTo - start > this.guard.maxBufferLength) {
         state.candidateFrom = start + 1;
-        this.guard.onGuardExceeded?.({ streamIndices: [start, held.receivedTo] });
+        this.guard.onGuardExceeded?.({ streamIndices: [start, heldTo] });
         continue;
       }
 
@@ -79,9 +82,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
   }
 
   flush(state: LoopedIndexOfAnchoredSearchState): string {
-    const flushed = state.held.take(state.held.receivedTo);
-    Object.assign(state, this.createState());
-    return flushed;
+    return flushHeld(state, this.createState());
   }
 
   matchToString(match: string): string {

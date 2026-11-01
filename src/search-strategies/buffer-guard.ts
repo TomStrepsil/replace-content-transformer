@@ -1,6 +1,13 @@
-import type { BufferGuardOptions } from "./types.js";
+import type { BufferGuardOptions, MatchResult } from "./types.js";
 
-const DEFAULT_MAX_BUFFER_LENGTH = 65_536;
+export const DEFAULT_BUFFER_GUARD = {
+  /**
+   * Longest span, in UTF-16 code units, held back awaiting a decision. `Infinity`
+   * removes the ceiling.
+   * @default 65536
+   */
+  maxBufferLength: 65_536
+};
 
 export type BufferGuard = BufferGuardOptions & { maxBufferLength: number };
 
@@ -18,9 +25,16 @@ export const validateAtLeast = (name: string, value: unknown, minimum: number) =
 };
 
 export default function bufferGuard({
-  maxBufferLength = DEFAULT_MAX_BUFFER_LENGTH,
+  maxBufferLength = DEFAULT_BUFFER_GUARD.maxBufferLength,
   onGuardExceeded
 }: BufferGuardOptions = {}): BufferGuard {
   validateAtLeast("maxBufferLength", maxBufferLength, 0);
   return { maxBufferLength, onGuardExceeded };
+}
+
+export const anchorsFit = (anchors: readonly string[], { maxBufferLength }: BufferGuard) =>
+  anchors.reduce((length, anchor) => length + anchor.length, 0) <= maxBufferLength;
+
+export function* passThrough(haystack: string): Generator<MatchResult, void, undefined> {
+  if (haystack !== "") yield { isMatch: false, content: haystack };
 }
