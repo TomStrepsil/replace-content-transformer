@@ -8,6 +8,7 @@ import validateInput from "./input-validation.js";
 import validateOptions from "./options-validation.js";
 import advanceToMatch from "./advance-to-match.js";
 import endsAtHaystackEnd from "./ends-at-haystack-end.js";
+import endsWithHighSurrogate from "../../ends-with-high-surrogate.js";
 import nonMatch from "./non-match.js";
 import sameCaptures from "./same-captures.js";
 import skipOneCodePointPastZeroLengthMatch from "./skip-one-code-point-past-zero-length-match.js";
@@ -19,6 +20,8 @@ import type {
   ScanCursor
 } from "./types.js";
 import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
+
+const SCAN_PIECE_LENGTH = 64 * 1024;
 
 /**
  * The regex search strategy, taking a `PartialMatchRegExp` the consumer has
@@ -127,67 +130,63 @@ export class LeanRegexSearchStrategy
   }
 
   *processChunk(
-    haystack: string,
+    chunk: string,
     state: RegexSearchState
   ): Generator<MatchResult<StreamRegexMatch>, void, undefined> {
     const bufferLength = state.buffer.length;
-    if (this.canSkipEvaluation(state, bufferLength + haystack.length)) {
-      state.buffer += haystack;
-      state.streamOffset += haystack.length;
-      return;
-    }
     const baseOffset = state.streamOffset - bufferLength;
-    haystack = state.buffer + haystack;
+    const haystack = state.buffer + chunk;
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
-    let settling = false;
+    let scanEnd = bufferLength;
     try {
-      while (cursor.reportedUpTo < length) {
-        const remainingHaystack = haystack.substring(cursor.reportedUpTo);
-        const candidate = (
-          settling ? this.completeMatchRegex : this.partialMatchRegex
-        ).exec(remainingHaystack);
-        const matchStart = candidate?.index ?? remainingHaystack.length;
-        const settledMatch = settling
-          ? candidate
-          : this.settledMatch(candidate, remainingHaystack);
+      while (scanEnd < length) {
+        scanEnd = Math.min(scanEnd + SCAN_PIECE_LENGTH, length);
+        if (scanEnd < length && endsWithHighSurrogate(haystack, scanEnd)) scanEnd++;
+        if (this.canSkipEvaluation(state, scanEnd - cursor.reportedUpTo)) continue;
+        let settling = false;
+        while (cursor.reportedUpTo < scanEnd) {
+          const remainingHaystack = haystack.substring(cursor.reportedUpTo, scanEnd);
+          const candidate = (
+            settling ? this.completeMatchRegex : this.partialMatchRegex
+          ).exec(remainingHaystack);
+          const matchStart = candidate?.index ?? remainingHaystack.length;
+          const settledMatch = settling
+            ? candidate
+            : this.settledMatch(candidate, remainingHaystack);
 
-        if (settledMatch === null) {
-          const heldBackFrom = cursor.reportedUpTo + matchStart;
-          const heldBack = haystack.slice(heldBackFrom);
-          const exceedsGuard = heldBack.length > this.guard.maxBufferLength;
-          cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
-          state.buffer = exceedsGuard ? "" : heldBack;
-          state.evaluatedBufferLength = state.buffer.length;
-          if (matchStart > 0)
-            yield nonMatch(remainingHaystack.slice(0, matchStart));
-          if (!exceedsGuard) return;
-          settling = true;
-          this.guard.onGuardExceeded?.({
-            streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
-          });
-          continue;
-        }
+          if (settledMatch === null) {
+            const heldBackFrom = cursor.reportedUpTo + matchStart;
+            const exceedsGuard = scanEnd - heldBackFrom > this.guard.maxBufferLength;
+            cursor.reportedUpTo = heldBackFrom;
+            state.evaluatedBufferLength = exceedsGuard ? 0 : scanEnd - heldBackFrom;
+            if (matchStart > 0)
+              yield nonMatch(remainingHaystack.slice(0, matchStart));
+            if (!exceedsGuard) break;
+            settling = true;
+            this.guard.onGuardExceeded?.({
+              streamIndices: [baseOffset + heldBackFrom, baseOffset + scanEnd]
+            });
+            continue;
+          }
 
-        state.buffer = "";
-        state.evaluatedBufferLength = 0;
-        if (settledMatch[0].length === 0) {
-          yield skipOneCodePointPastZeroLengthMatch(
-            haystack,
-            cursor,
-            settledMatch.index
-          );
-          continue;
+          state.evaluatedBufferLength = 0;
+          if (settledMatch[0].length === 0) {
+            yield skipOneCodePointPastZeroLengthMatch(
+              haystack,
+              cursor,
+              settledMatch.index
+            );
+            continue;
+          }
+          const precedingContent = advanceToMatch(settledMatch, haystack, cursor);
+          if (precedingContent) yield precedingContent;
+          yield takeMatch(settledMatch, cursor, baseOffset);
         }
-        const precedingContent = advanceToMatch(settledMatch, haystack, cursor);
-        if (precedingContent) yield precedingContent;
-        yield takeMatch(settledMatch, cursor, baseOffset);
       }
     } finally {
-      if (cursor.reportedUpTo < length) {
-        state.buffer += haystack.slice(cursor.reportedUpTo);
-      }
-      state.streamOffset += haystack.length - bufferLength;
+      state.buffer = haystack.slice(cursor.reportedUpTo);
+      state.streamOffset += length - bufferLength;
     }
   }
 

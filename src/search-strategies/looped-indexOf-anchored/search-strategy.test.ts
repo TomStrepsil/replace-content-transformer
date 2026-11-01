@@ -710,7 +710,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     it.each([
       ["with an anchor pair", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]), "a{{x}}b{{y}}{{z"],
       ["with a three-anchor sequence", new LoopedIndexOfAnchoredSearchStrategy(["<", "-", ">"]), "<-><a-b>c<-"],
-      ["with a bordered anchor", new LoopedIndexOfAnchoredSearchStrategy(["aba"]), "xababaxaba"]
+      ["with a bordered anchor", new LoopedIndexOfAnchoredSearchStrategy(["aba"]), "xababaxaba"],
+      ["with anchors longer than the limit", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], { maxBufferLength: 3 }), "a{{x}}b"]
     ] as const)(
       "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
       (_label, strategy, input) => {

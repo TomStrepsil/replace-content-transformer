@@ -2628,6 +2628,74 @@ describe("RegexSearchStrategy", () => {
       expect(output).toBe(input);
     });
 
+    it("settles a long run of a repeated group arriving as one chunk, rather than overflowing V8's stack", () => {
+      const input = "x".repeat(8 * 1024 * 1024);
+      const { output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?:\w|-)+/),
+        [input]
+      );
+
+      expect(output).toBe(input);
+    });
+
+    it("scans one long chunk in the same pieces whatever the ceiling, so it overflows no sooner than many short ones", () => {
+      const input = "x".repeat(8 * 1024 * 1024);
+      const { output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?:\w|-)+/, { maxBufferLength: 2 * 1024 * 1024 }),
+        [input]
+      );
+
+      expect(output).toBe(input);
+    });
+
+    it("does not re-scan what it holds for an empty chunk", () => {
+      const strategy = new RegexSearchStrategy(/\{\{\w+\}\}/);
+      const state = strategy.createState();
+      Array.from(strategy.processChunk("x{{abc", state));
+      const exec = vi.spyOn(RegExp.prototype, "exec");
+      try {
+        Array.from(strategy.processChunk("", state));
+        expect(exec).not.toHaveBeenCalled();
+      } finally {
+        exec.mockRestore();
+      }
+      expect(strategy.flush(state)).toBe("{{abc");
+    });
+
+    it("never splits a surrogate pair where a long chunk is scanned in pieces", () => {
+      const { results } = collectSearchStrategyResults(new RegexSearchStrategy(/a+|x*/u), [
+        `${"a".repeat(65_535)}😀b`
+      ]);
+
+      expect(results.map(getValue).filter((text) => /[\uD800-\uDBFF]$/.test(text))).toEqual([]);
+    });
+
+    it("finds a match across the point where a chunk longer than the ceiling is scanned in pieces", () => {
+      const before = " ".repeat(65_530);
+      const { results } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{\w+\}\}/),
+        [`${before}{{name}} after`]
+      );
+
+      expect(results.filter(({ isMatch }) => isMatch)).toEqual([
+        expect.objectContaining({ streamIndices: [65_530, 65_538] })
+      ]);
+    });
+
+    it("leaves the rest of a chunk longer than the ceiling for flush, wherever iteration stops", () => {
+      const input = `${"{{a}} ".repeat(20_000)}tail`;
+      for (const limit of [1, 2, 19_999, 20_000]) {
+        const { stopped, output } = collectStoppedSearchStrategyResults(
+          new RegexSearchStrategy(/\{\{\w+\}\}/),
+          [input],
+          limit
+        );
+
+        expect(stopped).toBe(true);
+        expect(output, `after ${limit}`).toBe(input);
+      }
+    });
+
     it("resets the ceiling's bookkeeping on flush", () => {
       const strategy = new RegexSearchStrategy(/\S+/);
       const state = strategy.createState();

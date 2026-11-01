@@ -416,7 +416,8 @@ describe("BalancedPairSearchStrategy", () => {
     it.each([
       ["with nested pairs", new BalancedPairSearchStrategy("(", ")"), "a(b(c)d)e(f)g(h"],
       ["with adjacent pairs", new BalancedPairSearchStrategy("(", ")"), "((a)b)(c)"],
-      ["with multi-character delimiters", new BalancedPairSearchStrategy("{{", "}}"), "{{a{{b}}}}c{{d"]
+      ["with multi-character delimiters", new BalancedPairSearchStrategy("{{", "}}"), "{{a{{b}}}}c{{d"],
+      ["with delimiters longer than the limit", new BalancedPairSearchStrategy("{{", "}}", { maxBufferLength: 3 }), "a{{x}}b"]
     ] as const)(
       "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
       (_label, strategy, input) => {

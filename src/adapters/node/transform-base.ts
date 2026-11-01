@@ -1,7 +1,7 @@
 import { Transform, type TransformOptions } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { TransformEngine } from "../../engines/types.js";
-import endsWithHighSurrogate from "./ends-with-high-surrogate.js";
+import endsWithHighSurrogate from "../../ends-with-high-surrogate.js";
 
 export function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));

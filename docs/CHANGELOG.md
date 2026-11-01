@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed `LoopedIndexOfAnchoredSearchStrategy` and `BalancedPairSearchStrategy` re-scanning anchors already consumed when a chunk boundary falls mid-match, which could match the wrong text
 - Fixed benchmarking `looped-indexOf-cancellable` and `regex-callback` enqueuing empty chunks
 - Fixed some nits in `docs/CONTRIBUTING.md`
+- Fixed `RegexSearchStrategy` and `LeanRegexSearchStrategy` re-scanning everything they hold for each empty chunk
 
 ### Added
 
