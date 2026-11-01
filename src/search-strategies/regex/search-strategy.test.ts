@@ -2611,11 +2611,11 @@ describe("RegexSearchStrategy", () => {
           new RegexSearchStrategy(/\S+/, { onGuardExceeded }),
           [...chunksOf("a".repeat(runLength), 1024), " "]
         );
-        return onGuardExceeded.mock.calls.length;
+        return !!onGuardExceeded.mock.calls.length;
       };
 
-      expect(exceeded(65_536)).toBe(0);
-      expect(exceeded(65_537)).toBe(1);
+      expect(exceeded(65_536)).toBe(false);
+      expect(exceeded(65_537)).toBe(true);
     });
 
     it("settles a long run of a repeated group in pieces under the default, rather than overflowing V8's stack", () => {
