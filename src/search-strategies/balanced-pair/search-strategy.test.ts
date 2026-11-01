@@ -465,7 +465,8 @@ describe("BalancedPairSearchStrategy", () => {
       ["a run of openings with no closing", "(", ")", 4, "((((((((((", [text("((((((((((")]],
       ["an opening containing the closing, at the limit", "**", "*", 4, "**a**", [match("**a*"), text("*")]],
       ["an opening containing the closing, over the limit", "**", "*", 3, "**a**", [text("**a**")]],
-      ["a limit of zero, under which nothing matches", "(", ")", 0, "()", [text("()")]]
+      ["a limit of zero, under which nothing matches", "(", ")", 0, "()", [text("()")]],
+      ["a pair after one abandoned at its own closing delimiter", "(", ")", 6, "(abcdef)(x)", [text("(abcdef)"), match("(x)")]]
     ])(
       "decides %s the same however the input is split",
       (_label, opening, closing, maxBufferLength, input, expected) => {
@@ -573,6 +574,18 @@ describe("BalancedPairSearchStrategy", () => {
       );
 
       expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it("holds a long opening delimiter arriving a code unit at a time with work proportional to it", () => {
+      const opening = "a".repeat(4096);
+      const work = heldTextWork(() =>
+        longestHeldWhileDriving(
+          new BalancedPairSearchStrategy(opening, "b", { maxBufferLength: Infinity }),
+          [...opening, "b"]
+        )
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * (opening.length + 1));
     });
 
     it.each([

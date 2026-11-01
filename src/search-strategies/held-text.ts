@@ -4,6 +4,8 @@ export default class HeldText {
   private readonly anchors: readonly string[];
   private readonly found: number[];
   private readonly searchedTo: number[];
+  private readonly partialFrom: number[];
+  private readonly partialCheckedTo: number[];
   private readonly minimumChunkLength: number;
   private chunks = [""];
   private offsets = [0];
@@ -13,6 +15,8 @@ export default class HeldText {
     this.anchors = anchors;
     this.found = anchors.map(() => -1);
     this.searchedTo = anchors.map(() => 0);
+    this.partialFrom = anchors.map(() => -1);
+    this.partialCheckedTo = anchors.map(() => 0);
     this.minimumChunkLength = Math.max(...anchors.map(({ length }) => length)) - 1;
   }
 
@@ -60,11 +64,23 @@ export default class HeldText {
 
   partialAnchorStart(anchorIndex: number, from: number): number {
     const anchor = this.anchors[anchorIndex];
-    const start = Math.max(from, this.receivedTo - anchor.length + 1);
+    let start = Math.max(from, this.receivedTo - anchor.length + 1);
+    const partialFrom = this.partialFrom[anchorIndex];
+    if (start <= partialFrom) {
+      const checkedTo = this.partialCheckedTo[anchorIndex];
+      if (anchor.startsWith(this.slice(checkedTo, this.receivedTo), checkedTo - partialFrom)) {
+        this.partialCheckedTo[anchorIndex] = this.receivedTo;
+        return partialFrom;
+      }
+      this.partialFrom[anchorIndex] = -1;
+      start = partialFrom + 1;
+    }
     const tail = this.slice(start, this.receivedTo);
     const firstCode = anchor.charCodeAt(0);
     for (let index = 0; index < tail.length; index++) {
       if (tail.charCodeAt(index) === firstCode && anchor.startsWith(tail.slice(index))) {
+        this.partialFrom[anchorIndex] = start + index;
+        this.partialCheckedTo[anchorIndex] = this.receivedTo;
         return start + index;
       }
     }

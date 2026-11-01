@@ -858,6 +858,20 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
     });
 
+    it("holds a long first anchor arriving a code unit at a time with work proportional to it", () => {
+      const anchor = "a".repeat(4096);
+      const work = heldTextWork(() =>
+        longestHeldWhileDriving(
+          new LoopedIndexOfAnchoredSearchStrategy([anchor, "b"], {
+            maxBufferLength: Infinity
+          }),
+          [...anchor, "b"]
+        )
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * (anchor.length + 1));
+    });
+
     it("abandons a dense run of first anchors with work proportional to the input", () => {
       const input = "{{".repeat(32 * 1024);
       const work = heldTextWork(() =>
