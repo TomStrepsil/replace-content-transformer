@@ -2618,7 +2618,7 @@ describe("RegexSearchStrategy", () => {
       expect(exceeded(65_537)).toBe(1);
     });
 
-    it("passes a long run of a repeated group through under the default, rather than overflowing V8's stack", () => {
+    it("settles a long run of a repeated group in pieces under the default, rather than overflowing V8's stack", () => {
       const input = "x".repeat(8 * 1024 * 1024);
       const { output } = collectSearchStrategyResults(
         new RegexSearchStrategy(/(?:\w|-)+/),
