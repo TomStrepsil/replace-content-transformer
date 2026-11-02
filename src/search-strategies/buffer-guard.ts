@@ -29,7 +29,7 @@ export default function bufferGuard({
   onGuardExceeded
 }: BufferGuardOptions = {}): BufferGuard {
   validateAtLeast("maxBufferLength", maxBufferLength, 0);
-  return { maxBufferLength, onGuardExceeded };
+  return { maxBufferLength: Math.floor(maxBufferLength), onGuardExceeded };
 }
 
 export const anchorsFit = (anchors: readonly string[], { maxBufferLength }: BufferGuard) =>

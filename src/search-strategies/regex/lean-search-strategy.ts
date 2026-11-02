@@ -103,13 +103,13 @@ export class LeanRegexSearchStrategy
 
   private canSkipEvaluation(
     state: RegexSearchState,
-    bufferedLength: number
+    candidateLength: number
   ): boolean {
     return (
       state.evaluatedBufferLength >= this.minCandidateLengthToBackOff &&
-      bufferedLength <=
+      candidateLength <=
         state.evaluatedBufferLength * this.bufferGrowthFactorBetweenEvaluations &&
-      bufferedLength <= this.guard.maxBufferLength
+      candidateLength <= this.guard.maxBufferLength
     );
   }
 
@@ -139,11 +139,12 @@ export class LeanRegexSearchStrategy
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
     let scanEnd = bufferLength;
+    let candidateFrom = 0;
     try {
       while (scanEnd < length) {
         scanEnd = Math.min(scanEnd + SCAN_PIECE_LENGTH, length);
         if (scanEnd < length && endsWithHighSurrogate(haystack, scanEnd)) scanEnd++;
-        if (this.canSkipEvaluation(state, scanEnd - cursor.reportedUpTo)) continue;
+        if (this.canSkipEvaluation(state, scanEnd - candidateFrom)) continue;
         let decidableTo = Infinity;
         if (scanEnd < length) {
           decidableTo = scanEnd - this.guard.maxBufferLength;
@@ -169,7 +170,8 @@ export class LeanRegexSearchStrategy
               : Math.max(cursor.reportedUpTo, Math.min(heldBackFrom, decidableTo));
             const reportedLength = reportedTo - cursor.reportedUpTo;
             cursor.reportedUpTo = reportedTo;
-            state.evaluatedBufferLength = scanEnd - reportedTo;
+            candidateFrom = settledMatch === null ? heldBackFrom : scanEnd;
+            state.evaluatedBufferLength = scanEnd - candidateFrom;
             if (reportedLength > 0)
               yield nonMatch(remainingHaystack.slice(0, reportedLength));
             if (!exceedsGuard) break;

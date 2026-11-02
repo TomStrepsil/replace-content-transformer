@@ -6,7 +6,7 @@ export type StreamRegexMatch = Omit<RegExpExecArray, "input">;
 
 /** Per-stream state for `RegexSearchStrategy`. */
 export type RegexSearchState = StringBufferState & {
-  /** Buffer length, in code units, at the last scan of the held-back content. */
+  /** Length, in code units, of the candidate held back at the last scan. */
   evaluatedBufferLength: number;
 };
 

@@ -28,6 +28,10 @@ describe("bufferGuard", () => {
     expect(guard).toThrow("maxBufferLength");
   });
 
+  it("rounds a fractional maxBufferLength down to whole code units", () => {
+    expect(bufferGuard({ maxBufferLength: 2.5 }).maxBufferLength).toBe(2);
+  });
+
   it.each([0, Infinity])("accepts a maxBufferLength of %j", (maxBufferLength) => {
     expect(() => bufferGuard({ maxBufferLength })).not.toThrow();
   });

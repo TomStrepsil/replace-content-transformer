@@ -2765,6 +2765,31 @@ describe("RegexSearchStrategy", () => {
       }
     });
 
+    it.each([Infinity, 1024 * 1024])(
+      "doesn't back off from the last piece of a chunk when the pieces before it held no candidate, with a maxBufferLength of %s",
+      (maxBufferLength) => {
+        const { results } = collectSearchStrategyResults(
+          new RegexSearchStrategy(/z/, { maxBufferLength }),
+          [`${" ".repeat(65_536)}z `]
+        );
+
+        expect(results.filter(({ isMatch }) => isMatch)).toEqual([
+          expect.objectContaining({ streamIndices: [65_536, 65_537] })
+        ]);
+      }
+    );
+
+    it("reports whole stream positions for a fractional maxBufferLength", () => {
+      const { results } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/b/, { maxBufferLength: 0.5 }),
+        [`${"a".repeat(65_536)}b!`]
+      );
+
+      expect(results.filter(({ isMatch }) => isMatch)).toEqual([
+        expect.objectContaining({ streamIndices: [65_536, 65_537] })
+      ]);
+    });
+
     it("finds a match across the point where a chunk longer than the ceiling is scanned in pieces", () => {
       const before = " ".repeat(65_530);
       const { results } = collectSearchStrategyResults(
