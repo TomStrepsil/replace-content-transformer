@@ -784,10 +784,10 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 - **Bun** 1.0+
 - **Deno** 1.38+
 - **Browsers:**
-  - Chrome 98+
-  - Firefox 102+
-  - Safari 15.4+
-  - Edge 98+
+  - Chrome 52+
+  - Firefox 65+
+  - Safari 14.1+
+  - Edge 79+
 - **Edge Workers:**
   - Cloudflare Workers
   - Vercel Edge Functions

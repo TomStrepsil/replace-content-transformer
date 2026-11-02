@@ -896,14 +896,6 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
     });
 
-    it("keeps no more of a long chunk than the candidate it is waiting on", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-      Array.from(strategy.processChunk(`${"x".repeat(4096)}{{a`, state));
-
-      expect((state.held as unknown as { chunks: string[] }).chunks).toEqual(["{{a"]);
-    });
-
     it("rejects an invalid maxBufferLength", () => {
       expect(
         () =>

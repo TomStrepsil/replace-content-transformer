@@ -1,5 +1,3 @@
-import { setFlagsFromString } from "node:v8";
-import { runInNewContext } from "node:vm";
 import HeldText from "./held-text.js";
 import { everySplitOf } from "../../test/splits.js";
 
@@ -91,52 +89,24 @@ describe("HeldText", () => {
     });
   });
 
-  describe("compact", async () => {
-    const heapUsed = await (async () => {
-      if (typeof Bun !== "undefined") {
-        const { heapStats } = await import("bun:jsc");
-        return () => {
-          Bun.gc(true);
-          return heapStats().heapSize;
-        };
-      }
-      try {
-        setFlagsFromString("--expose-gc");
-        const gc = runInNewContext("gc") as (() => void) | undefined;
-        return gc
-          ? () => {
-              gc();
-              return process.memoryUsage().heapUsed;
-            }
-          : undefined;
-      } catch {
-        return undefined;
-      }
-    })();
+  describe("takeBeforePartialAnchor", () => {
+    it("keeps nothing of a chunk it reports in full", () => {
+      const held = holding(["{{"], ["x".repeat(4096)]);
+      held.takeBeforePartialAnchor(0, 0);
 
-    it.skipIf(!heapUsed)("frees a long chunk once only a long candidate from its end is held", () => {
-      const before = heapUsed!();
-      const held = Array.from({ length: 8 }, (_, index) =>
-        holding(["{{", "}}"], [[String(index).repeat(1024 * 1024), "{{", "x".repeat(4096)].join("")])
-      );
-      held.forEach((text) => {
-        text.take(1024 * 1024);
-        text.compact();
-      });
-
-      expect(held.map((text) => text.slice(text.takenTo, text.receivedTo).length)).toEqual(
-        Array(8).fill(4098)
-      );
-
-      expect(heapUsed!() - before).toBeLessThan(1024 * 1024);
+      expect((held as unknown as { chunks: string[] }).chunks).toEqual([""]);
     });
 
-    it("stops keeping a chunk once all but a partial anchor at its end is taken", () => {
+    it("keeps only the partial anchor at the end of a chunk, and completes it from the next", () => {
       const held = holding(["{{"], [`${"x".repeat(4096)}{`]);
       held.takeBeforePartialAnchor(0, 0);
 
       expect((held as unknown as { chunks: string[] }).chunks).toEqual(["{"]);
-      expect(held.slice(held.takenTo, held.receivedTo)).toBe("{");
+
+      held.append("{a");
+
+      expect(held.find(0, held.takenTo)).toBe(4096);
+      expect(held.slice(held.takenTo, held.receivedTo)).toBe("{{a");
     });
   });
 

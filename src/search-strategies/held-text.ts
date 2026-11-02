@@ -1,5 +1,3 @@
-const LEAST_LENGTH_TO_RELEASE = 1024;
-
 export default class HeldText {
   takenTo = 0;
   receivedTo = 0;
@@ -27,10 +25,7 @@ export default class HeldText {
     const last = this.chunks.length - 1;
     const heldLength = this.receivedTo - this.takenTo;
     if (heldLength <= text.length) {
-      this.chunks[0] = heldLength === 0 ? text : this.slice(this.takenTo, this.receivedTo) + text;
-      this.offsets[0] = this.takenTo;
-      if (this.chunks.length > 1) this.chunks.length = this.offsets.length = 1;
-      this.first = 0;
+      this.hold(heldLength === 0 ? text : this.slice(this.takenTo, this.receivedTo) + text);
     } else if (this.chunks[last].length < this.minimumChunkLength) {
       this.chunks[last] += text;
     } else {
@@ -62,7 +57,7 @@ export default class HeldText {
 
   takeBeforePartialAnchor(anchorIndex: number, from: number): string {
     const text = this.take(this.partialAnchorStart(anchorIndex, from));
-    this.compact();
+    this.hold(this.anchors[anchorIndex].slice(0, this.receivedTo - this.takenTo));
     return text;
   }
 
@@ -105,16 +100,11 @@ export default class HeldText {
     return text;
   }
 
-  compact(): void {
-    const taken = this.takenTo - this.offsets[0];
-    if (
-      this.chunks.length === 1 &&
-      taken >= LEAST_LENGTH_TO_RELEASE &&
-      taken * 2 > this.chunks[0].length
-    ) {
-      this.chunks[0] = structuredClone(this.chunks[0].slice(taken));
-      this.offsets[0] = this.takenTo;
-    }
+  private hold(text: string): void {
+    this.chunks[0] = text;
+    this.offsets[0] = this.takenTo;
+    if (this.chunks.length > 1) this.chunks.length = this.offsets.length = 1;
+    this.first = 0;
   }
 
   private sliceChunks(from: number, to: number): string {

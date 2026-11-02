@@ -81,7 +81,7 @@ export class LoopedIndexOfAnchoredSearchStrategy implements SearchStrategy<Loope
       if (start > held.takenTo) {
         yield { isMatch: false, content: held.take(start) };
       }
-      if (end === -1) return held.compact();
+      if (end === -1) return;
       state.candidateFrom = end;
       yield {
         isMatch: true,

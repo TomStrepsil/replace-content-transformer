@@ -148,7 +148,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
         if (outermostStart > held.takenTo) {
           yield { isMatch: false, content: held.take(outermostStart) };
         }
-        return held.compact();
+        return;
       } else {
         state.openingFrom = state.closingFrom = tokenEnd;
         state.unclosed--;
