@@ -2608,7 +2608,10 @@ describe("RegexSearchStrategy", () => {
       const exceeded = (runLength: number) => {
         const onGuardExceeded = vi.fn();
         collectSearchStrategyResults(
-          new RegexSearchStrategy(/\S+/, { onGuardExceeded }),
+          new RegexSearchStrategy(/\S+/, {
+            onGuardExceeded,
+            minCandidateLengthToBackOff: Infinity
+          }),
           [...chunksOf("a".repeat(runLength), 1024), " "]
         );
         return !!onGuardExceeded.mock.calls.length;
@@ -2662,12 +2665,104 @@ describe("RegexSearchStrategy", () => {
       expect(strategy.flush(state)).toBe("{{abc");
     });
 
-    it("never splits a surrogate pair where a long chunk is scanned in pieces", () => {
-      const { results } = collectSearchStrategyResults(new RegexSearchStrategy(/a+|x*/u), [
-        `${"a".repeat(65_535)}😀b`
-      ]);
+    it.each([
+      [/(\w+)-\1/, 65, 65_536],
+      [/(\w+)-\1/, 65, Infinity],
+      [/(\w+)-\1/, 79, 65_536],
+      [/(a+)-\1|a/, 79, 65_536],
+      [/(a+)-\1|a/, 79, Infinity]
+    ])(
+      "matches %s as it would unsplit where a long chunk is scanned in pieces %s code units into the repeat, with a ceiling of %s",
+      (pattern, into, maxBufferLength) => {
+        const word = "a".repeat(100);
+        const { results, settledResults } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern, { maxBufferLength }),
+          [`${" ".repeat(65_536 - 101 - into)}${word}-${word} `]
+        );
 
-      expect(results.map(getValue).filter((text) => /[\uD800-\uDBFF]$/.test(text))).toEqual([]);
+        expect(
+          [...results, ...settledResults].filter(({ isMatch }) => isMatch).map(getValue)
+        ).toEqual([`${word}-${word}`]);
+      }
+    );
+
+    it.each([
+      ["at the end of a piece, for a pattern matching the pair", /😀+/u, {}, `${"a".repeat(65_535)}😀b😀`],
+      ["at the end of a piece, under a ceiling of 0", /b/u, { maxBufferLength: 0 }, `${"a".repeat(65_535)}😀b`],
+      ["at the end of a piece, settling past the ceiling", /\S+/, { maxBufferLength: 100 }, `${"a".repeat(65_535)}😀 x`],
+      [
+        "where the span held back for the next piece starts",
+        /b/u,
+        { maxBufferLength: 1000 },
+        `${"a".repeat(2 * 65_536 - 1001)}😀${"a".repeat(10_000)}b`
+      ],
+      [
+        "where the span held back for the next piece starts, for a pattern matching the pair",
+        /😀+/u,
+        { maxBufferLength: 1000 },
+        `${"a".repeat(2 * 65_536 - 1001)}😀${"a".repeat(10_000)}b`
+      ]
+    ])(
+      "never splits a surrogate pair %s",
+      (_label, pattern, options, input) => {
+        const { results, settledResults } = collectSearchStrategyResults(
+          new RegexSearchStrategy(pattern, options),
+          [input]
+        );
+
+        expect(
+          [...results, ...settledResults]
+            .map(getValue)
+            .filter((text) => /[\uD800-\uDBFF]$|^[\uDC00-\uDFFF]/.test(text))
+        ).toEqual([]);
+      }
+    );
+
+    it("keeps a match that ends inside the span held back for the next piece, reporting nothing twice", () => {
+      const before = " ".repeat(65_536 - 10);
+      const input = `${before}{{abcd}}{{x}} tail`;
+      const { results, settledResults, output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/\{\{\w+\}\}/, { maxBufferLength: 8 }),
+        [input]
+      );
+
+      expect(output).toBe(input);
+      expect(
+        [...results, ...settledResults].filter(({ isMatch }) => isMatch).map(getValue)
+      ).toEqual(["{{abcd}}", "{{x}}"]);
+    });
+
+    it.each([
+      [
+        "a long chunk, piece by piece",
+        "a".repeat(3 * 65_536),
+        [0, 65_536, 131_072, 196_608]
+      ],
+      ["a chunk ending in a lone high surrogate", `${"a".repeat(1000)}\uD83D`, [0, 1001]]
+    ])("reports each span given up on within %s", (_label, input, ends) => {
+      const onGuardExceeded = vi.fn();
+      collectSearchStrategyResults(
+        new RegexSearchStrategy(/\S+/, { maxBufferLength: 100, onGuardExceeded }),
+        [input]
+      );
+
+      expect(onGuardExceeded.mock.calls.map(([{ streamIndices }]) => streamIndices)).toEqual(
+        ends.slice(0, -1).map((start, index) => [start, ends[index + 1]])
+      );
+    });
+
+    it("backs off re-scanning a long candidate across the pieces of one chunk", () => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      const pieces = 32;
+      try {
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/a+/, { maxBufferLength: Infinity }),
+          [`${" ".repeat(16 * 65_536)}${"a".repeat(16 * 65_536)}`]
+        );
+        expect(exec.mock.calls.length).toBeLessThan((3 * pieces) / 4);
+      } finally {
+        exec.mockRestore();
+      }
     });
 
     it("finds a match across the point where a chunk longer than the ceiling is scanned in pieces", () => {

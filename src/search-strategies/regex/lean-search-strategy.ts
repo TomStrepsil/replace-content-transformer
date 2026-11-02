@@ -144,6 +144,11 @@ export class LeanRegexSearchStrategy
         scanEnd = Math.min(scanEnd + SCAN_PIECE_LENGTH, length);
         if (scanEnd < length && endsWithHighSurrogate(haystack, scanEnd)) scanEnd++;
         if (this.canSkipEvaluation(state, scanEnd - cursor.reportedUpTo)) continue;
+        let decidableTo = Infinity;
+        if (scanEnd < length) {
+          decidableTo = scanEnd - this.guard.maxBufferLength;
+          if (endsWithHighSurrogate(haystack, decidableTo)) decidableTo--;
+        }
         let settling = false;
         while (cursor.reportedUpTo < scanEnd) {
           const remainingHaystack = haystack.substring(cursor.reportedUpTo, scanEnd);
@@ -155,13 +160,18 @@ export class LeanRegexSearchStrategy
             ? candidate
             : this.settledMatch(candidate, remainingHaystack);
 
-          if (settledMatch === null) {
-            const heldBackFrom = cursor.reportedUpTo + matchStart;
-            const exceedsGuard = scanEnd - heldBackFrom > this.guard.maxBufferLength;
-            cursor.reportedUpTo = heldBackFrom;
-            state.evaluatedBufferLength = exceedsGuard ? 0 : scanEnd - heldBackFrom;
-            if (matchStart > 0)
-              yield nonMatch(remainingHaystack.slice(0, matchStart));
+          const heldBackFrom = cursor.reportedUpTo + matchStart;
+          if (settledMatch === null || heldBackFrom >= decidableTo) {
+            const exceedsGuard =
+              settledMatch === null && scanEnd - heldBackFrom > this.guard.maxBufferLength;
+            const reportedTo = exceedsGuard
+              ? heldBackFrom
+              : Math.max(cursor.reportedUpTo, Math.min(heldBackFrom, decidableTo));
+            const reportedLength = reportedTo - cursor.reportedUpTo;
+            cursor.reportedUpTo = reportedTo;
+            state.evaluatedBufferLength = scanEnd - reportedTo;
+            if (reportedLength > 0)
+              yield nonMatch(remainingHaystack.slice(0, reportedLength));
             if (!exceedsGuard) break;
             settling = true;
             this.guard.onGuardExceeded?.({

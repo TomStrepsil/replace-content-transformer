@@ -557,7 +557,7 @@ The `matchToString` converts a match back to the raw matched text, for a match e
 
 Each strategy contains the pattern-matching logic for a specific use case:
 
-- **[`StringAnchorSearchStrategy`](./src/search-strategies/looped-indexOf-anchored/README.md)** - finds either single tokens, or "anchor" tokens delimiting start/end (or in sequence in-between) of a match
+- **[`StringAnchorSearchStrategy`](./src/search-strategies/looped-indexOf-anchored/README.md)** - finds either single tokens, or "anchor" tokens delimiting start/end (or in sequence in-between) of a match, up to 64 anchors
 - **[`BalancedPairSearchStrategy`](./src/search-strategies/balanced-pair/README.md)** - Matches balanced delimiter pairs, correctly handling arbitrary nesting depth (e.g. `(outer (inner) rest)`)
 - **[`RegexSearchStrategy`](./src/search-strategies/regex/README.md)** - Matches against regular expressions (with some caveats)
   - **[`LeanRegexSearchStrategy`](./src/search-strategies/regex/README.md#lean-bundles)** - The same, taking a `PartialMatchRegExp` you build from `regex-partial-match/core`, for a smaller bundle
@@ -613,7 +613,7 @@ const searchStrategy = new StringAnchorSearchStrategy(["<!--replace me -->"]); /
 ...or:
 
 ```ts
-const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ "anchor" delimiters/tokens
+const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]); // 2 to 64 "anchor" delimiters/tokens
 ```
 
 ...or:
@@ -784,10 +784,10 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 - **Bun** 1.0+
 - **Deno** 1.38+
 - **Browsers:**
-  - Chrome 52+
-  - Firefox 65+
-  - Safari 14.1+
-  - Edge 79+
+  - Chrome 98+
+  - Firefox 102+
+  - Safari 15.4+
+  - Edge 98+
 - **Edge Workers:**
   - Cloudflare Workers
   - Vercel Edge Functions

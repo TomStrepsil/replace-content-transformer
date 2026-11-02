@@ -117,7 +117,7 @@ Process Chunk 2:
   - Complete match! Yield "{{world}}" as match
 ```
 
-Each anchor's search resumes where its last search left off, so a match held across many chunks costs time linear in its length: no content is searched or copied twice while it waits.
+Each anchor's search resumes where its last search left off, so a match held across many chunks costs time linear in its length: no content is searched or copied twice while it waits. On each chunk, the anchors a held match has already found are looked up again from the cache, which the limit of 64 anchors keeps to a small constant.
 
 ## Buffer Guard
 
@@ -168,7 +168,7 @@ type LoopedIndexOfAnchoredSearchState = {
 ## Usage Examples
 
 > [!IMPORTANT]
-> Anchors must be non-empty, and at least one is required — both are rejected at construction. `indexOf("")` returns the current position, so an empty anchor would leave the scan cursor where it is and never advance. [`BalancedPairSearchStrategy`](../balanced-pair/README.md) applies the same check to its `opening`/`closing` pair.
+> There must be between 1 and 64 anchors, and must be non-empty; anything else is rejected at construction. `indexOf("")` returns the current position, so an empty anchor would leave the scan cursor where it is and never advance. [`BalancedPairSearchStrategy`](../balanced-pair/README.md) applies the same check to its `opening`/`closing` pair.
 
 ### Two-Token Pattern (Opening/Closing Delimiters)
 

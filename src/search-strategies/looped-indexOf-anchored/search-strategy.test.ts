@@ -530,6 +530,16 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       );
     });
 
+    it("accepts up to 64 anchors, and rejects more", () => {
+      expect(() => new LoopedIndexOfAnchoredSearchStrategy(Array(64).fill("a"))).not.toThrow();
+      expect(() => new LoopedIndexOfAnchoredSearchStrategy(Array(65).fill("a"))).toThrow(
+        "at most 64 anchors are supported, received 65"
+      );
+      expect(() => searchStrategyFactory(Array(65).fill("a"))).toThrow(
+        "at most 64 anchors are supported, received 65"
+      );
+    });
+
     it.each([[["a"]], [["{{", "}}"]], [["a", "b", "c"]]])(
       "accepts %s",
       (needles) => {
@@ -884,6 +894,14 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       );
 
       expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it("keeps no more of a long chunk than the candidate it is waiting on", () => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
+      const state = strategy.createState();
+      Array.from(strategy.processChunk(`${"x".repeat(4096)}{{a`, state));
+
+      expect((state.held as unknown as { chunks: string[] }).chunks).toEqual(["{{a"]);
     });
 
     it("rejects an invalid maxBufferLength", () => {

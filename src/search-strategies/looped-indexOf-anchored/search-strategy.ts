@@ -1,5 +1,13 @@
-import type { BufferGuardOptions, MatchResult, SearchStrategy } from "../types.js";
-import bufferGuard, { anchorsFit, passThrough, type BufferGuard } from "../buffer-guard.js";
+import type {
+  BufferGuardOptions,
+  MatchResult,
+  SearchStrategy
+} from "../types.js";
+import bufferGuard, {
+  anchorsFit,
+  passThrough,
+  type BufferGuard
+} from "../buffer-guard.js";
 import HeldText, { flushHeld } from "../held-text.js";
 import validateNeedles from "./validate-needles.js";
 
@@ -28,13 +36,11 @@ export type LoopedIndexOfAnchoredSearchState = {
  *
  * Exposed publicly as `StringAnchorSearchStrategy`.
  *
- * @throws If `needles` is empty, or any needle is an empty string.
+ * @throws If `needles` is empty, has more than 64 entries, or any is an empty string.
  * @throws {TypeError} If `maxBufferLength` is not a number.
  * @throws {RangeError} If `maxBufferLength` is less than 0, or `NaN`.
  */
-export class LoopedIndexOfAnchoredSearchStrategy
-  implements SearchStrategy<LoopedIndexOfAnchoredSearchState>
-{
+export class LoopedIndexOfAnchoredSearchStrategy implements SearchStrategy<LoopedIndexOfAnchoredSearchState> {
   private readonly needles: string[];
   private readonly guard: BufferGuard;
 
@@ -75,9 +81,13 @@ export class LoopedIndexOfAnchoredSearchStrategy
       if (start > held.takenTo) {
         yield { isMatch: false, content: held.take(start) };
       }
-      if (end === -1) return;
+      if (end === -1) return held.compact();
       state.candidateFrom = end;
-      yield { isMatch: true, content: held.take(end), streamIndices: [start, end] };
+      yield {
+        isMatch: true,
+        content: held.take(end),
+        streamIndices: [start, end]
+      };
     }
   }
 

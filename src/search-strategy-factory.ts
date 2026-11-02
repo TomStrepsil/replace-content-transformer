@@ -17,7 +17,7 @@ import {
  * For a RegExp needle, these may also include {@link RegexSearchStrategy}'s backoff options,
  * `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations`.
  * @returns A search strategy instance configured for the given pattern type.
- * @throws If a string needle is empty, or a string array is empty or contains an empty string.
+ * @throws If a string needle is empty, or a string array is empty, has more than 64 strings, or contains an empty string.
  * @throws If a RegExp needle uses a construct or flag the streaming scan cannot support — see {@link RegexSearchStrategy}.
  * @throws {TypeError} If `maxBufferLength`, or a backoff option given for a RegExp needle, is not a number.
  * @throws {RangeError} If `maxBufferLength` or `minCandidateLengthToBackOff` is less than 0,
