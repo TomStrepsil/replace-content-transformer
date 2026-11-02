@@ -519,24 +519,24 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       "rejects %s",
       (_label, needles, index) => {
         expect(() => new LoopedIndexOfAnchoredSearchStrategy(needles)).toThrow(
-          `empty anchors are not supported (index ${index})`
+          `empty needles/anchors are not supported (index ${index})`
         );
       }
     );
 
     it("rejects an empty anchor list, which would otherwise fail with an unrelated TypeError on first use", () => {
       expect(() => new LoopedIndexOfAnchoredSearchStrategy([])).toThrow(
-        "at least one anchor is required"
+        "at least one needle/anchor is required"
       );
     });
 
     it("accepts up to 64 anchors, and rejects more", () => {
       expect(() => new LoopedIndexOfAnchoredSearchStrategy(Array(64).fill("a"))).not.toThrow();
       expect(() => new LoopedIndexOfAnchoredSearchStrategy(Array(65).fill("a"))).toThrow(
-        "at most 64 anchors are supported, received 65"
+        "at most 64 needles/anchors are supported, received 65"
       );
       expect(() => searchStrategyFactory(Array(65).fill("a"))).toThrow(
-        "at most 64 anchors are supported, received 65"
+        "at most 64 needles/anchors are supported, received 65"
       );
     });
 
@@ -549,19 +549,19 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     it("rejects an empty needle through searchStrategyFactory, the entry point the bug was reported against", () => {
       expect(() => searchStrategyFactory("")).toThrow(
-        "empty anchors are not supported (index 0)"
+        "empty needles/anchors are not supported (index 0)"
       );
       expect(() => searchStrategyFactory(["", ""])).toThrow(
-        "empty anchors are not supported (index 0)"
+        "empty needles/anchors are not supported (index 0)"
       );
     });
 
     it("rejects empty delimiters through BalancedPairSearchStrategy, which delegates its pair to this strategy", () => {
       expect(() => new BalancedPairSearchStrategy("", "")).toThrow(
-        "empty anchors are not supported (index 0)"
+        "empty needles/anchors are not supported (index 0)"
       );
       expect(() => new BalancedPairSearchStrategy("{", "")).toThrow(
-        "empty anchors are not supported (index 1)"
+        "empty needles/anchors are not supported (index 1)"
       );
       expect(() => new BalancedPairSearchStrategy("{", "}")).not.toThrow();
     });
