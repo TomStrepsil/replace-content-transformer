@@ -16,7 +16,13 @@ describe("bufferGuard", () => {
     expect(guard).toThrow("maxBufferLength");
   });
 
-  it.each([0, 1, 2.5, Infinity])("accepts a maxBufferLength of %j", (maxBufferLength) => {
+  it.each([0.5, 2.5])("rejects a fractional maxBufferLength of %j", (maxBufferLength) => {
+    expect(() => bufferGuard({ maxBufferLength })).toThrow(
+      `maxBufferLength must be a whole number (or Infinity), received ${maxBufferLength}`
+    );
+  });
+
+  it.each([0, 1, Infinity])("accepts a maxBufferLength of %j", (maxBufferLength) => {
     expect(() => bufferGuard({ maxBufferLength })).not.toThrow();
   });
 

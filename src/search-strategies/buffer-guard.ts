@@ -21,6 +21,11 @@ export default function bufferGuard(
   shortestMatchLength = 0
 ): BufferGuard {
   validateAtLeast("maxBufferLength", maxBufferLength, shortestMatchLength);
+  if (maxBufferLength !== Infinity && !Number.isInteger(maxBufferLength)) {
+    throw new RangeError(
+      `maxBufferLength must be a whole number (or Infinity), received ${maxBufferLength}`
+    );
+  }
   const releasedLength = Math.max(maxBufferLength, 1);
   return {
     maxBufferLength,

@@ -29,9 +29,10 @@ import type { RegexSearchStrategyOptions } from "./types.js";
  * at a chunk boundary — negative lookaheads, lookbehinds, word boundaries, the
  * `^`/`$` anchors — or the `g`, `y` or `m` flags. See [Limitations](./README.md#limitations).
  *
- * @throws {RangeError} If `maxBufferLength` or `minCandidateLengthToBackOff` is
- * not a number of at least 0, or `bufferGrowthFactorBetweenEvaluations` is not a
- * number of at least 1. `Infinity` is allowed; `undefined` selects the default.
+ * @throws {RangeError} If `maxBufferLength` is not a whole number of at least 0,
+ * `minCandidateLengthToBackOff` is not a number of at least 0, or
+ * `bufferGrowthFactorBetweenEvaluations` is not a number of at least 1. 
+ * `Infinity` is allowed; `undefined` selects the default.
  *
  * @example Basic regex search
  * ```typescript

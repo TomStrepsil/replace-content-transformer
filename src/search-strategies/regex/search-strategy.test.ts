@@ -2663,6 +2663,7 @@ describe("RegexSearchStrategy", () => {
       ["a lookahead read past the limit", /\d+(?=px)/, 3, "1234px 12px", [asText("123"), asMatch("4"), asText("px "), asMatch("12"), asText("px")], 1],
       ["a pending alternative read past the limit", /a(?:xxxy|)/, 3, "axxxz", [asText("axxxz")], 1],
       ["a repeated backreference over the limit", /(a)\1+/, 3, "aaaab aaa", [asText("aaaab "), asMatch("aaa")], 1],
+      ["a match ending inside a surrogate pair, over the limit", /a./, 1, "a😀b", [asText("a😀b")], 1],
       ["a zero-length match after a release", /a*/, 2, "aaabaa ", [asText("aa"), asMatch("a"), asText("b"), asMatch("aa"), asText(" ")], 1],
       ["a limit of zero, under which nothing matches", /\S+/, 0, "ab c", [asText("ab c")], 3]
     ])(

@@ -40,9 +40,10 @@ import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
  * boundaries, the `^`/`$` anchors — or the `g`, `y` or `m` flags. See
  * [Limitations](./README.md#limitations).
  *
- * @throws {RangeError} If `maxBufferLength` or `minCandidateLengthToBackOff` is
- * not a number of at least 0, or `bufferGrowthFactorBetweenEvaluations` is not a
- * number of at least 1. `Infinity` is allowed; `undefined` selects the default.
+ * @throws {RangeError} If `maxBufferLength` is not a whole number of at least 0,
+ * `minCandidateLengthToBackOff` is not a number of at least 0, or
+ * `bufferGrowthFactorBetweenEvaluations` is not a number of at least 1. 
+ * `Infinity` is allowed; `undefined` selects the default.
  *
  * @example
  * ```typescript
@@ -114,6 +115,7 @@ export class LeanRegexSearchStrategy
   ): RegExpExecArray | null {
     if (candidate === null) return null;
     if (endsAtHaystackEnd(candidate, haystack)) return null;
+    if (candidate[0].length > this.guard.maxBufferLength) return null;
     const confirmation = this.lookaheadConfirmationRegex;
     if (confirmation === null) return candidate;
     if (hitEnd(this.partialMatchRegex, candidate)) return null;

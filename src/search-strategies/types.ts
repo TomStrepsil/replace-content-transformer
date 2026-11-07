@@ -96,7 +96,8 @@ export interface SearchStrategy<TState, TMatch = string> {
 /** A ceiling on the content a search strategy holds back awaiting a decision. */
 export type BufferGuardOptions = {
   /**
-   * Longest span, in UTF-16 code units, held back awaiting a decision.
+   * Longest span, as a whole number of UTF-16 code units, held back awaiting a
+   * decision.
    * `Infinity` removes the ceiling. For the string strategies, it must be at
    * least the anchors' total length, the shortest possible match.
    * @default 65536

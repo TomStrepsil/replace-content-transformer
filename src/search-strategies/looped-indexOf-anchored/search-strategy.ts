@@ -33,7 +33,7 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * Exposed publicly as `StringAnchorSearchStrategy`.
  *
  * @throws If `needles` is empty, or any needle is an empty string.
- * @throws {RangeError} If `maxBufferLength` is not a number of at least the
+ * @throws {RangeError} If `maxBufferLength` is not a whole number of at least the
  * anchors' total length, the shortest possible match. `Infinity` is allowed;
  * `undefined` selects the default.
  */

@@ -27,7 +27,7 @@ export interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchStat
  * See [README](./README.md) for the algorithm.
  *
  * @throws If `opening` or `closing` is an empty string.
- * @throws {RangeError} If `maxBufferLength` is not a number of at least the
+ * @throws {RangeError} If `maxBufferLength` is not a whole number of at least the
  * opening and closing's total length, the shortest possible match. `Infinity`
  * is allowed; `undefined` selects the default.
  *
