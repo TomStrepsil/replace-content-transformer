@@ -2662,6 +2662,7 @@ describe("RegexSearchStrategy", () => {
       ["a quoted backreference over the limit, whose closing quote then opens a candidate", /(["'])(.*?)\1/, 4, `"ab" 'abcd' "x"`, [asMatch('"ab"'), asText(` 'abcd' "x"`)], 2],
       ["a lookahead read past the limit", /\d+(?=px)/, 3, "1234px 12px", [asText("123"), asMatch("4"), asText("px "), asMatch("12"), asText("px")], 1],
       ["a pending alternative read past the limit", /a(?:xxxy|)/, 3, "axxxz", [asText("axxxz")], 1],
+      ["a pending alternative read past the limit, in a pattern with a backreference", /a(?:bc|)|(x)\1/, 1, "abz", [asText("abz")], 1],
       ["a repeated backreference over the limit", /(a)\1+/, 3, "aaaab aaa", [asText("aaaab "), asMatch("aaa")], 1],
       ["a match ending inside a surrogate pair, over the limit", /a./, 1, "a😀b", [asText("a😀b")], 1],
       ["a zero-length match after a release", /a*/, 2, "aaabaa ", [asText("aa"), asMatch("a"), asText("b"), asMatch("aa"), asText(" ")], 1],
@@ -2692,25 +2693,32 @@ describe("RegexSearchStrategy", () => {
       }
     });
 
-    it.each([36, 220])(
-      "finds a backreference match within the limit after %i code units of text, however far into it the search window ends",
-      (leadLength) => {
-        const lead = ".".repeat(leadLength);
-        const word = "a".repeat(100);
-        const match = `${word}-${word}`;
-        const tail = ".".repeat(300);
-        const repeatStart = lead.length + word.length + 1;
-        const endsBeyondPartialBackreference = ([first]: string[]) =>
-          first.length - repeatStart > 64 && first.length < repeatStart + word.length;
-        for (const chunks of [[lead + match + tail], ...everyTwoWaySplit(lead + match + tail)]) {
-          if (endsBeyondPartialBackreference(chunks)) continue;
+    describe("with a backreference", () => {
+      const lead = ".".repeat(36);
+      const word = "a".repeat(100);
+      const match = `${word}-${word}`;
+      const tail = ".".repeat(300);
+      const input = lead + match + tail;
+
+      it("settles a shorter match unsplit where a search window ends more than 64 code units into what it repeats, as a chunk ending there would", () => {
+        expect(
+          collectCanonicalSearchStrategyResults(create(/(\w+)-\1/)({ maxBufferLength: 201 }), [input]).segments
+        ).toEqual([asText(lead + "a".repeat(35)), asMatch("a".repeat(65) + "-" + "a".repeat(65)), asText("a".repeat(35) + tail)]);
+      });
+
+      it.each([
+        ["a quote character", /(["'])[^"']*\1/, `'${"lorem ipsum ".repeat(100)}'`],
+        ["a tag name", /<(\w+)>[^<]*<\/\1>/, `<section>${"lorem ipsum ".repeat(100)}</section>`]
+      ])("finds a match repeating %s around a long body however the input is split", (_label, pattern, match) => {
+        const text = `${lead}${match}${tail}`;
+        for (const chunks of [[text], ...everyTwoWaySplit(text)]) {
           expect(
-            collectCanonicalSearchStrategyResults(create(/(\w+)-\1/)({ maxBufferLength: 201 }), chunks).segments,
+            collectCanonicalSearchStrategyResults(create(pattern)({ maxBufferLength: 1250 }), chunks).segments,
             `split after ${chunks[0].length}`
           ).toEqual([asText(lead), asMatch(match), asText(tail)]);
         }
-      }
-    );
+      });
+    });
 
     it("defaults to a limit of 64 Ki code units, releasing a longer run and matching the rest", () => {
       const matchesIn = (length: number) =>
