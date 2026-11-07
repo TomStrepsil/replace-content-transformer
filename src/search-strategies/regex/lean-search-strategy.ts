@@ -148,6 +148,7 @@ export class LeanRegexSearchStrategy
         const candidate = this.partialMatchRegex.exec(window);
         const settledMatch = this.settledMatch(candidate, window);
         state.buffer = "";
+        state.evaluatedBufferLength = 0;
 
         if (settledMatch === null) {
           const start = cursor.reportedUpTo + (candidate?.index ?? window.length);
@@ -163,7 +164,6 @@ export class LeanRegexSearchStrategy
           return;
         }
 
-        state.evaluatedBufferLength = 0;
         if (settledMatch[0].length === 0) {
           yield skipOneCodePointPastZeroLengthMatch(
             haystack,

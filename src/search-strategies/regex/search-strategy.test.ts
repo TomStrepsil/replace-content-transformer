@@ -2633,6 +2633,18 @@ describe("RegexSearchStrategy", () => {
       expect(reported + strategy.flush(state)).toBe(input);
     });
 
+    it("searches the next chunk again after a release that reaches the end of what it holds", () => {
+      const strategy = new RegexSearchStrategy(/\S+/, {
+        maxBufferLength: 4,
+        minCandidateLengthToBackOff: 1,
+        bufferGrowthFactorBetweenEvaluations: 100
+      });
+      const state = strategy.createState();
+      for (const chunk of ["xx", "x😀"]) Array.from(strategy.processChunk(chunk, state));
+      const reported = Array.from(strategy.processChunk("a ", state)).map(getValue);
+      expect(reported).toEqual(["a", " "]);
+    });
+
     it("resets its state on flush", () => {
       const strategy = new RegexSearchStrategy(/\S+/, {
         maxBufferLength: MAX_BUFFER_LENGTH
