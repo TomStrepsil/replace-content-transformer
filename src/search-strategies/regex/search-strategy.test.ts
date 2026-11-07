@@ -2692,6 +2692,26 @@ describe("RegexSearchStrategy", () => {
       }
     });
 
+    it.each([36, 220])(
+      "finds a backreference match within the limit after %i code units of text, however far into it the search window ends",
+      (leadLength) => {
+        const lead = ".".repeat(leadLength);
+        const word = "a".repeat(100);
+        const match = `${word}-${word}`;
+        const tail = ".".repeat(300);
+        const repeatStart = lead.length + word.length + 1;
+        const endsBeyondPartialBackreference = ([first]: string[]) =>
+          first.length - repeatStart > 64 && first.length < repeatStart + word.length;
+        for (const chunks of [[lead + match + tail], ...everyTwoWaySplit(lead + match + tail)]) {
+          if (endsBeyondPartialBackreference(chunks)) continue;
+          expect(
+            collectCanonicalSearchStrategyResults(create(/(\w+)-\1/)({ maxBufferLength: 201 }), chunks).segments,
+            `split after ${chunks[0].length}`
+          ).toEqual([asText(lead), asMatch(match), asText(tail)]);
+        }
+      }
+    );
+
     it("defaults to a limit of 64 Ki code units, releasing a longer run and matching the rest", () => {
       const matchesIn = (length: number) =>
         collectSearchStrategyResults(new RegexSearchStrategy(/\S+/), [`${"x".repeat(length)} `])

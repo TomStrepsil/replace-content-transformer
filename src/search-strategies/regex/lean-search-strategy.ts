@@ -21,6 +21,8 @@ import type {
 } from "./types.js";
 import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
 
+const BACKREFERENCE_FEATURES = ["backreference", "namedBackreference"] as const;
+
 /**
  * The regex search strategy, taking a `PartialMatchRegExp` the consumer has
  * built rather than a `RegExp`, so that a bundle need not include the
@@ -65,6 +67,7 @@ export class LeanRegexSearchStrategy
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
   private readonly guard: BufferGuard;
+  private readonly backreferenceOverhang: number;
   private readonly minCandidateLengthToBackOff: number;
   private readonly bufferGrowthFactorBetweenEvaluations: number;
 
@@ -88,9 +91,15 @@ export class LeanRegexSearchStrategy
     this.minCandidateLengthToBackOff = minCandidateLengthToBackOff;
     this.bufferGrowthFactorBetweenEvaluations =
       bufferGrowthFactorBetweenEvaluations;
-    this.lookaheadConfirmationRegex = features(partialMatchRegex).has("lookahead")
+    const patternFeatures = features(partialMatchRegex);
+    this.lookaheadConfirmationRegex = patternFeatures.has("lookahead")
       ? new RegExp(partialMatchRegex.source, `${partialMatchRegex.flags}y`)
       : null;
+    this.backreferenceOverhang = BACKREFERENCE_FEATURES.some((feature) =>
+      patternFeatures.has(feature)
+    )
+      ? this.guard.maxBufferLength + 1
+      : 0;
   }
 
   override createState(): RegexSearchState {
@@ -143,14 +152,21 @@ export class LeanRegexSearchStrategy
     const windowLength = this.guard.maxBufferLength + 1;
     try {
       while (cursor.reportedUpTo < length) {
-        const windowEnd = this.windowEnd(haystack, cursor.reportedUpTo + windowLength);
+        const decidedTo = this.windowEnd(haystack, cursor.reportedUpTo + windowLength);
+        const windowEnd = this.windowEnd(haystack, decidedTo + this.backreferenceOverhang);
         const window = haystack.substring(cursor.reportedUpTo, windowEnd);
         const candidate = this.partialMatchRegex.exec(window);
-        const settledMatch = this.settledMatch(candidate, window);
+        const start = cursor.reportedUpTo + (candidate?.index ?? window.length);
         state.buffer = "";
 
+        if (start > decidedTo) {
+          yield nonMatch(haystack.slice(cursor.reportedUpTo, decidedTo));
+          cursor.reportedUpTo = decidedTo;
+          continue;
+        }
+
+        const settledMatch = this.settledMatch(candidate, window);
         if (settledMatch === null) {
-          const start = cursor.reportedUpTo + (candidate?.index ?? window.length);
           const overLong = windowEnd - start > this.guard.maxBufferLength;
           const reportTo = overLong ? this.guard.release(haystack, start) : start;
           const content = haystack.slice(cursor.reportedUpTo, reportTo);
