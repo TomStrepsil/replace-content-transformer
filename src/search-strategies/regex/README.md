@@ -385,7 +385,7 @@ Backreferences are supported, including across chunk boundaries: [`regex-partial
 
 That comes with caveats for streaming use:
 
-- **Not chunk-invariant where a chunk ends more than 64 characters into the text a backreference repeats.** `regex-partial-match` lets a backreference run out of input only within the first 64 characters of its capture (its `longestPartial`), which bounds the work a failing backreference does. The limit applies to each backreference (`\1`, `\k<name>`) on its own, counting how far a chunk ends into the text that backreference repeats. It doesn't limit the length of a match, or of the group it captures, which can each be split anywhere. Where a chunk ends further in than that, the candidate isn't held for the next chunk, so the match can differ from the unsplit one. `/(\w+)-\1/` over a 100-character word of `a`s, a `-` and the word again matches all 201 characters unsplit, and wherever a chunk ends up to 64 characters into the second word. Split 65 characters in, it yields 35 characters of text, a 131-character match and 35 more characters of text; 79 characters in, 21 characters of text, a 159-character match and 21 more.
+- **Not chunk-invariant where a chunk ends more than 64 characters into the text a backreference repeats.** `regex-partial-match` lets a backreference run out of input only within the first 64 characters of its capture (its `longestPartial`), which bounds the work a failing backreference does. The limit applies to each backreference (`\1`, `\k<name>`) on its own, counting how far a chunk ends into the text that backreference repeats. It doesn't limit the length of a match, or of the group it captures, which can each be split anywhere. Where a chunk ends further in than that, the candidate isn't held for the next chunk, so the match can differ from the unsplit one. `/(\w+)-\1/` over a 100-character word of `a`s, a `-` and the word again matches all 201 characters unsplit, and wherever a chunk ends up to 64 characters into the second word. Split 65 characters in, it yields 35 characters of text, a 131-character match and 35 more characters of text; 79 characters in, 21 characters of text, a 159-character match and 21 more. Under `maxBufferLength`, only where a chunk ends counts: a search reads `maxBufferLength + 1` code units further than it decides, so wherever the search window ends, every match up to the limit that starts where it decides lies inside it.
 - **Performance.** Constructing the partial-match regex is slightly more expensive than a native `RegExp`. A backreference that fails reads up to `longestPartial` characters ahead before giving up, so on long input where backreferences often fail, `exec()` can cost several times the native pattern.
 
 > [!TIP]
@@ -415,7 +415,7 @@ Problem: an unbounded quantifier has no reason to stop at a chunk edge. While a 
 
 The cost is decided by whether the pattern can _settle_:
 
-| Pattern                                 | Peak buffer                          |
+| Pattern                                 | Peak buffer, without a ceiling       |
 | --------------------------------------- | ------------------------------------ |
 | `/\{\{[^{}]*\}\}/` over templating text | one pending match (8 chars measured) |
 | `/\{\{[^{}]*\}\}/` over prose           | one pending delimiter prefix         |
@@ -424,28 +424,31 @@ The cost is decided by whether the pattern can _settle_:
 
 A terminator the body cannot consume **bounds** the buffer without emptying it: a match in progress when a chunk ends is held, so the peak is the longest pending match (8 characters for the templating shape in the [content-shape benchmarks](../../../test/benchmarks/regex-shapes/README.md)) and does not grow with the stream.
 
-`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so it holds the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length.
+`/\S+/` over text with no whitespace never reaches a point where more input could not extend the match, so without a ceiling it would hold the entire stream; nothing but the next chunk can say whether the run continues. A candidate this large is re-scanned from position 0, but only once the buffer has doubled since the last scan, so the cost is amortised linear in stream length.
 
 Both the 1024-character threshold and the growth factor of 2 can be changed with the `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` options. The price is latency: a match that completes just after a scan is released at the next one, or at end of stream.
 
-To bound memory, set a ceiling:
+Memory is bounded by `maxBufferLength`, shared with the other strategies (see [Buffer limit](../../../README.md#buffer-limit)):
 
 ```js
 new RegexSearchStrategy(/\S+/, {
-  maxBufferLength: 64 * 1024,
-  onGuardExceeded: ({ streamIndices: [start, end] }) =>
-    console.warn(
-      `settled ${end - start} code units early, from offset ${start}`
-    )
+  maxBufferLength: 16 * 1024,
+  onGuardExceeded: () => console.warn("a token passed through in part")
 });
 ```
 
-Once the held-back content exceeds `maxBufferLength`, it is settled with the original pattern, as at end of stream, and `onGuardExceeded` is called (if supplied) with the `streamIndices` of the span settled early, `[startIndex, endIndex]` with `endIndex` exclusive.
+Each search reads at most `maxBufferLength + 1` code units past a candidate's start, or twice that for a pattern with a backreference (see below). A candidate still unresolved `maxBufferLength + 1` code units after its start passes through as text up to `maxBufferLength` code units from its start, and the search restarts right after, from nothing. `onGuardExceeded` is called (if supplied) for each such release. The default value is 65,536 code units; `Infinity` removes the ceiling.
 
-Output stays lossless, but matches in that span are no longer independent of how the input was chunked. The default value is `Infinity`.
+Every decision depends only on the text, so the result is the same however the input is split. A match is never longer than `maxBufferLength`, and output stays lossless. As for every strategy, what follows the restart is searched on its own:
+
+- **The rest of an over-long match can match.** With a limit of 5, `/\S+/` over `"abcdefghij klm"` releases `abcde`, then matches `fghij` and `klm`. A run of 16 MiB releases the limit at a time, calling `onGuardExceeded` for each release.
+- **A match can start inside a released candidate.** With a limit of 4, `/<[^>]*>/` over `"<abcd<g>"` releases `<abcd` and matches `<g>`.
+- **A candidate that reads past the limit is released even if its match would be shorter.** The text a lookahead reads counts, as `px` for `/\d+(?=px)/`, and so does a pending alternative that would give way to a shorter one, as for `/a(?:xxxy|)/`.
+
+Where no match can start inside another, as for `/\{\{[^{}]*\}\}/`, the result is the unguarded result with the matches longer than the limit as text.
 
 > [!WARNING]
-> Without a ceiling, a candidate a few MiB long can make `processChunk` throw `RangeError: Maximum call stack size exceeded` on V8 (Node, Deno, Chromium) for some patterns, such as a repeated group like `/(?:\w|-)+/` or a quantified backreference like `/(a)\1+/`: the partial pattern overflows the regexp backtrack stack at a shorter run than the native one, about 4 MiB against 8 MiB for `/(?:\w|-)+/` on Node 24.20. An atom repeated by `*`, `+` or `{n,}`, as in `/\S+/`, does not. See regex-partial-match's [Very long repetitions](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#very-long-repetitions).
+> A candidate a few MiB long can make `processChunk` throw `RangeError: Maximum call stack size exceeded` on V8 (Node, Deno, Chromium) for some patterns, such as a repeated group like `/(?:\w|-)+/` or a quantified backreference like `/(a)\1+/`: the partial pattern overflows the regexp backtrack stack at a shorter run than the native one, about 4 MiB against 8 MiB for `/(?:\w|-)+/` on Node 24.20. An atom repeated by `*`, `+` or `{n,}`, as in `/\S+/`, does not. See regex-partial-match's [Very long repetitions](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#very-long-repetitions). The default ceiling keeps every search well short of that, since no search reads more than `2 × (maxBufferLength + 1)` code units, even within one chunk; a ceiling of a few MiB, or `Infinity`, can still reach it.
 
 > [!TIP]
 > Give the pattern a terminator its own body cannot consume:

@@ -37,6 +37,8 @@ Matches opening/closing delimiters where nesting is meaningful: the match only c
 - **Use Case**: Complex patterns, wildcards, character classes
 - **Exports**: `RegexSearchStrategy`, and `LeanRegexSearchStrategy` for a smaller bundle (see [Lean Bundles](./regex/README.md#lean-bundles))
 
+Every strategy holds back no more than `maxBufferLength` code units (65,536 by default) awaiting a decision. See [Buffer limit](../../README.md#buffer-limit).
+
 ## 📊 Benchmark Strategies
 
 Additional search strategy implementations exist for performance comparison and algorithmic research. These are **not part of the public API** but are maintained in the [`benchmarking`](./benchmarking/README.md) subdirectory for optimization insights and algorithm comparison.
