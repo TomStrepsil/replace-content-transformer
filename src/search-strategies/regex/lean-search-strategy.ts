@@ -3,6 +3,7 @@ import type PartialMatchRegExp from "regex-partial-match";
 import features from "regex-partial-match/features";
 import hitEnd from "regex-partial-match/hitEnd";
 import { DEFAULT_OPTIONS } from "./default-options.js";
+import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
 import validateInput from "./input-validation.js";
 import validateOptions from "./options-validation.js";
 import advanceToMatch from "./advance-to-match.js";
@@ -10,6 +11,7 @@ import endsAtHaystackEnd from "./ends-at-haystack-end.js";
 import nonMatch from "./non-match.js";
 import sameCaptures from "./same-captures.js";
 import skipOneCodePointPastZeroLengthMatch from "./skip-one-code-point-past-zero-length-match.js";
+import codeUnitsInCodePointAt from "../code-units-in-code-point-at.js";
 import takeMatch from "./take-match.js";
 import type {
   RegexSearchState,
@@ -61,34 +63,30 @@ export class LeanRegexSearchStrategy
   private readonly completeMatchRegex: RegExp;
   private readonly partialMatchRegex: PartialMatchRegExp;
   private readonly lookaheadConfirmationRegex: RegExp | null;
-  private readonly maxBufferLength: number;
+  private readonly guard: BufferGuard;
   private readonly minCandidateLengthToBackOff: number;
   private readonly bufferGrowthFactorBetweenEvaluations: number;
-  private readonly onGuardExceeded: RegexSearchStrategyOptions["onGuardExceeded"];
 
   constructor(
     partialMatchRegex: PartialMatchRegExp,
     {
-      maxBufferLength = DEFAULT_OPTIONS.maxBufferLength,
       minCandidateLengthToBackOff = DEFAULT_OPTIONS.minCandidateLengthToBackOff,
       bufferGrowthFactorBetweenEvaluations = DEFAULT_OPTIONS.bufferGrowthFactorBetweenEvaluations,
-      onGuardExceeded
+      ...guardOptions
     }: RegexSearchStrategyOptions = {}
   ) {
     super();
+    this.guard = bufferGuard(guardOptions);
     validateOptions({
-      maxBufferLength,
       minCandidateLengthToBackOff,
       bufferGrowthFactorBetweenEvaluations
     });
     validateInput(partialMatchRegex);
     this.partialMatchRegex = partialMatchRegex;
     this.completeMatchRegex = new RegExp(partialMatchRegex.source, partialMatchRegex.flags);
-    this.maxBufferLength = maxBufferLength;
     this.minCandidateLengthToBackOff = minCandidateLengthToBackOff;
     this.bufferGrowthFactorBetweenEvaluations =
       bufferGrowthFactorBetweenEvaluations;
-    this.onGuardExceeded = onGuardExceeded;
     this.lookaheadConfirmationRegex = features(partialMatchRegex).has("lookahead")
       ? new RegExp(partialMatchRegex.source, `${partialMatchRegex.flags}y`)
       : null;
@@ -106,7 +104,7 @@ export class LeanRegexSearchStrategy
       state.evaluatedBufferLength >= this.minCandidateLengthToBackOff &&
       bufferedLength <=
         state.evaluatedBufferLength * this.bufferGrowthFactorBetweenEvaluations &&
-      bufferedLength <= this.maxBufferLength
+      bufferedLength <= this.guard.maxBufferLength
     );
   }
 
@@ -140,36 +138,29 @@ export class LeanRegexSearchStrategy
     haystack = state.buffer + haystack;
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
-    let settling = false;
+    const windowLength = this.guard.maxBufferLength + 1;
     try {
       while (cursor.reportedUpTo < length) {
-        const remainingHaystack = haystack.substring(cursor.reportedUpTo);
-        const candidate = (
-          settling ? this.completeMatchRegex : this.partialMatchRegex
-        ).exec(remainingHaystack);
-        const matchStart = candidate?.index ?? remainingHaystack.length;
-        const settledMatch = settling
-          ? candidate
-          : this.settledMatch(candidate, remainingHaystack);
+        const windowEnd = this.windowEnd(haystack, cursor.reportedUpTo + windowLength);
+        const window = haystack.substring(cursor.reportedUpTo, windowEnd);
+        const candidate = this.partialMatchRegex.exec(window);
+        const settledMatch = this.settledMatch(candidate, window);
+        state.buffer = "";
 
         if (settledMatch === null) {
-          const heldBackFrom = cursor.reportedUpTo + matchStart;
-          const heldBack = haystack.slice(heldBackFrom);
-          const exceedsGuard = heldBack.length > this.maxBufferLength;
-          cursor.reportedUpTo = exceedsGuard ? heldBackFrom : length;
-          state.buffer = exceedsGuard ? "" : heldBack;
+          const start = cursor.reportedUpTo + (candidate?.index ?? window.length);
+          const overLong = windowEnd - start > this.guard.maxBufferLength;
+          const reportTo = overLong ? this.guard.release(haystack, start) : start;
+          const content = haystack.slice(cursor.reportedUpTo, reportTo);
+          cursor.reportedUpTo = reportTo;
+          if (content) yield nonMatch(content);
+          if (overLong || windowEnd < length) continue;
+          state.buffer = haystack.slice(reportTo);
           state.evaluatedBufferLength = state.buffer.length;
-          if (matchStart > 0)
-            yield nonMatch(remainingHaystack.slice(0, matchStart));
-          if (!exceedsGuard) return;
-          settling = true;
-          this.onGuardExceeded?.({
-            streamIndices: [baseOffset + heldBackFrom, baseOffset + length]
-          });
-          continue;
+          cursor.reportedUpTo = length;
+          return;
         }
 
-        state.buffer = "";
         state.evaluatedBufferLength = 0;
         if (settledMatch[0].length === 0) {
           yield skipOneCodePointPastZeroLengthMatch(
@@ -243,5 +234,10 @@ export class LeanRegexSearchStrategy
 
   override matchToString(match: StreamRegexMatch): string {
     return match[0];
+  }
+
+  private windowEnd(haystack: string, end: number): number {
+    if (end >= haystack.length) return haystack.length;
+    return end - 1 + codeUnitsInCodePointAt(haystack, end - 1);
   }
 }

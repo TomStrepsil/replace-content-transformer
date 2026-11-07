@@ -2,11 +2,25 @@ import { describe, it, expect } from "vitest";
 import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
+import type { BufferGuardOptions } from "../types.js";
 import {
+  asMatch,
+  asText,
+  collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
-  collectStoppedSearchStrategyResults
+  collectStoppedSearchStrategyResults,
+  heldWhileDriving,
+  indexOfWork,
+  outputWhenGuardThrows
 } from "../../../test/utilities.js";
-import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
+import {
+  chunksOf,
+  everySplitOf,
+  everyTwoWaySplit,
+  splitsOnCodePoints
+} from "../../../test/splits.js";
+
+const WORK_PER_CODE_UNIT = 8;
 
 describe("LoopedIndexOfAnchoredSearchStrategy", () => {
   it("should match single token", () => {
@@ -680,13 +694,24 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
         expect(run(chunks).output, chunks.join("|")).toBe(unsplit.output);
       }
     });
+
+    it("searches each code unit of a pending match about once, however many anchors it has found", () => {
+      const needles = [..."a".repeat(4096), "b"];
+      const input = "a".repeat(4096);
+      const work = indexOfWork(() =>
+        heldWhileDriving(new LoopedIndexOfAnchoredSearchStrategy(needles), [...input])
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
   });
 
   describe("stopping early", () => {
     it.each([
       ["with an anchor pair", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]), "a{{x}}b{{y}}{{z"],
       ["with a three-anchor sequence", new LoopedIndexOfAnchoredSearchStrategy(["<", "-", ">"]), "<-><a-b>c<-"],
-      ["with a bordered anchor", new LoopedIndexOfAnchoredSearchStrategy(["aba"]), "xababaxaba"]
+      ["with a bordered anchor", new LoopedIndexOfAnchoredSearchStrategy(["aba"]), "xababaxaba"],
+      ["with an over-long match", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], { maxBufferLength: 6 }), "{{abcd}}{{x}}{{y"]
     ] as const)(
       "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
       (_label, strategy, input) => {
@@ -708,5 +733,109 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
         }
       }
     );
+  });
+
+  describe("buffer guard", () => {
+    const create = (needles: string[]) => (options: BufferGuardOptions) =>
+      new LoopedIndexOfAnchoredSearchStrategy(needles, options);
+
+    it.each([
+      ["a match at the limit", ["{{", "}}"], 8, "a{{1234}}b", [asText("a"), asMatch("{{1234}}"), asText("b")], 0],
+      ["a match one over the limit, which passes through as text", ["{{", "}}"], 8, "a{{12345}}b", [asText("a{{12345}}b")], 1],
+      ["a match cut by the limit of an earlier first anchor, which passes through as text", ["{{", "}}"], 8, "{{ab{{c}}d", [asText("{{ab{{c}}d")], 1],
+      ["a match starting past the limit of an earlier first anchor, which matches", ["{{", "}}"], 6, "{{abcdef{{x}}", [asText("{{abcdef"), asMatch("{{x}}")], 1],
+      ["a match within the limit after an over-long one", ["{{", "}}"], 6, "{{{{a}}{{b}}", [asText("{{{{a}}"), asMatch("{{b}}")], 1],
+      ["a match after text that follows an over-long one", ["{{", "}}"], 6, "{{abcdefgh}} tail {{x}}", [asText("{{abcdefgh}} tail "), asMatch("{{x}}")], 1],
+      ["two over-long matches, released once each", ["{{", "}}"], 6, "{{abcdefgh}}{{ijklmn}}", [asText("{{abcdefgh}}{{ijklmn}}")], 2],
+      ["an anchor sequence over the limit, then one within it", ["<", "-", ">"], 4, "<a-b> <-->", [asText("<a-b> "), asMatch("<-->")], 1],
+      ["an anchor sequence whose later anchors fall past the limit", ["<", "-", ">"], 3, "<-<->", [asText("<-<->")], 1],
+      ["a match pending when a chunk ends on a later anchor", ["<", "-", ">"], 2, "<abc-", [asText("<abc-")], 1],
+      ["anchors that overlap one another, past the limit", ["aa", "ab"], 3, "aaab aab", [asText("aaab aab")], 2],
+      ["anchors that overlap one another, within the limit", ["ab", "ba"], 4, "abba abxba", [asMatch("abba"), asText(" abxba")], 1],
+      ["a bordered anchor within the limit", ["aba"], 3, "xababa", [asText("x"), asMatch("aba"), asText("ba")], 0],
+      ["a run of first anchors with no closing anchor", ["{{", "}}"], 8, "{{{{{{{{{{{", [asText("{{{{{{{{{{{")], 1],
+      ["a run of first anchors released the limit at a time", ["{{", "}}"], 3, "{{{{{{{{{{{", [asText("{{{{{{{{{{{")], 3],
+      ["a limit of zero, under which nothing matches", ["{{", "}}"], 0, "{{}}", [asText("{{}}")], 1],
+      ["a single anchor longer than the limit", ["{{name}}"], 4, "a{{name}}", [asText("a{{name}}")], 1]
+    ])(
+      "decides %s the same however the input is split",
+      (_label, needles, maxBufferLength, input, segments, calls) => {
+        for (const chunks of everySplitOf(input)) {
+          const onGuardExceeded = vi.fn();
+          const strategy = create(needles)({ maxBufferLength, onGuardExceeded });
+          expect(
+            { ...collectCanonicalSearchStrategyResults(strategy, chunks), calls: onGuardExceeded.mock.calls },
+            chunks.join("|")
+          ).toEqual({ segments, output: input, calls: Array.from({ length: calls }, () => []) });
+        }
+      }
+    );
+
+    it("never splits a surrogate pair when releasing a match", () => {
+      for (const chunks of splitsOnCodePoints("😀😀x}")) {
+        const { results } = collectSearchStrategyResults(
+          create(["😀", "}"])({ maxBufferLength: 3 }),
+          chunks
+        );
+        const splitsAPair = results.some(({ content }) => /[\uD800-\uDBFF]$/.test(content));
+        expect(splitsAPair, chunks.join("|")).toBe(false);
+      }
+    });
+
+    it.each([
+      ["while the match is pending", ["x{{a", "bcd"]],
+      ["as the match completes", ["x{{abcd}}y"]]
+    ])("keeps the unconsumed input exactly once when the callback throws %s", (_label, chunks) => {
+      expect(outputWhenGuardThrows(create(["{{", "}}"]), chunks, 4)).toEqual({
+        threw: true,
+        output: chunks.join("")
+      });
+    });
+
+    it("defaults to a limit of 64 Ki code units", () => {
+      const input = (length: number) => `{{${"x".repeat(length - 4)}}}`;
+      const matchesIn = (haystack: string) =>
+        collectSearchStrategyResults(
+          new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+          [haystack]
+        ).results.filter(({ isMatch }) => isMatch).length;
+
+      expect(matchesIn(input(65_536))).toBe(1);
+      expect(matchesIn(input(65_537))).toBe(0);
+    });
+
+    it("lets output through after an unclosed first anchor followed by 16 MiB, holding no more than the limit", () => {
+      const { longestHeld, reportedBeforeLastChunk } = heldWhileDriving(
+        new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]),
+        chunksOf(`{{${"x".repeat(16 * 1024 * 1024)}`, 16 * 1024)
+      );
+
+      expect(reportedBeforeLastChunk).toBe(true);
+      expect(longestHeld).toBeLessThanOrEqual(65_536);
+    });
+
+    it("holds no more than the limit when every chunk ends on a later anchor", () => {
+      const chunk = `${"x".repeat(99)}-`;
+      const { longestHeld, reportedBeforeLastChunk } = heldWhileDriving(
+        create(["<", ...Array<string>(200).fill("-"), ">"])({ maxBufferLength: 50 }),
+        ["<", ...Array<string>(200).fill(chunk)]
+      );
+
+      expect(reportedBeforeLastChunk).toBe(true);
+      expect(longestHeld).toBeLessThanOrEqual(50);
+    });
+
+    it("passes a dense run of first anchors through with search work proportional to the input", () => {
+      const input = "{{".repeat(64 * 1024);
+      const work = indexOfWork(() =>
+        heldWhileDriving(create(["{{", "}}"])({ maxBufferLength: 1024 }), chunksOf(input, 4096))
+      );
+
+      expect(work).toBeLessThan(WORK_PER_CODE_UNIT * input.length);
+    });
+
+    it.each([-1, Number.NaN])("rejects a maxBufferLength of %j", (maxBufferLength) => {
+      expect(() => create(["{{"])({ maxBufferLength })).toThrow(RangeError);
+    });
   });
 });

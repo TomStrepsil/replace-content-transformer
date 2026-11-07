@@ -1,13 +1,7 @@
 import type { MatchResult } from "../types.js";
 import nonMatch from "./non-match.js";
 import type { ScanCursor } from "./types.js";
-
-const MAX_SINGLE_CODE_UNIT_CODE_POINT = 0xffff;
-
-function codeUnitsInCodePointAt(haystack: string, position: number): number {
-  const codePoint = haystack.codePointAt(position) ?? 0;
-  return codePoint > MAX_SINGLE_CODE_UNIT_CODE_POINT ? 2 : 1;
-}
+import codeUnitsInCodePointAt from "../code-units-in-code-point-at.js";
 
 export default function skipOneCodePointPastZeroLengthMatch(
   haystack: string,

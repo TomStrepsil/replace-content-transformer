@@ -564,15 +564,28 @@ Each strategy contains the pattern-matching logic for a specific use case:
 
 See [search strategies](./src/search-strategies/README.md) for detail of functionality, and development of the strategies.
 
+#### Buffer limit
+
+A match can span chunks, so a strategy holds back content that could still become part of one. Every strategy, and `searchStrategyFactory`, caps this with `maxBufferLength`, in UTF-16 code units (65,536 by default): a match still incomplete that far from its start passes through as text up to there, `onGuardExceeded` is called, and the search restarts right after. Output stays lossless, and doesn't depend on how the input is split. `Infinity` removes the cap.
+
+```ts
+new StringAnchorSearchStrategy(["<esi:include", "/>"], {
+  maxBufferLength: 16 * 1024,
+  onGuardExceeded: () => console.warn("an <esi:include> passed through unreplaced")
+});
+```
+
 ### 🏭 Search Strategy Factory
 
 If tree-shaking is not a concern, a factory method for generating a search strategy based on appropriate input is available:
 
 ```ts
 import { searchStrategyFactory } from "replace-content-transformer";
-const searchStrategy =
-  searchStrategyFactory(input: string | string[] | RegExp);
+searchStrategyFactory(input: RegExp, options?: RegexSearchStrategyOptions): RegexSearchStrategy;
+searchStrategyFactory(input: string | string[], options?: BufferGuardOptions): StringAnchorSearchStrategy;
 ```
+
+The `options` are [`maxBufferLength` and `onGuardExceeded`](#buffer-limit), passed to whichever strategy is built. Given a `RegExp`, they may also include `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` (see [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers)). An input typed only as `string | string[] | RegExp` takes `BufferGuardOptions`, and returns either strategy.
 
 > [!IMPORTANT]
 > The `BalancedPairSearchStrategy` is not returned by this factory, since it cannot be determined from input, so import this directly, as described below.

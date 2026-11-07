@@ -188,6 +188,18 @@ type LoopedIndexOfAnchoredSearchState = {
 - **Cancel:** if consuming processor breaks iteration, remainder of current chunk pushed to flush buffer. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit this buffer as one chunk
 - **Flush:** Returns and clears any buffered content
 
+## Buffer limit
+
+A match still incomplete `maxBufferLength` code units (65,536 by default) after its first anchor passes through as text up to there, `onGuardExceeded` is called, and the search restarts right after, from the first anchor. Each later anchor is only searched for within that limit, so the decision depends only on the text, and is the same however the input is split:
+
+```typescript
+const strategy = new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength: 6 });
+// "{{abcdef{{x}}" → "{{abcdef" as text, then "{{x}}" as a match
+// "{{ unclosed …" → output resumes once 6 code units from "{{" have arrived
+```
+
+So a stray first anchor holds back no more than the limit, and a real match starting after the limit still matches. A match that straddles the cut passes through as text. See [Buffer limit](../../../README.md#buffer-limit).
+
 ## Performance Characteristics
 
 **Compared to BufferedIndexOfAnchoredSearchStrategy:**

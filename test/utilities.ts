@@ -308,6 +308,30 @@ function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {
   return engine.write.mock.calls.map(([chunk]) => chunk).join("");
 }
 
+/**
+ * Code units examined by `String.prototype.indexOf` (up to the end of each
+ * occurrence found) while `run` ran. The anchor and balanced pair strategies
+ * search with it, so this counts their search work deterministically, where
+ * timing is noisy.
+ */
+function indexOfWork(run: () => void): number {
+  const strings = String.prototype;
+  const { indexOf } = strings;
+  let work = 0;
+  strings.indexOf = function (this: string, searchString: string, position = 0) {
+    const found = indexOf.call(this, searchString, position);
+    const searchedTo = found === -1 ? this.length : found + searchString.length;
+    work += Math.max(0, searchedTo - Math.max(0, position));
+    return found;
+  };
+  try {
+    run();
+    return work;
+  } finally {
+    strings.indexOf = indexOf;
+  }
+}
+
 function startedSinkOf(engine: {
   start: { mock: { lastCall: [EngineSink] | undefined } };
 }): EngineSink {
@@ -316,12 +340,16 @@ function startedSinkOf(engine: {
   return lastCall[0];
 }
 
-export type { CanonicalSegment } from "./search-strategy-results.ts";
+export type { CanonicalSegment, GuardedStrategy } from "./search-strategy-results.ts";
 
 export {
+  asMatch,
+  asText,
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
+  heldWhileDriving,
+  outputWhenGuardThrows,
   regexMatchDetailsOf
 } from "./search-strategy-results.ts";
 
@@ -332,6 +360,7 @@ export {
   asyncIterable,
   createIterableSlotNode,
   deferred,
+  indexOfWork,
   mockAsyncEngine,
   mockSearchStrategyFactory,
   mockStoppableSearchStrategy,

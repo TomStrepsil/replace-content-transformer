@@ -3,6 +3,7 @@
  * do not depend on where it happened to be split.
  */
 
+
 /** Every possible two-way split of `haystack`, plus the unsplit input. */
 function everyTwoWaySplit(haystack: string): string[][] {
   const splits: string[][] = [[haystack]];
@@ -41,4 +42,27 @@ function everySplitOf(haystack: string): string[][] {
   ];
 }
 
-export { characterBySplit, everySplitOf, everyThreeWaySplit, everyTwoWaySplit };
+/** `haystack` cut into consecutive chunks of `length` code units, the last possibly shorter. */
+function chunksOf(haystack: string, length: number): string[] {
+  const chunks: string[] = [];
+  for (let start = 0; start < haystack.length; start += length) {
+    chunks.push(haystack.slice(start, start + length));
+  }
+  return chunks;
+}
+
+/** {@link everySplitOf}, without the splits that cut a surrogate pair, which a `TextDecoder` never produces. */
+function splitsOnCodePoints(haystack: string): string[][] {
+  return everySplitOf(haystack).filter(
+    (chunks) => !chunks.slice(0, -1).some((chunk) => /[\uD800-\uDBFF]$/.test(chunk))
+  );
+}
+
+export {
+  characterBySplit,
+  chunksOf,
+  everySplitOf,
+  everyThreeWaySplit,
+  everyTwoWaySplit,
+  splitsOnCodePoints
+};

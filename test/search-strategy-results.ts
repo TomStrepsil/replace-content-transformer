@@ -1,4 +1,8 @@
-import type { MatchResult, SearchStrategy } from "../src/search-strategies/types.ts";
+import type {
+  BufferGuardOptions,
+  MatchResult,
+  SearchStrategy
+} from "../src/search-strategies/types.ts";
 import type { StreamRegexMatch } from "../src/search-strategies/regex/types.ts";
 import settleOrFlush from "../src/search-strategies/settle-or-flush.ts";
 
@@ -163,6 +167,71 @@ function collectStoppedSearchStrategyResults<TState, TMatch = string>(
 }
 
 /**
+ * Drive `strategy` over `chunks`, returning the most code units received but not
+ * yet reported, after any chunk, and whether anything was reported before the
+ * last chunk.
+ */
+function heldWhileDriving<TState, TMatch = string>(
+  strategy: SearchStrategy<TState, TMatch>,
+  chunks: string[]
+): { longestHeld: number; reportedBeforeLastChunk: boolean } {
+  const state = strategy.createState();
+  let unreported = 0;
+  let longestHeld = 0;
+  let reportedBeforeLastChunk = false;
+  chunks.forEach((chunk, index) => {
+    unreported += chunk.length;
+    for (const result of strategy.processChunk(chunk, state)) {
+      unreported -= resultToString(strategy, result).length;
+      reportedBeforeLastChunk ||= index < chunks.length - 1;
+    }
+    longestHeld = Math.max(longestHeld, unreported);
+  });
+  strategy.flush(state);
+  return { longestHeld, reportedBeforeLastChunk };
+}
+
+type GuardedStrategy<TState, TMatch> = (
+  options: BufferGuardOptions
+) => SearchStrategy<TState, TMatch>;
+
+const asText = (text: string): CanonicalSegment => ({ isMatch: false, text });
+const asMatch = (text: string): CanonicalSegment => ({ isMatch: true, text });
+
+/**
+ * Drive the strategy from `create` over `chunks` with an `onGuardExceeded` that
+ * throws, then `flush` it, as an engine does once processing fails. `output` is
+ * what was reported, then what was flushed, then the chunks never processed.
+ */
+function outputWhenGuardThrows<TState, TMatch>(
+  create: GuardedStrategy<TState, TMatch>,
+  chunks: string[],
+  maxBufferLength: number
+): { threw: boolean; output: string } {
+  const strategy = create({
+    maxBufferLength,
+    onGuardExceeded: () => {
+      throw new Error("onGuardExceeded failed");
+    }
+  });
+  const state = strategy.createState();
+  let output = "";
+  for (const [index, chunk] of chunks.entries()) {
+    try {
+      for (const result of strategy.processChunk(chunk, state)) {
+        output += resultToString(strategy, result);
+      }
+    } catch {
+      return {
+        threw: true,
+        output: output + strategy.flush(state) + chunks.slice(index + 1).join("")
+      };
+    }
+  }
+  return { threw: false, output: output + strategy.flush(state) };
+}
+
+/**
  * Reduce the matches from {@link collectSearchStrategyResults} over a regex
  * strategy to plain data, so runs over different splits or strategies can be
  * compared with `toEqual`.
@@ -186,11 +255,15 @@ function regexMatchDetailsOf({
     }));
 }
 
-export type { CanonicalSegment };
+export type { CanonicalSegment, GuardedStrategy };
 
 export {
+  asMatch,
+  asText,
   collectCanonicalSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
+  heldWhileDriving,
+  outputWhenGuardThrows,
   regexMatchDetailsOf
 };

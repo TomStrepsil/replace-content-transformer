@@ -1,11 +1,5 @@
 export const DEFAULT_OPTIONS = {
   /**
-   * Longest held-back span, in code units, before it is settled with the
-   * original pattern as at end of stream and `onGuardExceeded` is called.
-   * @default Infinity
-   */
-  maxBufferLength: Infinity,
-  /**
    * Candidate length, in code units, from which re-scans are throttled by
    * `bufferGrowthFactorBetweenEvaluations`.
    * @default 1024
