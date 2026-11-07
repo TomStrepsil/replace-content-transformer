@@ -54,11 +54,11 @@ class BalancedPairSearchStrategy implements SearchStrategy<
 > {
   private anchorStringSearchStrategy: LoopedIndexOfAnchoredSearchStrategy;
 
-  constructor(opening: string, closing: string) {
-    this.anchorStringSearchStrategy = new LoopedIndexOfAnchoredSearchStrategy([
-      opening,
-      closing
-    ]);
+  constructor(opening: string, closing: string, options?: BufferGuardOptions) {
+    this.anchorStringSearchStrategy = new LoopedIndexOfAnchoredSearchStrategy(
+      [opening, closing],
+      options
+    );
   }
 }
 ```
@@ -67,17 +67,16 @@ When the underlying anchor strategy yields a match (opening–closing pair found
 
 1. Counts any additional opening delimiters within the new match content
 2. Adjusts `nestingLevel` accordingly
-3. If `nestingLevel > 0`, resets `currentNeedleIndex = 1` on the shared state so the anchor strategy resumes scanning for the next closing delimiter — without discarding already-accumulated match content
-4. Accumulates content in `balancedBuffer` until `nestingLevel` returns to zero, then yields the whole span as a single match
+3. If `nestingLevel > 0`, resets `currentNeedleIndex = 1` on the shared state so the anchor strategy resumes scanning for the next closing delimiter, still from the pair's opening
+4. Once `nestingLevel` returns to zero, yields the anchor strategy's match as it is: it runs from the pair's opening to this closing, so its content and `streamIndices` are the whole pair
 
 ### Incremental Content Tracking
 
-The underlying anchor strategy's match content grows cumulatively (from the first opening needle to each subsequent closing needle). The balanced pair strategy slices only the _new_ portion of each yielded match to count openings in it:
+The underlying anchor strategy's match content grows cumulatively (from the opening to each subsequent closing). The balanced pair strategy slices only the _new_ portion of each yielded match to count openings in it:
 
 ```typescript
-const newContent = matchResult.content.slice(prevMatchLength);
-prevMatchLength = matchResult.content.length;
-// ...
+const newContent = matchResult.content.slice(countedLength);
+countedLength = matchResult.content.length;
 state.nestingLevel--;
 let cursor = 0;
 while ((cursor = newContent.indexOf(this.opening, cursor)) !== -1) {
@@ -88,17 +87,25 @@ while ((cursor = newContent.indexOf(this.opening, cursor)) !== -1) {
 
 This ensures each opening is counted exactly once, regardless of how many intermediate closing delimiters were found.
 
-### Inner Buffer Adjustment
+### Across Chunks
 
-When `nestingLevel > 0` and the underlying strategy's buffer still holds in-flight content, the balanced pair strategy trims the anchor strategy's buffer to exclude content already accounted for in `balancedBuffer`:
+While a pair is open, the anchor strategy holds it from its opening, and `matchConsumedLength` marks the end of the last closing found. The next chunk resumes the search for a closing there, and counting resumes from the same point, so nothing is counted twice:
 
 ```typescript
-if (state.nestingLevel > 0) {
-  state.buffer = state.buffer.slice(state.balancedBuffer.length);
-}
+let countedLength = state.nestingLevel > 0 ? state.matchConsumedLength : 0;
 ```
 
-This prevents double-counting when the anchor strategy's cross-chunk buffer is combined with the next chunk.
+## Buffer limit
+
+The guard options are passed to the anchor strategy, whose match is the whole pair, from its opening. So a pair still unbalanced `maxBufferLength` code units (65,536 by default) after its opening passes through as text up to there, `onGuardExceeded` is called, and the search restarts right after. When the anchor strategy releases text, the balanced pair strategy resets `nestingLevel` to zero:
+
+```typescript
+const strategy = new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 5 });
+// "(a(b)(c)d)e" → "(a(b)" as text, then "(c)" as a match, then "d)e" as text
+// "( unclosed …" → output resumes once 5 code units from "(" have arrived
+```
+
+The decision depends only on the text, so it is the same however the input is split. A limit shorter than the opening and closing together, under which nothing could match, throws a `RangeError`. See [Buffer limit](../../../README.md#buffer-limit).
 
 ## State Management
 
@@ -108,36 +115,21 @@ This prevents double-counting when the anchor strategy's cross-chunk buffer is c
 interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
   /** How many unmatched opening delimiters have been seen inside the current match */
   nestingLevel: number;
-  /** Accumulated content of the outermost balanced match in progress */
-  balancedBuffer: string;
-  /** Absolute stream offset at which the outermost opening delimiter was found */
-  balancedBufferStart: number;
 }
 ```
 
 **State transitions:**
 
-| Condition                         | `nestingLevel`        | `balancedBuffer`           | Action                                 |
-| --------------------------------- | --------------------- | -------------------------- | -------------------------------------- |
-| No match found                    | unchanged (0)         | `""`                       | Pass through as non-match              |
-| Opening found, no inner opens     | `0` (after `--` + 0)  | accumulated → cleared      | Yield as complete match                |
-| Opening found, inner opens exist  | `> 0`                 | accumulating               | Set `currentNeedleIndex = 1`, continue |
-| Subsequent close balances depth   | decrements toward `0` | accumulating               | Continue or yield when reaching `0`    |
-| Flush mid-match                   | reset to `0`          | cleared (returned as-is)   | Return buffered content as raw text    |
+| Condition                        | `nestingLevel`        | Action                                     |
+| -------------------------------- | --------------------- | ------------------------------------------ |
+| No match found                   | unchanged (0)         | Pass through as non-match                  |
+| Opening found, no inner opens    | `0` (after `--` + 1)  | Yield as complete match                    |
+| Opening found, inner opens exist | `> 0`                 | Set `currentNeedleIndex = 1`, continue     |
+| Subsequent close balances depth  | decrements toward `0` | Continue, or yield when reaching `0`       |
+| Anchor strategy releases text    | reset to `0`          | Pass through as non-match                  |
+| Flush mid-match                  | reset to `0`          | Return the anchor strategy's held content  |
 
-**Flush behaviour:**
-
-If a stream ends while a balanced match is in progress (e.g. `((inner)` with no outer `)`), `flush` returns all accumulated content in `balancedBuffer` plus any remaining content in the anchor strategy's buffer:
-
-```typescript
-flush(state: BalancedPairSearchState): string {
-  const flushed = state.balancedBuffer;
-  state.balancedBuffer = "";
-  state.balancedBufferStart = 0;
-  state.nestingLevel = 0;
-  return flushed + this.anchorStringSearchStrategy.flush(state);
-}
-```
+**Flush behaviour:** if a stream ends while a pair is open (e.g. `((inner)` with no outer `)`), `flush` returns what the anchor strategy holds, the pair from its opening, and resets `nestingLevel`.
 
 **Stopping early:**
 
@@ -155,11 +147,11 @@ Chunk 2: " outer)"
 Process Chunk 1:
   - Anchor strategy finds "((inner)" as match
   - nestingLevel: 0 − 1 + 2 = 1 (two "(" inside, one ")" closes)
-  - currentNeedleIndex reset to 1 — continue scanning for ")"
-  - balancedBuffer: "((inner)"
+  - currentNeedleIndex reset to 1: continue scanning for ")"
+  - Chunk ends: the anchor strategy holds "((inner)", matchConsumedLength 8
 
 Process Chunk 2:
-  - Anchor strategy finds " outer)" as the continuation
+  - Anchor strategy finds "((inner) outer)", counted from 8: " outer)"
   - nestingLevel: 1 − 1 = 0 (no new "(" in " outer)")
   - Balanced! Yield "((inner) outer)", streamIndices: [0, 15]
 ```
