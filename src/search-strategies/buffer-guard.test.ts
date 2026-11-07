@@ -20,6 +20,13 @@ describe("bufferGuard", () => {
     expect(() => bufferGuard({ maxBufferLength })).not.toThrow();
   });
 
+  it("rejects a maxBufferLength shorter than the shortest possible match given", () => {
+    expect(() => bufferGuard({ maxBufferLength: 3 }, 4)).toThrow(
+      "maxBufferLength must be a number of at least 4 (or Infinity), received 3"
+    );
+    expect(() => bufferGuard({ maxBufferLength: 4 }, 4)).not.toThrow();
+  });
+
   describe("release", () => {
     it("calls onGuardExceeded once, with no arguments, and cuts at the limit from the start given", () => {
       const onGuardExceeded = vi.fn();

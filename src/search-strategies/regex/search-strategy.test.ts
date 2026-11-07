@@ -1040,6 +1040,16 @@ describe("RegexSearchStrategy", () => {
           { isMatch: true, text: "a" },
           { isMatch: false, text: "bc abd" }
         ]
+      },
+      {
+        name: "lookahead read in an earlier iteration, ruled out by input that does arrive",
+        pattern: /(?:a(?=bcd)|b)+/,
+        haystack: "abcx",
+        expected: [
+          { isMatch: false, text: "a" },
+          { isMatch: true, text: "b" },
+          { isMatch: false, text: "cx" }
+        ]
       }
     ]);
   });
@@ -1128,6 +1138,15 @@ describe("RegexSearchStrategy", () => {
         expected: [
           { isMatch: false, text: "aX" },
           { isMatch: true, text: "b" }
+        ]
+      },
+      {
+        name: "a lookahead read in an earlier iteration that leaves a later group empty",
+        pattern: /(?:a(?=bcd)|b)*(a?b)?/,
+        haystack: "abcd",
+        expected: [
+          { isMatch: true, text: "ab" },
+          { isMatch: false, text: "cd" }
         ]
       }
     ]);

@@ -33,8 +33,9 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * Exposed publicly as `StringAnchorSearchStrategy`.
  *
  * @throws If `needles` is empty, or any needle is an empty string.
- * @throws {RangeError} If `maxBufferLength` is not a number of at least 0.
- * `Infinity` is allowed; `undefined` selects the default.
+ * @throws {RangeError} If `maxBufferLength` is not a number of at least the
+ * anchors' total length, the shortest possible match. `Infinity` is allowed;
+ * `undefined` selects the default.
  */
 export class LoopedIndexOfAnchoredSearchStrategy
   extends StringBufferStrategyBase
@@ -47,7 +48,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
     super();
     validateNeedles(needles);
     this.needles = [...needles];
-    this.guard = bufferGuard(options);
+    this.guard = bufferGuard(options, needles.join("").length);
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {
@@ -67,8 +68,9 @@ export class LoopedIndexOfAnchoredSearchStrategy
     try {
       for (;;) {
         const currentNeedle = this.needles[state.currentNeedleIndex];
+        let index: number;
         if (state.currentNeedleIndex === 0) {
-          const index = haystack.indexOf(currentNeedle, position);
+          index = haystack.indexOf(currentNeedle, position);
           if (index === -1) {
             const resumeAt =
               length - partialMatchLength(haystack, currentNeedle, length - position);
@@ -83,19 +85,19 @@ export class LoopedIndexOfAnchoredSearchStrategy
             yield { isMatch: false, content: nonMatch };
           }
           matchStartPosition = index;
-        }
-
-        const limit = matchStartPosition + this.guard.maxBufferLength;
-        const window = limit < length ? haystack.slice(0, limit) : haystack;
-        const index = window.indexOf(currentNeedle, position);
-        if (index === -1) {
-          if (length < limit) return;
-          const releasedTo = this.guard.release(haystack, matchStartPosition);
-          const nonMatch = haystack.slice(matchStartPosition, releasedTo);
-          state.currentNeedleIndex = 0;
-          position = releasedTo;
-          yield { isMatch: false, content: nonMatch };
-          continue;
+        } else {
+          const limit = matchStartPosition + this.guard.maxBufferLength;
+          const window = limit < length ? haystack.slice(0, limit) : haystack;
+          index = window.indexOf(currentNeedle, position);
+          if (index === -1) {
+            if (length < limit) return;
+            const releasedTo = this.guard.release(haystack, matchStartPosition);
+            const nonMatch = haystack.slice(matchStartPosition, releasedTo);
+            state.currentNeedleIndex = 0;
+            position = releasedTo;
+            yield { isMatch: false, content: nonMatch };
+            continue;
+          }
         }
 
         position = index + currentNeedle.length;

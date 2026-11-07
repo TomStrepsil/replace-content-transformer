@@ -452,9 +452,8 @@ describe("BalancedPairSearchStrategy", () => {
       ["an opening that contains the closing, past the limit", "ab", "b", 3, "abab abb", [asText("abab "), asMatch("abb")], 1],
       ["delimiters that overlap one another", "ab", "ba", 4, "abba abxba", [asMatch("abba"), asText(" abxba")], 1],
       ["multi-character delimiters past the limit", "<a", "b>", 5, "<a<ab>b> <ab>", [asText("<a<ab>b> "), asMatch("<ab>")], 1],
-      ["a partial opening held at the end of the stream", "<!--", "-->", 2, "x<!-", [asText("x<!-")], 0],
-      ["a pair opened right after a release, counted afresh", "(", ")", 3, "(()(()", [asText("(()(()")], 2],
-      ["a limit of zero, under which nothing matches", "(", ")", 0, "()", [asText("()")], 1]
+      ["a partial opening held at the end of the stream", "<!--", "-->", 7, "x<!-", [asText("x<!-")], 0],
+      ["a pair opened right after a release, counted afresh", "(", ")", 3, "(()(()", [asText("(()(()")], 2]
     ])(
       "decides %s the same however the input is split",
       (_label, opening, closing, maxBufferLength, input, segments, calls) => {
@@ -524,6 +523,11 @@ describe("BalancedPairSearchStrategy", () => {
 
     it.each([-1, Number.NaN])("rejects a maxBufferLength of %j", (maxBufferLength) => {
       expect(() => create("(", ")")({ maxBufferLength })).toThrow(RangeError);
+    });
+
+    it("rejects a maxBufferLength shorter than the opening and closing together, under which nothing could match", () => {
+      expect(() => create("{{", "}}")({ maxBufferLength: 3 })).toThrow("at least 4");
+      expect(() => create("{{", "}}")({ maxBufferLength: 4 })).not.toThrow();
     });
   });
 });

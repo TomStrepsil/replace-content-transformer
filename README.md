@@ -566,7 +566,7 @@ See [search strategies](./src/search-strategies/README.md) for detail of functio
 
 #### Buffer limit
 
-A match can span chunks, so a strategy holds back content that could still become part of one. Every strategy, and `searchStrategyFactory`, caps this with `maxBufferLength`, in UTF-16 code units (65,536 by default): a match still incomplete that far from its start passes through as text up to there, `onGuardExceeded` is called, and the search restarts right after. Output stays lossless, and doesn't depend on how the input is split. `Infinity` removes the cap.
+A match can span chunks, so a strategy holds back content that could still become part of one. Every strategy, and `searchStrategyFactory`, caps this with `maxBufferLength`, in UTF-16 code units (65,536 by default): a match still incomplete that far from its start passes through as text up to there, `onGuardExceeded` is called, and the search restarts right after. Output stays lossless, and doesn't depend on how the input is split. `Infinity` removes the cap. For the string strategies, a limit shorter than the anchors together throws a `RangeError`, since nothing could match.
 
 ```ts
 new StringAnchorSearchStrategy(["<esi:include", "/>"], {

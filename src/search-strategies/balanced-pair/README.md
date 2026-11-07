@@ -105,7 +105,7 @@ const strategy = new BalancedPairSearchStrategy("(", ")", { maxBufferLength: 5 }
 // "( unclosed …" → output resumes once 5 code units from "(" have arrived
 ```
 
-The decision depends only on the text, so it is the same however the input is split. See [Buffer limit](../../../README.md#buffer-limit).
+The decision depends only on the text, so it is the same however the input is split. A limit shorter than the opening and closing together, under which nothing could match, throws a `RangeError`. See [Buffer limit](../../../README.md#buffer-limit).
 
 ## State Management
 

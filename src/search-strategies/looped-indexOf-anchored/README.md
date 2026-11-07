@@ -198,7 +198,7 @@ const strategy = new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength:
 // "{{ unclosed …" → output resumes once 6 code units from "{{" have arrived
 ```
 
-So a stray first anchor holds back no more than the limit, and a real match starting after the limit still matches. A match that straddles the cut passes through as text. See [Buffer limit](../../../README.md#buffer-limit).
+So a stray first anchor holds back no more than the limit, and a real match starting after the limit still matches. A match that straddles the cut passes through as text. A limit shorter than the anchors together, under which nothing could match, throws a `RangeError`. See [Buffer limit](../../../README.md#buffer-limit).
 
 ## Performance Characteristics
 

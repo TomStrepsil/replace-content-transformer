@@ -16,11 +16,11 @@ export const validateAtLeast = (name: string, value: unknown, minimum: number) =
   }
 };
 
-export default function bufferGuard({
-  maxBufferLength = DEFAULT_MAX_BUFFER_LENGTH,
-  onGuardExceeded
-}: BufferGuardOptions = {}): BufferGuard {
-  validateAtLeast("maxBufferLength", maxBufferLength, 0);
+export default function bufferGuard(
+  { maxBufferLength = DEFAULT_MAX_BUFFER_LENGTH, onGuardExceeded }: BufferGuardOptions = {},
+  shortestMatchLength = 0
+): BufferGuard {
+  validateAtLeast("maxBufferLength", maxBufferLength, shortestMatchLength);
   const releasedLength = Math.max(maxBufferLength, 1);
   return {
     maxBufferLength,

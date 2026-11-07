@@ -749,14 +749,12 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       ["two over-long matches, released once each", ["{{", "}}"], 6, "{{abcdefgh}}{{ijklmn}}", [asText("{{abcdefgh}}{{ijklmn}}")], 2],
       ["an anchor sequence over the limit, then one within it", ["<", "-", ">"], 4, "<a-b> <-->", [asText("<a-b> "), asMatch("<-->")], 1],
       ["an anchor sequence whose later anchors fall past the limit", ["<", "-", ">"], 3, "<-<->", [asText("<-<->")], 1],
-      ["a match pending when a chunk ends on a later anchor", ["<", "-", ">"], 2, "<abc-", [asText("<abc-")], 1],
-      ["anchors that overlap one another, past the limit", ["aa", "ab"], 3, "aaab aab", [asText("aaab aab")], 2],
+      ["a match pending when a chunk ends on a later anchor", ["<", "-", ">"], 3, "<abc-", [asText("<abc-")], 1],
+      ["anchors that overlap one another, past the limit", ["aa", "ab"], 4, "aaaab aaab", [asText("aaaab "), asMatch("aaab")], 1],
       ["anchors that overlap one another, within the limit", ["ab", "ba"], 4, "abba abxba", [asMatch("abba"), asText(" abxba")], 1],
       ["a bordered anchor within the limit", ["aba"], 3, "xababa", [asText("x"), asMatch("aba"), asText("ba")], 0],
       ["a run of first anchors with no closing anchor", ["{{", "}}"], 8, "{{{{{{{{{{{", [asText("{{{{{{{{{{{")], 1],
-      ["a run of first anchors released the limit at a time", ["{{", "}}"], 3, "{{{{{{{{{{{", [asText("{{{{{{{{{{{")], 3],
-      ["a limit of zero, under which nothing matches", ["{{", "}}"], 0, "{{}}", [asText("{{}}")], 1],
-      ["a single anchor longer than the limit", ["{{name}}"], 4, "a{{name}}", [asText("a{{name}}")], 1]
+      ["a run of first anchors released the limit at a time", ["{{", "}}"], 4, "{{{{{{{{{{{", [asText("{{{{{{{{{{{")], 2]
     ])(
       "decides %s the same however the input is split",
       (_label, needles, maxBufferLength, input, segments, calls) => {
@@ -817,7 +815,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     it("holds no more than the limit when every chunk ends on a later anchor", () => {
       const chunk = `${"x".repeat(99)}-`;
       const { longestHeld, reportedBeforeLastChunk } = heldWhileDriving(
-        create(["<", ...Array<string>(200).fill("-"), ">"])({ maxBufferLength: 50 }),
+        create(["<", ...Array<string>(40).fill("-"), ">"])({ maxBufferLength: 50 }),
         ["<", ...Array<string>(200).fill(chunk)]
       );
 
@@ -836,6 +834,11 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     it.each([-1, Number.NaN])("rejects a maxBufferLength of %j", (maxBufferLength) => {
       expect(() => create(["{{"])({ maxBufferLength })).toThrow(RangeError);
+    });
+
+    it("rejects a maxBufferLength shorter than the anchors together, under which nothing could match", () => {
+      expect(() => create(["{{", "}}"])({ maxBufferLength: 3 })).toThrow("at least 4");
+      expect(() => create(["{{", "}}"])({ maxBufferLength: 4 })).not.toThrow();
     });
   });
 });
