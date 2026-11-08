@@ -39,7 +39,9 @@ const transformer = new AsyncReplaceContentTransformer(
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     concurrencyStrategy: new PriorityQueueStrategy(8, streamOrder),
     replacement: async (match, { depth }) => {
-      const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
+      const {
+        groups: { url }
+      } = /src="(?<url>[^"]+)"/.exec(match)!;
       const res = await fetch(url);
       const body = res.body!.pipeThrough(new TextDecoderStream());
       // Re-scan one level deep; emit verbatim beyond that.
@@ -60,7 +62,7 @@ See the [full usage examples](../../../README.md#-pipelined-async-replacement-wi
 - **`breadthFirst`** — dispatches shallower work before deeper work. Best when you want all level-N sibling requests fired before any level-N+1 begins (e.g. parallel fan-out at the top level).
 
 > [!NOTE]
-> `breadthFirst` only diverges from `SemaphoreStrategy` (FIFO) when the dispatch queue contains slots at *different depths simultaneously*. With instantly-available input, the scanner queues all top-level matches before any replacement resolves to expose children, so the queue never mixes depths and the two strategies make identical choices. Divergence requires slow-arriving input (so child slots queue up alongside later top-level slots) and a saturated concurrency budget — see the `Nested-streaming` benchmark scenario for a worked example. On flat (non-nested) inputs, `breadthFirst` is always equivalent to FIFO.
+> `breadthFirst` only diverges from `SemaphoreStrategy` (FIFO) when the dispatch queue contains slots at _different depths simultaneously_. With instantly-available input, the scanner queues all top-level matches before any replacement resolves to expose children, so the queue never mixes depths and the two strategies make identical choices. Divergence requires slow-arriving input (so child slots queue up alongside later top-level slots) and a saturated concurrency budget — see the `Nested-streaming` benchmark scenario for a worked example. On flat (non-nested) inputs, `breadthFirst` is always equivalent to FIFO.
 
 Implement `NodeComparator` for custom policies.
 
@@ -85,15 +87,15 @@ Pick higher values to absorb burstier input (more pipelining, more memory); lowe
 
 ## Slot lifetime
 
-A concurrency slot is held across the **entire active lifetime** of a replacement: from before `await replacement(match)` until the producer pulls the last chunk from the returned `AsyncIterable`. The strategy bounds *concurrent iterables*, not just request initiation.
+A concurrency slot is held across the **entire active lifetime** of a replacement: from before `await replacement(match)` until the producer pulls the last chunk from the returned `AsyncIterable`. The strategy bounds _concurrent iterables_, not just request initiation.
 
 For a typical `fetch`-based replacement this means:
 
-| Phase | Covered by slot? |
-|-------|------------------|
-| Initiation (DNS, TCP/TLS, request headers, **TTFB**) | ✅ yes |
-| Body streaming (response chunks pulled by the producer) | ✅ yes |
-| Released | When the producer iterator reports `done: true` (or throws, or is aborted) |
+| Phase                                                   | Covered by slot?                                                           |
+| ------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Initiation (DNS, TCP/TLS, request headers, **TTFB**)    | ✅ yes                                                                     |
+| Body streaming (response chunks pulled by the producer) | ✅ yes                                                                     |
+| Released                                                | When the producer iterator reports `done: true` (or throws, or is aborted) |
 
 Two cases release the slot earlier than the body's natural end:
 
@@ -104,7 +106,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Caveats
 
-- **Total-call quotas** (e.g. Akamai's "50 subrequests per worker") are not enforced by the strategy — the slot count caps *parallelism*, not *lifetime totals*. Track your own count from the replacement function and abort via the standard `AbortController` path when the budget is exhausted.
+- **Total-call quotas** (e.g. Akamai's "50 subrequests per worker") are not enforced by the strategy — the slot count caps _parallelism_, not _lifetime totals_. Track your own count from the replacement function and abort via the standard `AbortController` path when the budget is exhausted.
 - **Drain-loop serialisation is unchanged** — the in-order drainer still pulls one slot's iterable at a time, so a slow earlier body can hold the entire output stream behind it. This is a property of in-order delivery, independent of slot accounting.
 - **Avoid releasing early via `nested()` if you intended the parent's body to count** — `nested()` signals "my part is done; subsequent work is the child's problem." If your replacement is a single fetch whose body should count toward the limit, return the body directly rather than wrapping it in `nested()`.
 
@@ -154,10 +156,10 @@ const engine = new AsyncLookaheadTransformEngine({
 
 `abandonPendingSignal` implies scan-loop bypass — when it fires, the scanner also stops calling `replacement()`, the same as if `stopReplacingSignal` had fired. This is intentional: there is no useful combination where you abandon the backlog but keep scheduling new work. Internally, the engine combines both signals with `AbortSignal.any()` to drive the scan loop.
 
-| Signal | Stops scanning | Slots whose replacement was not called | Slots whose replacement was called |
-|--------|---------------|----------------------|----------------------|
-| `stopReplacingSignal` | ✅ | Original text | Drain normally |
-| `abandonPendingSignal` | ✅ (implied) | Original text | Original text, unless the drain loop is already streaming them |
+| Signal                 | Stops scanning | Slots whose replacement was not called | Slots whose replacement was called                             |
+| ---------------------- | -------------- | -------------------------------------- | -------------------------------------------------------------- |
+| `stopReplacingSignal`  | ✅             | Original text                          | Drain normally                                                 |
+| `abandonPendingSignal` | ✅ (implied)   | Original text                          | Original text, unless the drain loop is already streaming them |
 
 The two signals can be on separate controllers when you want staged shutdown — stop scanning first, then decide later whether to also abandon the queue:
 
