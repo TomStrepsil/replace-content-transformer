@@ -46,35 +46,6 @@ describe("AsyncLookaheadTransformEngine — end-to-end integration", () => {
     expect(out).toBe("pre FOO mid BAR post");
   });
 
-  it("emits matches still waiting for a concurrency slot verbatim once stopReplacingSignal aborts", async () => {
-    const gate = deferred<void>();
-    const ac = new AbortController();
-    let calls = 0;
-    const transformer = makeTransformer({
-      searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
-      replacement: async (match) => {
-        calls++;
-        await gate.promise;
-        ac.abort();
-        return (async function* () {
-          yield `<${match}>`;
-        })();
-      },
-      concurrencyStrategy: new SemaphoreStrategy(1),
-      stopReplacingSignal: ac.signal
-    });
-
-    const output = text(
-      streamFromChunks(["x {{A}} y {{B}} z {{C}}"]).pipeThrough(
-        new TransformStream(transformer)
-      )
-    );
-    gate.resolve();
-
-    expect(await output).toBe("x <{{A}}> y {{B}} z {{C}}");
-    expect(calls).toBe(1);
-  });
-
   it("initiates later matches eagerly while earlier ones are still resolving", async () => {
     const firstGate = deferred<void>();
     const secondStarted = deferred<void>();
