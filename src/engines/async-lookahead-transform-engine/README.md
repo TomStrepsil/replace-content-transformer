@@ -116,7 +116,11 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
-When aborted, the **scanner** stops calling `replacement()` and stops searching at the next match it finds. That match is emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring), together with the rest of the current chunk and whatever the strategy holds, as one chunk, and later chunks pass through unchanged. Replacements that were already scheduled before the signal fired run to completion unaffected.
+When aborted, the **scanner** stops calling `replacement()` and stops searching at the next match it finds. That match is emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring), together with the rest of the current chunk and whatever the strategy holds, as one chunk, and later chunks pass through unchanged. No replacement is called once the signal has fired: a match scheduled earlier whose replacement has not been called, such as one still waiting for a concurrency slot, is emitted verbatim via `matchToString` when the drain loop reaches it, without waiting for the slot. Replacements already called run to completion unaffected.
+
+The content of a [`nested()`](#recursive-replacement) replacement is re-scanned under the same signal, so a replacement already called can still have its own matches emitted verbatim: those whose replacement had not been called when the signal fired, and any in content the child engine had not yet scanned.
+
+Whether a match scanned just before the signal fires has had its replacement called depends on how quickly the `ConcurrencyStrategy` grants it a slot, so don't rely on either outcome for a match scheduled in the same tick as the abort.
 
 ```typescript
 const abortController = new AbortController();
@@ -150,10 +154,10 @@ const engine = new AsyncLookaheadTransformEngine({
 
 `abandonPendingSignal` implies scan-loop bypass — when it fires, the scanner also stops calling `replacement()`, the same as if `stopReplacingSignal` had fired. This is intentional: there is no useful combination where you abandon the backlog but keep scheduling new work. Internally, the engine combines both signals with `AbortSignal.any()` to drive the scan loop.
 
-| Signal | Stops scanning | Abandons pending slots |
-|--------|---------------|----------------------|
-| `stopReplacingSignal` | ✅ | ❌ — queued slots drain normally |
-| `abandonPendingSignal` | ✅ (implied) | ✅ — queued slots substituted with original text |
+| Signal | Stops scanning | Slots whose replacement was not called | Slots whose replacement was called |
+|--------|---------------|----------------------|----------------------|
+| `stopReplacingSignal` | ✅ | Original text | Drain normally |
+| `abandonPendingSignal` | ✅ (implied) | Original text | Original text, unless the drain loop is already streaming them |
 
 The two signals can be on separate controllers when you want staged shutdown — stop scanning first, then decide later whether to also abandon the queue:
 
@@ -169,7 +173,7 @@ const engine = new AsyncLookaheadTransformEngine({
   abandonPendingSignal: abandonAbortController.signal
 });
 
-// Later: stop scheduling new replacements, let queue drain normally.
+// Later: stop calling replacements, let those already called drain normally.
 stopAbortController.abort();
 
 // Even later, if needed: also clear the remaining queue.

@@ -48,7 +48,7 @@ import type { Nested } from "../nested.ts";
  */
 export interface IterableSlotNode extends SlotTreeNode {
   readonly kind: typeof SLOT_KIND.iterable;
-  /** Lazily produces the original match text; called by the drain loop only if abandonPendingSignal is aborted. */
+  /** Lazily produces the original match text; called by the drain loop when the slot is abandoned, or when stopReplacingSignal aborted before its replacement was called. */
   readonly getOriginalContent?: () => string;
   /**
    * Assigned by the engine immediately after construction. `undefined` only

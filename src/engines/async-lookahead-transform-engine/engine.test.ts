@@ -38,6 +38,36 @@ function never<T>(): Promise<T> {
   return new Promise(() => {});
 }
 
+function grantingOnly(count: number): ConcurrencyStrategy {
+  let remaining = count;
+  return {
+    acquire: () => (remaining-- > 0 ? Promise.resolve(() => {}) : never())
+  };
+}
+
+function braceStrategy() {
+  return {
+    createState: () => ({}),
+    processChunk: vi.fn(function* (chunk: string) {
+      const re = /\{\{(\w+)\}\}/g;
+      let last = 0;
+      let found: RegExpExecArray | null;
+      while ((found = re.exec(chunk)) !== null) {
+        if (found.index > last) yield { isMatch: false as const, content: chunk.slice(last, found.index) };
+        yield {
+          isMatch: true as const,
+          content: found[1],
+          streamIndices: [found.index, re.lastIndex] as [number, number]
+        };
+        last = re.lastIndex;
+      }
+      if (last < chunk.length) yield { isMatch: false as const, content: chunk.slice(last) };
+    }),
+    flush: vi.fn().mockReturnValue(""),
+    matchToString: vi.fn((match: string) => `{{${match}}}`)
+  };
+}
+
 function stalledBeforeFirstItem(): AsyncIterable<string> {
   return (async function* () {
     await never<void>();
@@ -650,7 +680,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks).toEqual(["BUF", "X", "Y"]);
     });
 
-    it("does not call replacement for matches scanned after signal aborts mid-chunk", async () => {
+    it("emits a match scheduled before a mid-chunk abort verbatim when its replacement had not been called", async () => {
       const ac = new AbortController();
       const strategy = {
         createState: vi.fn().mockReturnValue({}),
@@ -667,14 +697,42 @@ describe("AsyncLookaheadTransformEngine", () => {
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: fn,
+        concurrencyStrategy: grantingOnly(0),
+        stopReplacingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["AB"]);
+      expect(chunks).toEqual(["A", "B"]);
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it("lets a replacement called before a mid-chunk abort run to completion", async () => {
+      const ac = new AbortController();
+      let called = false;
+      const strategy = {
+        createState: vi.fn().mockReturnValue({}),
+        processChunk: vi.fn().mockImplementation(function* () {
+          yield { isMatch: true, content: "A", streamIndices: [0, 1] as [number, number] };
+          for (let spins = 0; !called && spins < 100; spins++) yield { isMatch: false, content: "" };
+          ac.abort();
+          yield { isMatch: true, content: "B", streamIndices: [1, 2] as [number, number] };
+        }),
+        flush: vi.fn().mockReturnValue(""),
+        matchToString: vi.fn().mockImplementation((match: string) => match)
+      };
+      const replacement = vi.fn(async () => {
+        called = true;
+        return asyncIterable("R");
+      });
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: strategy,
+        replacement,
         concurrencyStrategy: new SemaphoreStrategy(2),
         stopReplacingSignal: ac.signal
       });
       await runEngine(engine, sink, ["AB"]);
-      // "A" scheduled before abort — replacement runs, "R" emitted.
-      // "B" scanned after abort — pushed as text slot via matchToString, no replacement call.
-      expect(chunks).toEqual(["R", "B"]);
-      expect(fn).toHaveBeenCalledOnce();
+      expect(chunks.join("")).toBe("RB");
+      expect(replacement).toHaveBeenCalledOnce();
     });
 
     it("uses matchToString to convert mid-chunk match text when emitting verbatim", async () => {
@@ -698,6 +756,115 @@ describe("AsyncLookaheadTransformEngine", () => {
       await runEngine(engine, sink, ["M"]);
       expect(strategy.matchToString).toHaveBeenCalledWith("M");
       expect(chunks).toEqual(["raw-M"]);
+    });
+
+    it("emits a scheduled match verbatim, without calling replacement, when the signal aborts while it waits for a concurrency slot", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: " " },
+        { isMatch: true, content: "B", streamIndices: [2, 3] }
+      );
+      strategy.matchToString.mockImplementation((match: string) => `raw-${match}`);
+      const gate = deferred<void>();
+      const ac = new AbortController();
+      const replacement = vi.fn(async (match: string) => {
+        await gate.promise;
+        ac.abort();
+        return asyncIterable(`<${match}>`);
+      });
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        concurrencyStrategy,
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("A B");
+      gate.resolve();
+      await engine.end();
+
+      expect(chunks).toEqual(["<A>", " ", "raw-B"]);
+      expect(replacement).toHaveBeenCalledOnce();
+      expect(held()).toBe(0);
+    });
+
+    it("emits a slot waiting for a permit verbatim once the signal aborts, without waiting for the permit", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: true, content: "B", streamIndices: [1, 2] }
+      );
+      const ac = new AbortController();
+      const replacement = vi.fn(async (match: string) => asyncIterable(`<${match}>`));
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        concurrencyStrategy: grantingOnly(1),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(sink);
+      await engine.write("AB");
+      await setImmediate();
+      expect(chunks).toEqual(["<A>"]);
+
+      ac.abort();
+      await setImmediate();
+      expect(chunks).toEqual(["<A>", "B"]);
+
+      await engine.end();
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("emits a nested() replacement's child match verbatim when its replacement had not been called before the signal aborted", async () => {
+      const ac = new AbortController();
+      const replacement = vi.fn(async (match: string) => {
+        if (match === "A") return nested(asyncIterable("{{a1}}{{a2}}"));
+        if (match === "a1") {
+          await setImmediate();
+          ac.abort();
+        }
+        return asyncIterable(`${match.toUpperCase()}!`);
+      });
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine<object, string>({
+        searchStrategy: braceStrategy(),
+        replacement,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+
+      await runEngine(engine, sink, ["<{{A}}>"]);
+
+      expect(chunks.join("")).toBe("<A1!{{a2}}>");
+      expect(replacement.mock.calls.map(([match]) => match)).toEqual(["A", "a1"]);
+    });
+
+    it("lets a replacement already called finish while a queued one is emitted verbatim", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: true, content: "B", streamIndices: [1, 2] }
+      );
+      const ac = new AbortController();
+      const replacement = vi.fn(async () =>
+        (async function* () {
+          yield "first";
+          ac.abort();
+          yield "second";
+        })()
+      );
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal
+      });
+      await runEngine(engine, sink, ["AB"]);
+
+      expect(chunks).toEqual(["first", "second", "B"]);
+      expect(replacement).toHaveBeenCalledOnce();
     });
   });
 
@@ -774,15 +941,15 @@ describe("AsyncLookaheadTransformEngine", () => {
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
-        concurrencyStrategy: new SemaphoreStrategy(1),
+        concurrencyStrategy: grantingOnly(0),
         stopReplacingSignal: ac.signal
       });
 
       await runEngine(engine, sink, []);
 
-      expect(chunks).toEqual(["R", "M2M3"]);
+      expect(chunks).toEqual(["M1", "M2M3"]);
       expect(pulled).toBe(2);
-      expect(replacement).toHaveBeenCalledOnce();
+      expect(replacement).not.toHaveBeenCalled();
     });
   });
 
@@ -1568,14 +1735,14 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks).toEqual(["first"]);
     });
 
-    it("does not start a queued replacement after it acquires a permit following cancel()", async () => {
+    it("does not start or render a queued replacement after it acquires a permit following cancel()", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] },
         { isMatch: true, content: "M", streamIndices: [1, 2] }
       );
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       let replacementCalls = 0;
-      const { sink } = collectEngineSink();
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => {
@@ -1583,6 +1750,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           return new Promise(() => {});
         },
         concurrencyStrategy,
+        stopReplacingSignal: new AbortController().signal,
         highWaterMark: 2
       });
       engine.start(sink);
@@ -1598,6 +1766,8 @@ describe("AsyncLookaheadTransformEngine", () => {
 
       expect(replacementCalls).toBe(1);
       expect(held()).toBe(0);
+      expect(chunks).toEqual([]);
+      expect(strategy.matchToString).not.toHaveBeenCalled();
     });
 
     it("retains a permit for a replacement already streaming when pending slots are abandoned", async () => {

@@ -70,6 +70,8 @@ function untilAborted<T>(
   });
 }
 
+async function* emptyAsyncIterable(): AsyncGenerator<string> {}
+
 async function closeAbandoned(result: AsyncIterable<string> | Nested): Promise<void> {
   const replacement = result instanceof Nested ? result.source : result;
   const iter = replacement[Symbol.asyncIterator]();
@@ -114,10 +116,14 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
    * stops searching at the next match it finds: that match is emitted
    * verbatim (using {@link SearchStrategy.matchToString}) together with the
    * rest of the current chunk and what the strategy holds, as one chunk, and
-   * later chunks pass through unchanged. In-flight replacements that were
-   * scheduled before the signal fired are unaffected — they run to completion
-   * and their output is emitted normally. Pair with {@link abandonPendingSignal}
-   * to also abandon those.
+   * later chunks pass through unchanged. No replacement is called once the
+   * signal has fired: a match scheduled earlier whose replacement has not
+   * been called, such as one still waiting for a concurrency slot, is
+   * emitted verbatim in its place, without waiting for the slot. Replacements
+   * already called run to completion. The content of a {@link nested}
+   * replacement is re-scanned under the same signal, so its own matches
+   * follow these rules too. Pair with {@link abandonPendingSignal} to also
+   * abandon replacements already called.
    */
   stopReplacingSignal?: AbortSignal;
   /**
@@ -165,6 +171,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   readonly #depth: number;
   readonly #cancelAbortController: AbortController;
   readonly #abandonSignal: AbortSignal;
+  readonly #scanStopSignal: AbortSignal;
+  readonly #replacementCalled = new WeakSet<IterableSlotNode>();
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
@@ -190,7 +198,9 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     );
     const scanSignals = [options.stopReplacingSignal, abandonSignal]
       .filter(isDefinedSignal);
-    super(options.searchStrategy, AbortSignal.any(scanSignals));
+    const scanStopSignal = AbortSignal.any(scanSignals);
+    super(options.searchStrategy, scanStopSignal);
+    this.#scanStopSignal = scanStopSignal;
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
@@ -298,7 +308,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       depth: this.#depth,
       parent: this.#parent,
       getOriginalContent:
-        this.#options.abandonPendingSignal !== undefined
+        this.#options.abandonPendingSignal !== undefined ||
+        this.#options.stopReplacingSignal !== undefined
           ? () => this._searchStrategy.matchToString(match)
           : undefined,
       iterable: undefined
@@ -314,10 +325,11 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     streamIndices: StreamIndices
   ): Promise<AsyncIterableIterator<string> | Nested> {
     const acquired = await this.#options.concurrencyStrategy.acquire(node);
-    if (this.#abandonSignal.aborted) {
+    if (this.#scanStopSignal.aborted) {
       acquired();
-      return (async function* () {})();
+      return emptyAsyncIterable();
     }
+    this.#replacementCalled.add(node);
     let streaming = false;
     const release = () => {
       this.#abandonSignal.removeEventListener("abort", releaseWhenAbandoned);
@@ -387,7 +399,10 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       if (!this.#cancelled) this._sink.enqueue(slot.value);
       return;
     }
-    const result = await untilAborted(slot.iterable!, this.#abandonSignal);
+    let result = await untilAborted(slot.iterable!, this.#scanStopSignal);
+    if (result === ABANDONED && !this.#abandonSignal.aborted && this.#replacementCalled.has(slot)) {
+      result = await untilAborted(slot.iterable!, this.#abandonSignal);
+    }
     if (result === ABANDONED || this.#abandonSignal.aborted) {
       void slot.iterable!.then(closeAbandoned).catch(ignore);
       if (slot.getOriginalContent !== undefined && !this.#cancelled) {

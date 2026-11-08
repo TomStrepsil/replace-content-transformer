@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `AsyncLookaheadTransformEngine` calling the replacement, after `stopReplacingSignal` aborts, for a match scheduled earlier whose replacement had not yet been called, such as one waiting for a concurrency slot. That match is now emitted verbatim without waiting for the slot. This also applies to a match scanned just before an abort in the same tick, which may now be emitted verbatim even when a slot was free, and to the matches in a `nested()` replacement's content. Replacements already called still run to completion. See [Stopping new replacements](../src/engines/async-lookahead-transform-engine/README.md#stopping-new-replacements-stopreplacingsignal)
 - Fixed `AsyncLookaheadTransformEngine` `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away and an abandoned replacement is closed in the background, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
 - Fixed a child engine retaining its concurrency permit when reading a nested source fails
 - Fixed `AsyncLookaheadTransformEngine` never closing the source of an abandoned `nested()` replacement, so a source such as a `fetch` body was left open when `cancel()` or `abandonPendingSignal` abandoned its slot. It is now closed in the background, like a plain replacement
