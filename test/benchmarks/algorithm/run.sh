@@ -1,8 +1,11 @@
 #!/bin/bash
-# Run harness comparison benchmark with progress output (JSON mode only)
+# Build, then run harness comparison benchmark with progress output (JSON mode only)
 # Usage: ./test/benchmarks/algorithm/run.sh
 
 set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+npm run build --silent >&2
 
 cleanup() {
   tput cnorm >&2
@@ -12,7 +15,7 @@ trap cleanup EXIT
 tput civis >&2
 echo "▶️  Running algorithm comparison benchmark (this can take some time)..." >&2
 
-node --import tsx algorithm/comparison.bench.ts --json &
+node build/test/benchmarks/algorithm/comparison.bench.js --json &
 BENCH_PID=$!
 
 spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')

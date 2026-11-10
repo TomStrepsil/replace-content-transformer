@@ -14,6 +14,10 @@ async function drain(queue: AsyncChildQueue): Promise<SlotNode[]> {
 }
 
 describe("AsyncChildQueue", () => {
+  it("rejects a limit below 1", () => {
+    expect(() => new AsyncChildQueue(0)).toThrow(RangeError);
+  });
+
   it("iterates pushed nodes in order", async () => {
     const queue = new AsyncChildQueue(8);
     await queue.push(textNode("a", 0));
@@ -153,5 +157,73 @@ describe("AsyncChildQueue", () => {
 
     queue.close();
     expect((await iter.next()).done).toBe(true);
+  });
+
+  describe("offer()", () => {
+    it("reports whether the queue is still within its limit", () => {
+      const queue = new AsyncChildQueue(1);
+      expect(queue.offer(textNode("a"))).toBe(true);
+      expect(queue.full).toBe(false);
+      expect(queue.offer(textNode("b"))).toBe(false);
+      expect(queue.full).toBe(true);
+    });
+
+    it("hands a node straight to a waiting consumer without buffering it", async () => {
+      const queue = new AsyncChildQueue(1);
+      const iter = queue[Symbol.asyncIterator]();
+      const next = iter.next();
+
+      expect(queue.offer(textNode("a"))).toBe(true);
+      expect(queue.offer(textNode("b"))).toBe(true);
+      expect(((await next).value as TextSlotNode).value).toBe("a");
+    });
+
+    it("throws once the queue is closed", () => {
+      const queue = new AsyncChildQueue(1);
+      queue.close();
+      expect(() => queue.offer(textNode("a"))).toThrow(
+        "Cannot push to a closed AsyncChildQueue"
+      );
+    });
+  });
+
+  describe("room()", () => {
+    it("resolves at once while the queue is within its limit", async () => {
+      const queue = new AsyncChildQueue(1);
+      queue.offer(textNode("a"));
+      await queue.room();
+    });
+
+    it("waits until the consumer brings the queue back within its limit", async () => {
+      const queue = new AsyncChildQueue(1);
+      queue.offer(textNode("a"));
+      queue.offer(textNode("b"));
+      queue.offer(textNode("c"));
+      let resolved = false;
+      const room = queue.room().then(() => {
+        resolved = true;
+      });
+      const iter = queue[Symbol.asyncIterator]();
+
+      await iter.next();
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+
+      await iter.next();
+      await room;
+      expect(queue.full).toBe(false);
+    });
+
+    it("resolves on close(), when the queue is no longer full", async () => {
+      const queue = new AsyncChildQueue(1);
+      queue.offer(textNode("a"));
+      queue.offer(textNode("b"));
+      const room = queue.room();
+
+      queue.close();
+      await room;
+      expect(queue.full).toBe(false);
+      expect(await drain(queue)).toHaveLength(2);
+    });
   });
 });

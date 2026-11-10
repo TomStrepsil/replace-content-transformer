@@ -31,7 +31,7 @@ const RUNTIMES: RuntimeInfo[] = [
     command: "bun",
     args: [
       "run",
-      "./runtime/benchmarks.ts",
+      "./build/test/benchmarks/runtime/benchmarks.js",
       "--json"
     ],
     available: false
@@ -45,7 +45,7 @@ const RUNTIMES: RuntimeInfo[] = [
       "--allow-write",
       "--allow-env",
       "--allow-sys",
-      "./runtime/benchmarks.ts",
+      "./build/test/benchmarks/runtime/benchmarks.js",
       "--json"
     ],
     available: false
@@ -54,9 +54,7 @@ const RUNTIMES: RuntimeInfo[] = [
     name: "Node",
     command: "node",
     args: [
-      "--import",
-      "tsx",
-      "./runtime/benchmarks.ts",
+      "./build/test/benchmarks/runtime/benchmarks.js",
       "--json"
     ],
     available: false

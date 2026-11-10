@@ -5,8 +5,7 @@
     "dist",
     "**/*.test.ts",
     "**/*.bench.*.ts",
-    "test/**/*",
-    "**/benchmarking/**/*"
+    "test/**/*"
   ],
   "include": ["src/**/*"],
   "compilerOptions": {

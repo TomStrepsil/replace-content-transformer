@@ -13,10 +13,11 @@ import {
  * - Comparative performance across all scenarios
  * - Cross-runtime comparison (Bun vs Deno vs Node.js)
  *
- * Usage:
- * - Bun: bun run test/benchmarks/runtime/benchmarks.ts
- * - Deno: deno run --allow-read --allow-write --allow-env --allow-sys test/benchmarks/runtime/benchmarks.ts
- * - Node: node --import tsx test/benchmarks/runtime/benchmarks.ts
+ * Usage (from test/benchmarks; each `pre` step compiles to build/ first, so every runtime
+ * runs the same tsc output):
+ * - Bun: npm run bench:bun
+ * - Deno: npm run bench:deno
+ * - Node: npm run bench:node
  */
 
 const runtime = (() => {

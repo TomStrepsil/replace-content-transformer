@@ -2,6 +2,10 @@
 
 This workspace contains performance benchmarking tools.
 
+- [`references/`](./references/README.md): implementations measured against the shipped code, with the [comparisons](./references/README.md#️-comparisons) they serve
+- [`harnesses/`](./harnesses/README.md): one wrapper per shipped or reference implementation, so every one runs through the same scenarios
+- `algorithm/`, `regex-shapes/`, `runtime/`, `lookahead-engine/`: the suites below
+
 ### Algorithm Benchmarks
 
 Compare different search strategy implementations:
@@ -25,6 +29,8 @@ npm run bench:algorithms:visualise algorithm/results/*.json -- --timeseries -- -
 #### What's Measured
 
 Performance characteristics of different search algorithms (buffered-indexOf, looped-indexOf, KMP, regex, etc.) for finding patterns in streaming content. Many strategies are limited by design, providing a baseline for more advanced capability. [^1]
+
+Each harness runs in every scenario, and the human-readable run ends with a summary per comparison in [`algorithm/comparisons.ts`](./algorithm/comparisons.ts): how much faster or slower each harness is than that comparison's baseline, as a geometric mean over the scenarios, with the range. See [Comparisons](./references/README.md#️-comparisons) for what each one holds fixed.
 
 The "setup cost" of each scenario is benchmarked independently, showing the overhead of one-time creation of search strategies. This cost is assumed amortized when consumed, via re-usability to multiple streams. The production strategies are designed to be "stateless", on this basis.
 
@@ -132,9 +138,9 @@ Compares concurrency strategies for `AsyncLookaheadTransformEngine` against the 
 
 ### Adding New Algorithm Benchmarks
 
-1. Add strategy to `../../src/search-strategies/benchmarks/`
-2. Create harness in `../../test/harnesses/`
-3. Import and add to `algorithm/comparison.bench.ts`
+1. Add the implementation to [`references/`](./references/README.md#️-layout): `algorithms/<algorithm>/` for a `SearchStrategy`, or `engine-shapes/<shape>/<algorithm>/` for a different engine shape
+2. Create a harness in [`harnesses/`](./harnesses/README.md#adding-a-harness) and export it from its `index.ts`
+3. Add the harness to a comparison in `algorithm/comparisons.ts`
 4. Run `npm run bench:algorithms` to verify
 
 ### Adding New Runtime Benchmarks
@@ -154,4 +160,5 @@ Compares concurrency strategies for `AsyncLookaheadTransformEngine` against the 
 - Algorithm benchmarks focus on **algorithmic differences** (same runtime, different approaches)
 - Runtime benchmarks focus on **engine differences** (same code, different engines)
 - All benchmarks run in the workspace context with access to `../../src/` for imports
-- Node scripts use `node --import tsx`, so local TypeScript execution resolves source `.ts` files behind `.js` import specifiers without a prebuild
+- Measuring scripts run JavaScript compiled by `tsc` (`npm run build` in this workspace), on every runtime. Each script builds first, in its `pre` step or, for `algorithm/run.sh` and `runtime/bench-all.sh`, in the script itself, once. Running the TypeScript through `tsx`, Bun or Deno instead measures their transpilers: `tsx`'s `keepNames`, for one, wraps every closure in a `defineProperty` call, which makes creating an engine several times slower than in the published build
+- Invoking a benchmark's `.ts` file or its compiled `.js` directly skips that build, so it measures the sources through a transpiler, or stale output

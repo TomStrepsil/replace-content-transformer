@@ -2,12 +2,55 @@ import {
   LoopedIndexOfAnchoredSearchState,
   LoopedIndexOfAnchoredSearchStrategy
 } from "../looped-indexOf-anchored/search-strategy.js";
-import type { BufferGuardOptions, MatchResult, SearchStrategy } from "../types.js";
+import type {
+  BufferGuardOptions,
+  MatchSink,
+  SearchStrategy,
+  StreamIndices
+} from "../types.js";
 
 /** Per-stream state for {@link BalancedPairSearchStrategy}. */
 export interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
   /** Number of opening delimiters currently awaiting a closing delimiter. */
   nestingLevel: number;
+  /** Counts nesting in the anchor strategy's results before reporting them on. One per stream. */
+  nestingSink: NestingSink;
+}
+
+class NestingSink implements MatchSink {
+  readonly #countOpenings: (content: string) => number;
+  #outer!: MatchSink;
+  #state!: BalancedPairSearchState;
+  #countedLength = 0;
+
+  constructor(countOpenings: (content: string) => number) {
+    this.#countOpenings = countOpenings;
+  }
+
+  reportTo(outer: MatchSink, state: BalancedPairSearchState): this {
+    this.#outer = outer;
+    this.#state = state;
+    this.#countedLength = state.nestingLevel > 0 ? state.matchConsumedLength : 0;
+    return this;
+  }
+
+  reportText(content: string): void {
+    this.#state.nestingLevel = 0;
+    this.#countedLength = 0;
+    this.#outer.reportText(content);
+  }
+
+  reportMatch(match: string, streamIndices: StreamIndices): boolean {
+    const state = this.#state;
+    state.nestingLevel += this.#countOpenings(match.slice(this.#countedLength)) - 1;
+    if (state.nestingLevel > 0) {
+      this.#countedLength = match.length;
+      state.currentNeedleIndex = 1;
+      return true;
+    }
+    this.#countedLength = 0;
+    return this.#outer.reportMatch(match, streamIndices);
+  }
 }
 
 /**
@@ -62,40 +105,23 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
   }
 
   createState(): BalancedPairSearchState {
-    return { ...this.anchorStringSearchStrategy.createState(), nestingLevel: 0 };
+    return {
+      ...this.anchorStringSearchStrategy.createState(),
+      nestingLevel: 0,
+      nestingSink: new NestingSink((content) => this.countOpenings(content))
+    };
   }
 
-  *processChunk(
+  processChunk(
     haystack: string,
-    state: BalancedPairSearchState
-  ): Generator<MatchResult, void, undefined> {
-    let countedLength = state.nestingLevel > 0 ? state.matchConsumedLength : 0;
-    for (const matchResult of this.anchorStringSearchStrategy.processChunk(
+    state: BalancedPairSearchState,
+    sink: MatchSink
+  ): undefined {
+    this.anchorStringSearchStrategy.processChunk(
       haystack,
-      state
-    )) {
-      if (!matchResult.isMatch) {
-        state.nestingLevel = 0;
-        countedLength = 0;
-        yield matchResult;
-        continue;
-      }
-      const newContent = matchResult.content.slice(countedLength);
-      countedLength = matchResult.content.length;
-      state.nestingLevel--;
-      let cursor = 0;
-      while ((cursor = newContent.indexOf(this.opening, cursor)) !== -1) {
-        state.nestingLevel++;
-        cursor += this.opening.length;
-      }
-
-      if (state.nestingLevel > 0) {
-        state.currentNeedleIndex = 1;
-      } else {
-        countedLength = 0;
-        yield matchResult;
-      }
-    }
+      state,
+      state.nestingSink.reportTo(sink, state)
+    );
   }
 
   flush(state: BalancedPairSearchState): string {
@@ -105,5 +131,16 @@ export class BalancedPairSearchStrategy implements SearchStrategy<
 
   matchToString(match: string): string {
     return match;
+  }
+
+  protected countOpenings(content: string): number {
+    const opening = this.opening;
+    let count = 0;
+    let cursor = 0;
+    while ((cursor = content.indexOf(opening, cursor)) !== -1) {
+      count++;
+      cursor += opening.length;
+    }
+    return count;
   }
 }

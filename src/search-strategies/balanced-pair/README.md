@@ -32,7 +32,7 @@ Input:   "((inner) outer)"
  On outer ) at position 14:
    nestingLevel-- → 0
    Count "(" in " outer)": zero openings → nestingLevel = 0
-   Balanced! Yield "((inner) outer)" as a match
+   Balanced! Report "((inner) outer)" as a match
 ```
 
 **Without nesting awareness:**
@@ -45,7 +45,7 @@ Anchor strategy alone:
 
 ## Implementation Details
 
-`BalancedPairSearchStrategy` wraps `LoopedIndexOfAnchoredSearchStrategy` and post-processes each match it yields:
+`BalancedPairSearchStrategy` wraps `LoopedIndexOfAnchoredSearchStrategy`, passing it a sink that post-processes each match it reports:
 
 ```typescript
 class BalancedPairSearchStrategy implements SearchStrategy<
@@ -63,27 +63,27 @@ class BalancedPairSearchStrategy implements SearchStrategy<
 }
 ```
 
-When the underlying anchor strategy yields a match (opening–closing pair found), the balanced pair strategy:
+When the underlying anchor strategy reports a match (opening–closing pair found), the balanced pair strategy:
 
 1. Counts any additional opening delimiters within the new match content
 2. Adjusts `nestingLevel` accordingly
 3. If `nestingLevel > 0`, resets `currentNeedleIndex = 1` on the shared state so the anchor strategy resumes scanning for the next closing delimiter, still from the pair's opening
-4. Once `nestingLevel` returns to zero, yields the anchor strategy's match as it is: it runs from the pair's opening to this closing, so its content and `streamIndices` are the whole pair
+4. Once `nestingLevel` returns to zero, reports the anchor strategy's match as it is: it runs from the pair's opening to this closing, so its content and `streamIndices` are the whole pair
 
 ### Incremental Content Tracking
 
-The underlying anchor strategy's match content grows cumulatively (from the opening to each subsequent closing). The balanced pair strategy slices only the _new_ portion of each yielded match to count openings in it:
+The underlying anchor strategy's match content grows cumulatively (from the opening to each subsequent closing). The balanced pair strategy counts openings only in the _new_ portion of each reported match, less one for the closing that ended it:
 
 ```typescript
-const newContent = matchResult.content.slice(countedLength);
-countedLength = matchResult.content.length;
-state.nestingLevel--;
-let cursor = 0;
-while ((cursor = newContent.indexOf(this.opening, cursor)) !== -1) {
-  state.nestingLevel++;
-  cursor += this.opening.length;
+state.nestingLevel += this.#countOpenings(match.slice(this.#countedLength)) - 1;
+if (state.nestingLevel > 0) {
+  this.#countedLength = match.length;
+  state.currentNeedleIndex = 1;
+  return true;
 }
 ```
+
+`countOpenings` is a `while`/`indexOf` loop over that portion.
 
 This ensures each opening is counted exactly once, regardless of how many intermediate closing delimiters were found.
 
@@ -92,7 +92,7 @@ This ensures each opening is counted exactly once, regardless of how many interm
 While a pair is open, the anchor strategy holds it from its opening, and `matchConsumedLength` marks the end of the last closing found. The next chunk resumes the search for a closing there, and counting resumes from the same point, so nothing is counted twice:
 
 ```typescript
-let countedLength = state.nestingLevel > 0 ? state.matchConsumedLength : 0;
+this.#countedLength = state.nestingLevel > 0 ? state.matchConsumedLength : 0;
 ```
 
 ## Buffer limit
@@ -115,17 +115,21 @@ The decision depends only on the text, so it is the same however the input is sp
 interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
   /** How many unmatched opening delimiters have been seen inside the current match */
   nestingLevel: number;
+  /** The sink passed to the anchor strategy, which counts nesting before reporting to the engine's sink */
+  nestingSink: NestingSink;
 }
 ```
+
+`createState` makes one `nestingSink` per stream, and each `processChunk` points it at the engine's sink and the state with `reportTo(sink, state)`, so no sink is built per call.
 
 **State transitions:**
 
 | Condition                        | `nestingLevel`        | Action                                     |
 | -------------------------------- | --------------------- | ------------------------------------------ |
 | No match found                   | unchanged (0)         | Pass through as non-match                  |
-| Opening found, no inner opens    | `0` (after `--` + 1)  | Yield as complete match                    |
+| Opening found, no inner opens    | `0` (after `--` + 1)  | Report as complete match                   |
 | Opening found, inner opens exist | `> 0`                 | Set `currentNeedleIndex = 1`, continue     |
-| Subsequent close balances depth  | decrements toward `0` | Continue, or yield when reaching `0`       |
+| Subsequent close balances depth  | decrements toward `0` | Continue, or report when reaching `0`      |
 | Anchor strategy releases text    | reset to `0`          | Pass through as non-match                  |
 | Flush mid-match                  | reset to `0`          | Return the anchor strategy's held content  |
 
@@ -133,7 +137,7 @@ interface BalancedPairSearchState extends LoopedIndexOfAnchoredSearchState {
 
 **Stopping early:**
 
-If an engine stops iterating `processChunk` part-way, e.g. once `stopReplacingSignal` aborts, `flush` returns everything not yet yielded. A pair is only yielded once its nesting level returns to `0`, so stopping after any result never leaves a pair half-recorded.
+When the engine's sink returns `false` for a pair, e.g. once `stopReplacingSignal` aborts, the inner strategy stops and leaves everything after it in the state, so `flush` returns it and `processChunk("")` carries on from it. The wrapping sink returns `true` for an inner match that leaves the pair open, so the search can only stop at a whole pair and never leaves one half-recorded.
 
 ## Cross-Chunk Matching
 
@@ -153,7 +157,7 @@ Process Chunk 1:
 Process Chunk 2:
   - Anchor strategy finds "((inner) outer)", counted from 8: " outer)"
   - nestingLevel: 1 − 1 = 0 (no new "(" in " outer)")
-  - Balanced! Yield "((inner) outer)", streamIndices: [0, 15]
+  - Balanced! Report "((inner) outer)", streamIndices: [0, 15]
 ```
 
 ## Stream Indices
@@ -164,7 +168,7 @@ Matches report `streamIndices` as absolute offsets into the full stream, not rel
 Stream:       "prefix ((inner) outer) suffix"
                0      7       15      22
 
-Match yields: { isMatch: true, content: "((inner) outer)", streamIndices: [7, 22] }
+Match reported: { isMatch: true, content: "((inner) outer)", streamIndices: [7, 22] }
 ```
 
 `streamIndices[0]` is the start of the outermost opening delimiter; `streamIndices[1]` is the end of the outermost closing delimiter (exclusive, following the same convention as [`String.prototype.slice`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice)).

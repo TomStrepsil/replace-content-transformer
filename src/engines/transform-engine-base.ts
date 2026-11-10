@@ -1,5 +1,5 @@
 import type {
-  MatchResult,
+  MatchSink,
   SearchStrategy
 } from "../search-strategies/types.ts";
 import type { EngineSink } from "./types.ts";
@@ -40,14 +40,13 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
 
   abstract end(): void | Promise<void>;
 
-  protected _settle(): Iterable<MatchResult<TMatch>> {
-    return settleOrFlush(this._searchStrategy, this._state);
+  protected _settle(sink: MatchSink<TMatch>): void {
+    settleOrFlush(this._searchStrategy, this._state, sink);
   }
 
-  protected _renderVerbatim(result: MatchResult<TMatch>): string {
-    return result.isMatch
-      ? this._searchStrategy.matchToString(result.content)
-      : result.content;
+  protected _resume(settling: boolean, sink: MatchSink<TMatch>): void {
+    if (settling) this._settle(sink);
+    else this._searchStrategy.processChunk("", this._state, sink);
   }
 
   protected _takeHeld(before = ""): string {

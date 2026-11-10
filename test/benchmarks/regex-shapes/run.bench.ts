@@ -6,9 +6,9 @@
  * over unrelated ones. The `buffers-to-end` group is reported as a growth curve
  * because its cost rises with stream length rather than as a constant factor.
  *
- * Usage:
- *   node --import tsx regex-shapes/run.bench.ts
- *   node --import tsx regex-shapes/run.bench.ts --json > results.json
+ * Usage (from test/benchmarks; the `pre` step compiles to build/ first):
+ *   npm run bench:regex-shapes
+ *   npm run --silent bench:regex-shapes:json > results.json
  */
 
 import { bench, group, run } from "mitata";

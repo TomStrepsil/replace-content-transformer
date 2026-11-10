@@ -2,16 +2,18 @@ import { describe, it, expect } from "vitest";
 import { LoopedIndexOfAnchoredSearchStrategy } from "./search-strategy.js";
 import { searchStrategyFactory } from "../../search-strategy-factory.js";
 import { BalancedPairSearchStrategy } from "../balanced-pair/search-strategy.js";
-import type { BufferGuardOptions } from "../types.js";
+import type { BufferGuardOptions, MatchSink } from "../types.js";
 import {
   asMatch,
   asText,
   collectCanonicalSearchStrategyResults,
+  collectPausedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   heldWhileDriving,
   indexOfWork,
-  outputWhenGuardThrows
+  outputWhenGuardThrows,
+  processChunkResults
 } from "../../../test/utilities.js";
 import {
   chunksOf,
@@ -27,7 +29,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{"]);
     const state = strategy.createState();
 
-    const results = [...strategy.processChunk("before {{ after", state)];
+    const results = processChunkResults(strategy, "before {{ after", state);
     const flushed = strategy.flush(state);
 
     expect(results).toEqual([
@@ -42,7 +44,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
     const state = strategy.createState();
 
-    const results = [...strategy.processChunk("before {{name}} after", state)];
+    const results = processChunkResults(strategy, "before {{name}} after", state);
     const flushed = strategy.flush(state);
 
     expect(results).toEqual([
@@ -58,8 +60,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("before {", state),
-      ...strategy.processChunk("{name}}", state),
+      ...processChunkResults(strategy, "before {", state),
+      ...processChunkResults(strategy, "{name}}", state),
       { isMatch: false, content: strategy.flush(state) }
     ];
 
@@ -75,8 +77,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("before {{name}", state),
-      ...strategy.processChunk("} after", state)
+      ...processChunkResults(strategy, "before {{name}", state),
+      ...processChunkResults(strategy, "} after", state)
     ];
     const flushed = strategy.flush(state);
 
@@ -93,8 +95,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("no matches here", state),
-      ...strategy.processChunk("or here either", state),
+      ...processChunkResults(strategy, "no matches here", state),
+      ...processChunkResults(strategy, "or here either", state),
       { isMatch: false, content: strategy.flush(state) }
     ];
 
@@ -110,12 +112,12 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     // Process first chunk - ends with 'a', not '{', so no buffering
-    const results1 = [...strategy.processChunk("chunk ends with a", state)];
+    const results1 = processChunkResults(strategy, "chunk ends with a", state);
     expect(state.buffer).toBe("");
     expect(results1).toEqual([{ isMatch: false, content: "chunk ends with a" }]);
 
     // Process second chunk - no buffered content to prepend
-    const results2 = [...strategy.processChunk("another chunk", state)];
+    const results2 = processChunkResults(strategy, "another chunk", state);
     expect(results2).toEqual([{ isMatch: false, content: "another chunk" }]);
   });
 
@@ -124,12 +126,12 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     // Process chunk ending with partial match
-    const results1 = [...strategy.processChunk("text ends with {", state)];
+    const results1 = processChunkResults(strategy, "text ends with {", state);
     expect(state.buffer).toBe("{");
     expect(results1).toEqual([{ isMatch: false, content: "text ends with " }]);
 
     // Complete the match
-    const results2 = [...strategy.processChunk("{name}}", state)];
+    const results2 = processChunkResults(strategy, "{name}}", state);
     expect(results2).toEqual([{ isMatch: true, content: "{{name}}", streamIndices: [15, 23] }]);
   });
 
@@ -138,8 +140,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("text {", state),
-      ...strategy.processChunk("x {{match}}", state),
+      ...processChunkResults(strategy, "text {", state),
+      ...processChunkResults(strategy, "x {{match}}", state),
       { isMatch: false, content: strategy.flush(state) }
     ];
 
@@ -156,7 +158,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("{{first}}{{second}}{{third}}", state),
+      ...processChunkResults(strategy, "{{first}}{{second}}{{third}}", state),
       { isMatch: false, content: strategy.flush(state) }
     ];
 
@@ -178,7 +180,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("before <{{name}}> after", state)
+      ...processChunkResults(strategy, "before <{{name}}> after", state)
     ];
     const flushed = strategy.flush(state);
 
@@ -195,220 +197,48 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     const state = strategy.createState();
 
     const results = [
-      ...strategy.processChunk("{{incomplete", state),
+      ...processChunkResults(strategy, "{{incomplete", state),
       { isMatch: false, content: strategy.flush(state) }
     ];
 
     expect(results).toEqual([{ isMatch: false, content: "{{incomplete" }]);
   });
 
-  describe("cancellation scenarios", () => {
-    // Helper to extract the string value from a MatchResult
-    const getValue = (result: { isMatch: false, content: string } | { isMatch: true, content: string }): string =>
-      result.content;
+  describe("what it holds for flush", () => {
+    const stoppingAt = (limit: number): MatchSink => {
+      let matches = 0;
+      return { reportText: () => {}, reportMatch: () => ++matches < limit };
+    };
 
-    it("flushes buffer when cancelling with no matches and no partial match", () => {
+    it.each([
+      ["nothing, with no match and no partial match", ["{{", "}}"], "Text with no match", Infinity, ""],
+      ["a partial first anchor", ["{{", "}}"], "Text ends with {", Infinity, "{"],
+      ["a match part-way through its sequence", ["{{", "}}"], "Text {{ something", Infinity, "{{ something"],
+      ["the rest of the chunk, when stopped at a match", ["{{", "}}"], "Text {{ match }} and more", 1, " and more"],
+      ["later matches, when stopped at the first", ["{{", "}}"], "{{ first }} and {{ second }}", 1, " and {{ second }}"],
+      ["a partial first anchor after a match", ["{{", "}}"], "{{ match }} ends {", Infinity, "{"],
+      ["a three-anchor match awaiting its last anchor", ["{{", "}}", "!"], "text {{ }}", Infinity, "{{ }}"],
+      ["a partial first anchor of several code units", ["START", "END"], "text STA", Infinity, "STA"],
+      ["nothing, when what follows a match is no prefix of the first anchor", ["{{", "}}"], "{{ complete }} xyz", Infinity, ""],
+      ["a long partial first anchor", ["{{{{", "}}"], "test {{{", Infinity, "{{{"]
+    ])("holds %s", (_label, needles, chunk, stopAt, held) => {
+      const strategy = new LoopedIndexOfAnchoredSearchStrategy(needles);
+      const state = strategy.createState();
+
+      strategy.processChunk(chunk, state, stoppingAt(stopAt));
+
+      expect(strategy.flush(state)).toBe(held);
+    });
+
+    it("holds a match continued from an earlier chunk", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
-
-      const outputs: string[] = [];
-
-      let generator = strategy.processChunk("Text with no match", state);
-      const result = generator.next();
-      outputs.push(getValue(result.value!));
-
-      // Generator returns after yielding because no partial match found
-      expect(result.done).toBe(false);
-
-      generator.return();
-
-      // No partial match, buffer is empty
-      expect(strategy.flush(state)).toBe("");
-    });
-
-    it("flushes buffer when cancelling with detected partial match", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      const outputs: string[] = [];
-
-      let generator = strategy.processChunk("Text ends with {", state);
-      const result = generator.next();
-      outputs.push(getValue(result.value!));
-
-      // Generator returns after yielding and setting buffer to "{"
-      expect(result.done).toBe(false);
-
-      generator.return();
-
-      // Smart buffering detected "{" as partial match
-      expect(strategy.flush(state)).toBe("{");
-    });
-
-    it("flushes buffer when cancelling mid-match (after finding first needle)", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      let generator = strategy.processChunk("Text {{ something", state);
-      const result = generator.next(); // Yields "Text "
-      expect(getValue(result.value!)).toBe("Text ");
-      expect(result.done).toBe(false);
-
-      // Check if there's another yield before returning
-      const result2 = generator.next();
-      if (!result2.done) {
-        // There was another yield, consume it
-        expect(result2.done).toBe(true); // Should be done after this
-      }
-
-      // At this point, generator returned naturally after setting buffer in finally
-      // Mid-match (currentNeedleIndex = 1): buffer from matchStartPosition
-      expect(state.currentNeedleIndex).toBe(1);
-      expect(strategy.flush(state)).toBe("{{ something");
-    });
-
-    it("flushes buffer when cancelling after complete match before processing remaining content", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      let generator = strategy.processChunk("Text {{ match }} and more", state);
-      generator.next(); // "Text "
-      generator.next(); // "{{ match }}"
-      generator.return(); // Cancel before yielding " and more"
-
-      // Generator was cancelled after match
-      // Unprocessed content (" and more") should be buffered
-      expect(strategy.flush(state)).toBe(" and more");
-    });
-
-    it("flushes buffer when cancelling after first match with more matches remaining", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      let generator = strategy.processChunk(
-        "{{ first }} and {{ second }}",
-        state
-      );
-      generator.next(); // "{{ first }}"
-      generator.return(); // Cancel before processing " and {{ second }}"
-
-      // Generator was cancelled, unprocessed content should be buffered
-      expect(strategy.flush(state)).toBe(" and {{ second }}");
-    });
-
-    it("flushes buffer when cancelling with partial match after complete match", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      let generator = strategy.processChunk("{{ match }} ends {", state);
-      generator.next(); // "{{ match }}"
-      generator.next(); // " ends "
-      generator.return();
-
-      // Smart buffering detected "{" as partial match
-      expect(strategy.flush(state)).toBe("{");
-    });
-
-    it("handles cancellation with three-needle sequence mid-match continuing into next chunk", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy([
-        "{{",
-        "}}",
-        "!"
-      ]);
-      const state = strategy.createState();
-
-      // First chunk finds {{ and }}, but not ! yet - leaves us mid-match
-      const generator1 = strategy.processChunk("text {{ }}", state);
-      generator1.next(); // "text "
-      const result = generator1.next();
-      expect(result.done).toBe(true); // No more yields, still looking for "!"
-
-      // State should be mid-match (currentNeedleIndex = 2)
-      expect(state.currentNeedleIndex).toBe(2);
-      expect(state.buffer).toBe("{{ }}");
-
-      // Now cancel before processing next chunk
-      // The buffered mid-match content should be in the buffer
-      expect(strategy.flush(state)).toBe("{{ }}");
-    });
-
-    it("handles cancellation when generator completes naturally", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      // Let generator complete naturally
-      const generator = strategy.processChunk("text", state);
-      const result = generator.next();
-      expect(getValue(result.value!)).toBe("text");
-      expect(result.done).toBe(false);
-
-      // No more yields, generator is done
-      const finalResult = generator.next();
-      expect(finalResult.done).toBe(true);
-
-      // No buffer since no partial match
-      expect(strategy.flush(state)).toBe("");
-    });
-
-    it("handles cancellation when partial match is multiple characters", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy([
-        "START",
-        "END"
-      ]);
-      const state = strategy.createState();
-
-      // Chunk ends with "STA" - partial match for "START"
-      const generator = strategy.processChunk("text STA", state);
-      generator.next(); // "text "
-      generator.return();
-
-      // "STA" should be buffered as partial match
-      expect(strategy.flush(state)).toBe("STA");
-    });
-
-    it("handles cancellation before second yield when mid-match", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      // Simulate mid-match continuation from previous chunk
       state.buffer = "{{";
       state.currentNeedleIndex = 1;
 
-      // This chunk continues the match but gets cancelled before completion
-      let generator = strategy.processChunk("middle", state);
-      const result = generator.next();
-      expect(result.done).toBe(true); // No yield, still looking for "}}"
+      expect(processChunkResults(strategy, "middle", state)).toEqual([]);
 
-      generator.return();
-
-      // Should buffer from match start
       expect(strategy.flush(state)).toBe("{{middle");
-    });
-
-    it("handles cancellation with no partial match after complete match", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
-      const state = strategy.createState();
-
-      let generator = strategy.processChunk("{{ complete }} xyz", state);
-      generator.next(); // "{{ complete }}"
-      generator.next(); // " xyz" (no partial match with "{{")
-      generator.return();
-
-      // "xyz" doesn't match any prefix of "{{", so buffer is empty
-      expect(strategy.flush(state)).toBe("");
-    });
-
-    it("handles cancellation during partial match check with long partial", () => {
-      const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{{{", "}}"]);
-      const state = strategy.createState();
-
-      // Chunk ends with "{{{" - matches 3-char prefix of "{{{{"
-      let generator = strategy.processChunk("test {{{", state);
-      generator.next(); // "test "
-      generator.return();
-
-      // Should buffer "{{{"
-      expect(strategy.flush(state)).toBe("{{{");
     });
   });
 
@@ -417,8 +247,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("prefix {", state)];
-      const results2 = [...strategy.processChunk("{content}}", state)];
+      const results1 = processChunkResults(strategy, "prefix {", state);
+      const results2 = processChunkResults(strategy, "{content}}", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -431,8 +261,8 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("chunk1 no matches ", state)];
-      const results2 = [...strategy.processChunk("chunk2 {{match}} end", state)];
+      const results1 = processChunkResults(strategy, "chunk1 no matches ", state);
+      const results2 = processChunkResults(strategy, "chunk2 {{match}} end", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -445,11 +275,11 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
  
       const state1 = strategy.createState();
-      const [match1] = [...strategy.processChunk("{{m1}}", state1)];
+      const [match1] = processChunkResults(strategy, "{{m1}}", state1);
       expect(match1).toMatchObject({ streamIndices: [0, 6] });
 
       const state2 = strategy.createState();
-      const [match2] = [...strategy.processChunk("{{m2}}", state2)];
+      const [match2] = processChunkResults(strategy, "{{m2}}", state2);
       expect(match2).toMatchObject({ streamIndices: [0, 6] });
     });
 
@@ -458,13 +288,13 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const state = strategy.createState();
 
       // Stream 1
-      const results1 = [...strategy.processChunk("text {{m1}}", state)];
+      const results1 = processChunkResults(strategy, "text {{m1}}", state);
       strategy.flush(state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [5, 11] });
 
       // Stream 2: reuse state after flush — indices should start from 0 again
-      const results2 = [...strategy.processChunk("text {{m2}}", state)];
+      const results2 = processChunkResults(strategy, "text {{m2}}", state);
       strategy.flush(state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [5, 11] });
@@ -475,9 +305,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       const state = strategy.createState();
 
       // First chunk ends with partial match
-      const results1 = [...strategy.processChunk("text {", state)];
+      const results1 = processChunkResults(strategy, "text {", state);
       // Second chunk completes and continues
-      const results2 = [...strategy.processChunk("{done}} after", state)];
+      const results2 = processChunkResults(strategy, "{done}} after", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -491,7 +321,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     it("returns the matched string unchanged", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
-      const results = [...strategy.processChunk("before {{token}} after", state)];
+      const results = processChunkResults(strategy, "before {{token}} after", state);
       const match = results.find((r) => r.isMatch)!;
       expect(strategy.matchToString(match.content)).toBe("{{token}}");
     });
@@ -553,7 +383,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
       const state = strategy.createState();
       const results = [];
-      for (const result of strategy.processChunk("xyz", state)) {
+      for (const result of processChunkResults(strategy, "xyz", state)) {
         results.push(result);
         if (results.length > 100) throw new Error("processChunk did not advance");
       }
@@ -713,15 +543,21 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       ["with a bordered anchor", new LoopedIndexOfAnchoredSearchStrategy(["aba"]), "xababaxaba"],
       ["with an over-long match", new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"], { maxBufferLength: 6 }), "{{abcd}}{{x}}{{y"]
     ] as const)(
-      "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
+      "leaves whatever it has not reported for flush, at whichever match it stops, and carries on from there, %s",
       (_label, strategy, input) => {
         for (const chunks of everySplitOf(input)) {
           const { results, settledResults } = collectSearchStrategyResults(
             strategy,
             chunks
           );
-          const total = results.length + settledResults.length;
-          for (let limit = 1; limit <= total; limit++) {
+          expect(
+            collectPausedSearchStrategyResults(strategy, chunks),
+            `${chunks.join("|")} paused at every match`
+          ).toEqual([...results, ...settledResults]);
+          const matches = [...results, ...settledResults].filter(
+            (result) => result.isMatch
+          ).length;
+          for (let limit = 1; limit <= matches; limit++) {
             const { stopped, output } = collectStoppedSearchStrategyResults(
               strategy,
               chunks,

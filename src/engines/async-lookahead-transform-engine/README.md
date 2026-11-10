@@ -79,11 +79,11 @@ new AsyncLookaheadTransformEngine({
 });
 ```
 
-When the queue is full, scanning suspends; that pauses upstream pulls — so memory use is bounded even if downstream stalls. Concurrency is bounded by the `ConcurrencyStrategy`; queued **output** is bounded by `highWaterMark`.
+When the queue is full, the scanner stops at the next match and suspends until the drainer frees a slot; that pauses upstream pulls — so memory use is bounded even if downstream stalls. Until then, the scanner schedules each match it finds without waiting. The text before a match is queued as one slot with it, so the queue holds at most two slots beyond `highWaterMark`. Concurrency is bounded by the `ConcurrencyStrategy`; queued **output** is bounded by `highWaterMark` + 2 slots.
 
 To opt into unfettered dispatch initiation, use `new SemaphoreStrategy(Infinity)` explicitly.
 
-Pick higher values to absorb burstier input (more pipelining, more memory); lower values to tighten the memory ceiling. `32` covers typical transclusion use-cases - for example, an Akamai EdgeWorkers `responseProvider` is [capped at 50 total sub-requests and 5 parallel](https://techdocs.akamai.com/edgeworkers/docs/resource-tier-limitations) (Basic/Dynamic tier); a 15-fragment document produces roughly 31 queued slots (text and match interleaved), which fits without scanner stalls. Set `highWaterMark` to your platform's sub-request ceiling if your documents routinely approach it, and pair `SemaphoreStrategy` with the platform's parallel limit.
+Pick higher values to absorb burstier input (more pipelining, more memory); lower values to tighten the memory ceiling. `32` covers typical transclusion use-cases - for example, an Akamai EdgeWorkers `responseProvider` is [capped at 50 total sub-requests and 5 parallel](https://techdocs.akamai.com/edgeworkers/docs/resource-tier-limitations) (Basic/Dynamic tier); a 15-fragment document produces roughly 31 queued slots (text and match interleaved), which fits without scanner stalls. Set `highWaterMark` to two below your platform's sub-request ceiling if your documents routinely approach it, and pair `SemaphoreStrategy` with the platform's parallel limit.
 
 ## Slot lifetime
 
@@ -118,7 +118,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
-When aborted, the **scanner** stops calling `replacement()` and stops searching at the next match it finds. That match is emitted verbatim via [`SearchStrategy.matchToString`](#matchtostring), together with the rest of the current chunk and whatever the strategy holds, as one chunk, and later chunks pass through unchanged. No replacement is called once the signal has fired: a match scheduled earlier whose replacement has not been called, such as one still waiting for a concurrency slot, is emitted verbatim via `matchToString` when the drain loop reaches it, without waiting for the slot. Replacements already called run to completion unaffected.
+When aborted, the **scanner** stops calling `replacement()` and stops searching. What is left of the current chunk and whatever the strategy holds are emitted verbatim as one chunk, and later chunks pass through unchanged. No replacement is called once the signal has fired: a match scheduled earlier whose replacement has not been called, such as one still waiting for a concurrency slot, is emitted verbatim via `matchToString` when the drain loop reaches it, without waiting for the slot. Replacements already called run to completion unaffected.
 
 The content of a [`nested()`](#recursive-replacement) replacement is re-scanned under the same signal, so a replacement already called can still have its own matches emitted verbatim: those whose replacement had not been called when the signal fired, and any in content the child engine had not yet scanned.
 
@@ -138,7 +138,7 @@ const engine = new AsyncLookaheadTransformEngine({
 
 When aborted, **both the scanner and the drain loop** switch mode:
 
-- **Scanner** — stops calling `replacement()` and stops searching, the same as `stopReplacingSignal`. The next match it finds is emitted verbatim via `SearchStrategy.matchToString`, and the rest of the input passes through as raw text.
+- **Scanner** — stops calling `replacement()` and stops searching, the same as `stopReplacingSignal`. The rest of the input passes through as raw text.
 - **Drain loop, queued slot** — the drain loop hasn't started consuming the slot's output, whether or not the replacement function has returned. The raw matched text is emitted in its place straight away and the slot's concurrency permit is released. The replacement is closed in the background once it settles, so a `finally` in a replacement generator still runs.
 - **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
 

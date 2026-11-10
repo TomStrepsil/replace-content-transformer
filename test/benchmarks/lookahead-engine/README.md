@@ -51,7 +51,7 @@ Counter-intuitively, totalMs typically *increases* under streaming bodies becaus
 
 On **flat** scenarios all three strategies are equivalent — there is no slot tree to order, so the priority queue degenerates to arrival order.
 
-Differences surface on **nested** scenarios where the replacement returns a [`Nested`](../../src/engines/async-lookahead-transform-engine/nested.ts) sentinel, creating a tree of child slots:
+Differences surface on **nested** scenarios where the replacement returns a [`Nested`](../../../src/engines/async-lookahead-transform-engine/nested.ts) sentinel, creating a tree of child slots:
 
 - **B (FIFO)** dispatches in scan-arrival order — inner slots from early outer matches compete with later outer slots in the order they were scheduled.
 - **C (streamOrder)** prioritises the slot whose output appears earliest in the stream. In a nested tree this means a child slot of outer-0 outranks outer-1, so earlier sections' content completes sooner — lower `maxGap` for the first sections, at the cost of stalling later outer slots.

@@ -1,6 +1,10 @@
 import { bench, group, run } from "mitata";
-import * as harnesses from "../../harnesses/index.ts";
-import type { BaseHarness } from "../../harnesses/types.ts";
+import * as harnesses from "../harnesses/index.ts";
+import type { BaseHarness } from "../harnesses/types.ts";
+import { comparisons } from "./comparisons.ts";
+import { summariseComparisons, type BenchResults } from "./summarise-comparisons.ts";
+
+const allHarnesses: BaseHarness[] = Object.values(harnesses);
 
 function createMockController(outputs: string[]) {
   return {
@@ -337,7 +341,7 @@ const scenarios: BenchmarkScenario[] = [
 group("Setup Cost (strategy + transformer creation)", async () => {
   const representativeScenario = scenarios[0]; // "Single chunk, multiple patterns"
 
-  for (const harness of Object.values(harnesses) as BaseHarness[]) {
+  for (const harness of allHarnesses) {
     const {
       name,
       createSearchStrategy,
@@ -362,7 +366,7 @@ group("Setup Cost (strategy + transformer creation)", async () => {
 
 for (const scenario of scenarios) {
   group(scenario.name, async () => {
-    for (const harness of Object.values(harnesses) as BaseHarness[]) {
+    for (const harness of allHarnesses) {
       const {
         name,
         createSearchStrategy,
@@ -386,9 +390,9 @@ for (const scenario of scenarios) {
             const outputs: string[] = [];
             const controller = createMockController(outputs);
             for (const chunk of scenario.chunks) {
-              await transformer.transform!(chunk, controller);
+              await transformer.transform(chunk, controller);
             }
-            transformer.flush!(controller);
+            await transformer.flush(controller);
           }
         };
       });
@@ -402,7 +406,7 @@ if (!useJson) {
   console.log("🚀 Algorithm Comparison Benchmark\n");
   console.log(
     `Running ${scenarios.length} scenarios across ${
-      Object.keys(harnesses).length
+      allHarnesses.length
     } harnesses...\n`
   );
 }
@@ -417,5 +421,12 @@ if (useJson) {
     }
   });
 } else {
-  run();
+  const results = await run();
+  console.log(
+    summariseComparisons(
+      comparisons,
+      results as unknown as BenchResults,
+      scenarios.map(({ name }) => name)
+    )
+  );
 }

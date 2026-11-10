@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "outDir": "./build",
+    "declaration": false,
+    "noEmit": false
+  },
+  "include": [
+    "runtime/**/*.ts",
+    "algorithm/**/*.ts",
+    "regex-shapes/**/*.ts",
+    "harnesses/**/*.ts",
+    "references/**/*.ts",
+    "../search-strategy-results.ts",
+    "../../src/**/*.ts"
+  ],
+  "exclude": ["build", "node_modules", "**/*.test.ts", "../../src/**/*.test.ts"]
+}

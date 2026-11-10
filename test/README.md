@@ -4,7 +4,7 @@ Shared helpers for the unit and integration tests under `src/`. Check here befor
 
 See also:
 
-- [`harnesses/`](./harnesses/README.md): the common wrapper that lets every search strategy run through the same validation and benchmark scenarios
+- [`benchmarks/harnesses/`](./benchmarks/harnesses/README.md): the common wrapper that lets every search strategy run through the same validation and benchmark scenarios
 - [`benchmarks/`](./benchmarks/README.md): performance benchmarks
 
 ## Utilities
@@ -13,7 +13,9 @@ See also:
 
 | Helper                                                 | Use for                                                                            |
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `mockSearchStrategyFactory(...results)`                | A `SearchStrategy` whose `processChunk` yields the given results, for engine tests |
+| `mockSearchStrategy({ chunk, settled, rest })`         | A `SearchStrategy` that reports `chunk`'s results for every chunk (and `settled`'s from `settle`), and stops at a match as a real one does: a call with `""` carries on, and `flush` returns what's left plus `rest`. `counts.pulled` counts the results reported. A step can be a callback, run at that point of the scan |
+| `mockSearchStrategyFactory(...results)`                | A `mockSearchStrategy` that reports the given results for every chunk, for engine tests |
+| `abortingOnFirstCall(controller, result)`              | A replacement mock that aborts `controller` on its first call                      |
 | `mockSyncEngine()` / `mockAsyncEngine()`               | Engine doubles for adapter unit tests                                              |
 | `mockTransformStreamDefaultControllerFactory(outputs)` | A WHATWG controller that pushes enqueued chunks into `outputs`                     |
 | `collectEngineSink()` / `collectWritable()`            | Capture what an engine or Node stream emits                                        |
@@ -28,7 +30,9 @@ See also:
 
 - `collectSearchStrategyResults(strategy, chunks)` runs every chunk, then settles what the strategy still holds (`settle`, or `flush` when it has none). Its `output` must always reproduce the input exactly. It throws if a scan stops advancing, so a runaway loop fails the test instead of exhausting memory.
 - `collectCanonicalSearchStrategyResults(strategy, chunks)` merges adjacent non-match text into single segments. Two runs over the same input split differently must produce identical segments.
-- `collectStoppedSearchStrategyResults(strategy, chunks, limit)` stops iterating after `limit` results, as an engine does once `stopReplacingSignal` aborts, then emits `flush()` and the unwritten chunks. Its `output` must reproduce the input exactly.
+- `collectStoppedSearchStrategyResults(strategy, chunks, limit)` stops at the `limit`th match, as an engine does once `stopReplacingSignal` aborts, then emits `flush()` and the unwritten chunks. Its `output` must reproduce the input exactly.
+- `collectPausedSearchStrategyResults(strategy, chunks)` stops at every match and carries on with `processChunk("")` (or `settle` again), as the async engines do. Its results must equal an uninterrupted run's.
+- `processChunkResults(strategy, haystack, state)` and `settleResults(strategy, state)` collect what one call reports, and `sinkInto(results)` is the `MatchSink` behind them.
 - `regexMatchDetailsOf(collected)` reduces the matches in a regex strategy's collected results to plain data (captures, `index`, groups, `indices`, `streamIndices`), so two runs can be compared with `toEqual`.
 
 ## Chunk boundaries
