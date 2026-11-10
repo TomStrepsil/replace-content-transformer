@@ -448,6 +448,33 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(chunks).toEqual([]);
     });
 
+    it("doesn't read an iterable resolved after cancel() lands while the replacement is pending", async () => {
+      const strategy = mockSearchStrategyFactory<string>({
+        isMatch: true,
+        content: "M",
+        streamIndices: [0, 1]
+      });
+      const next = vi.fn().mockResolvedValue({ done: true, value: undefined });
+      let resolveReplacement!: (iterable: AsyncIterable<string>) => void;
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () =>
+          new Promise<AsyncIterable<string>>((resolve) => {
+            resolveReplacement = resolve;
+          })
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      const written = engine.write("input");
+      engine.cancel();
+      resolveReplacement({ [Symbol.asyncIterator]: () => ({ next }) });
+      await written;
+
+      expect(next).not.toHaveBeenCalled();
+      expect(chunks).toEqual([]);
+    });
+
     it("stops mid-iterable when cancel() lands between yielded replacement chunks", async () => {
       const strategy = mockSearchStrategyFactory<string>({
         isMatch: true,

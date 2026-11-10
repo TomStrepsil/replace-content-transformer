@@ -111,8 +111,9 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
         streamIndices
       });
 
+      if (this.#cancelled) return;
+
       if (typeof raw === "string") {
-        if (this.#cancelled) return;
         sink.enqueue(raw);
       } else {
         for await (const item of raw) {
