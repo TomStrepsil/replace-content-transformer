@@ -361,8 +361,12 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         replacement,
         stopReplacingSignal: ac.signal
       });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
 
-      expect(await runEngine(engine, [])).toEqual(["R", "M2M3REST"]);
+      await engine.end();
+
+      expect(chunks).toEqual(["R", "M2M3REST"]);
       expect(counts.pulled).toBe(1);
       expect(replacement).toHaveBeenCalledOnce();
     });
@@ -463,20 +467,17 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         streamIndices: [0, 1]
       });
       const next = vi.fn().mockResolvedValue({ done: true, value: undefined });
-      let resolveReplacement!: (iterable: AsyncIterable<string>) => void;
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
-        replacement: () =>
-          new Promise<AsyncIterable<string>>((resolve) => {
-            resolveReplacement = resolve;
-          })
+        replacement: () => gate.promise
       });
 
       const { sink, chunks } = collectEngineSink();
       engine.start(sink);
       const written = engine.write("input");
       engine.cancel();
-      resolveReplacement({ [Symbol.asyncIterator]: () => ({ next }) });
+      gate.resolve({ [Symbol.asyncIterator]: () => ({ next }) });
       await written;
 
       expect(next).not.toHaveBeenCalled();
