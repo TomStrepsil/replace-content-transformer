@@ -11,7 +11,6 @@ import {
   abortingOnFirstCall,
   asyncIterable,
   collectEngineSink,
-  deferred,
   mockSearchStrategy,
   mockSearchStrategyFactory
 } from "../../../test/utilities.ts";
@@ -154,7 +153,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           { isMatch: false, content: "T3" }
         ]
       });
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -195,8 +194,8 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: false, content: "-" },
         { isMatch: true, content: "B", streamIndices: [2, 3] }
       );
-      const gateA = deferred<AsyncIterable<string>>();
-      const gateB = deferred<AsyncIterable<string>>();
+      const gateA = Promise.withResolvers<AsyncIterable<string>>();
+      const gateB = Promise.withResolvers<AsyncIterable<string>>();
       let callCount = 0;
 
       const { sink, chunks } = collectEngineSink();
@@ -224,7 +223,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "A", streamIndices: [0, 1] },
         { isMatch: true, content: "B", streamIndices: [1, 2] }
       );
-      const firstGate = deferred<AsyncIterable<string>>();
+      const firstGate = Promise.withResolvers<AsyncIterable<string>>();
       const started: number[] = [];
       let callCount = 0;
 
@@ -346,7 +345,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [1, 2] },
         { isMatch: true, content: "M", streamIndices: [2, 3] }
       );
-      const gates = [0, 1, 2].map(() => deferred<AsyncIterable<string>>());
+      const gates = [0, 1, 2].map(() => Promise.withResolvers<AsyncIterable<string>>());
       let callCount = 0;
 
       const { sink } = collectEngineSink();
@@ -399,7 +398,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("suspends a write() with no match while more than highWaterMark slots are queued", async () => {
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: braceStrategy(),
@@ -425,8 +424,8 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("keeps write() suspended after a resumed scan while the text it queued fills the queue", async () => {
-      const gateA = deferred<AsyncIterable<string>>();
-      const gateB = deferred<AsyncIterable<string>>();
+      const gateA = Promise.withResolvers<AsyncIterable<string>>();
+      const gateB = Promise.withResolvers<AsyncIterable<string>>();
       const gated = new Map([["a", gateA.promise], ["b", gateB.promise]]);
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
@@ -491,7 +490,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] },
         ...pieces
       );
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -680,7 +679,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [1, 2] },
         { isMatch: true, content: "M", streamIndices: [2, 3] }
       );
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       let callCount = 0;
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(4);
       const { sink } = collectEngineSink();
@@ -764,7 +763,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("enqueues the flushed text before the first passthrough chunk while the queue is full", async () => {
       const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
       strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const ac = new AbortController();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
@@ -872,7 +871,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "B", streamIndices: [2, 3] }
       );
       strategy.matchToString.mockImplementation((match: string) => `raw-${match}`);
-      const gate = deferred<void>();
+      const gate = Promise.withResolvers<void>();
       const ac = new AbortController();
       const replacement = vi.fn(async (match: string) => {
         await gate.promise;
@@ -1065,7 +1064,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const ac = new AbortController();
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -1109,7 +1108,7 @@ describe("AsyncLookaheadTransformEngine", () => {
             ? [{ isMatch: true, content: "M", streamIndices: [0, 1] }]
             : [{ isMatch: false, content: chunk }] });
       const ac = new AbortController();
-      const gate = deferred<void>();
+      const gate = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
@@ -1155,7 +1154,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       strategy.matchToString.mockReturnValue("raw-M");
       const ac = new AbortController();
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -1221,7 +1220,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const ac = new AbortController();
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       let finallyRan = false;
       const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
@@ -1254,7 +1253,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const ac = new AbortController();
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks, errors } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -1348,7 +1347,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("wakes the consumer when a child enqueue arrives after the consumer has begun waiting", async () => {
-      const gate = deferred<void>();
+      const gate = Promise.withResolvers<void>();
       async function* nestedSource(): AsyncGenerator<string> {
         yield "first ";
         await gate.promise;
@@ -1385,7 +1384,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const abandon = new AbortController();
-      const gate = deferred<ReturnType<typeof nested>>();
+      const gate = Promise.withResolvers<ReturnType<typeof nested>>();
       let sourceCancelled = false;
       const source = new ReadableStream<string>({
         pull(controller) {
@@ -1565,7 +1564,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [2, 3] as [number, number] }
       );
       // First replacement holds the drain loop; second and third fill/overflow buffer
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       let callCount = 0;
       const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
@@ -1595,7 +1594,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [2, 3] },
         { isMatch: true, content: "M", streamIndices: [3, 4] }
       );
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const fn = vi.fn(async () => (fn.mock.calls.length === 1 ? gate.promise : asyncIterable("")));
       const { sink } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
@@ -1623,7 +1622,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       strategy.flush.mockReturnValue("ABC");
       const ac = new AbortController();
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -1652,7 +1651,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [1, 2] },
         { isMatch: true, content: "M", streamIndices: [2, 3] }
       );
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       let callCount = 0;
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(4);
       const { sink } = collectEngineSink();
@@ -1677,7 +1676,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("cancel() discards buffered text slots — does not emit them to the sink", async () => {
-      const gate = deferred<void>();
+      const gate = Promise.withResolvers<void>();
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] },
         { isMatch: false, content: "after" }
@@ -1706,7 +1705,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       let returnCalled = false;
-      const gate = deferred<void>();
+      const gate = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -1761,7 +1760,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
-      const secondItem = deferred<void>();
+      const secondItem = Promise.withResolvers<void>();
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
@@ -1827,7 +1826,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] },
         { isMatch: true, content: "M", streamIndices: [1, 2] }
       );
-      const nextGate = deferred<void>();
+      const nextGate = Promise.withResolvers<void>();
       const abandon = new AbortController();
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       let replacementCalls = 0;
@@ -1875,7 +1874,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       strategy.matchToString.mockReturnValue("original-M");
       const ac = new AbortController();
-      const gate = deferred<AsyncIterable<string>>();
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: strategy,
@@ -1900,7 +1899,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           processCount++ === 0
             ? [{ isMatch: true, content: "M", streamIndices: [0, 1] }]
             : [{ isMatch: false, content: chunk }] });
-      const gate = deferred<void>();
+      const gate = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
@@ -2012,7 +2011,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           yield "x";
         }
       })();
-      const childReplacement = deferred<AsyncIterable<string>>();
+      const childReplacement = Promise.withResolvers<AsyncIterable<string>>();
       const engine = new AsyncLookaheadTransformEngine({
         searchStrategy: matchEveryChunk(),
         replacement: async (_match, { depth }) =>

@@ -7,7 +7,7 @@ import { nested } from "./nested.js";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.js";
 import { PriorityQueueStrategy } from "./concurrency-strategy/priority-queue-strategy.js";
 import { streamOrder } from "./concurrency-strategy/node-comparators.js";
-import { startTestHttpServer, deferred } from "../../../test/utilities.js";
+import { startTestHttpServer } from "../../../test/utilities.js";
 
 function streamFromChunks(chunks: string[]): ReadableStream<string> {
   return new ReadableStream<string>({
@@ -47,8 +47,8 @@ describe("AsyncLookaheadTransformEngine — end-to-end integration", () => {
   });
 
   it("initiates later matches eagerly while earlier ones are still resolving", async () => {
-    const firstGate = deferred<void>();
-    const secondStarted = deferred<void>();
+    const firstGate = Promise.withResolvers<void>();
+    const secondStarted = Promise.withResolvers<void>();
 
     const transformer = makeTransformer({
       searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
@@ -79,10 +79,10 @@ describe("AsyncLookaheadTransformEngine — end-to-end integration", () => {
   });
 
   it("preserves output order when later matches resolve before earlier ones", async () => {
-    const gates = new Map<string, ReturnType<typeof deferred<void>>>();
-    gates.set("{{a}}", deferred());
-    gates.set("{{b}}", deferred());
-    gates.set("{{c}}", deferred());
+    const gates = new Map<string, PromiseWithResolvers<void>>();
+    gates.set("{{a}}", Promise.withResolvers());
+    gates.set("{{b}}", Promise.withResolvers());
+    gates.set("{{c}}", Promise.withResolvers());
 
     const transformer = makeTransformer({
       searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
@@ -173,7 +173,7 @@ describe("AsyncLookaheadTransformEngine — end-to-end integration", () => {
   });
 
   it("emits in stream order even when a deeper nested fragment is ready first", async () => {
-    const slowGate = deferred<void>();
+    const slowGate = Promise.withResolvers<void>();
 
     const httpServer = await startTestHttpServer({
       "/lookahead/slow": async (req) => {

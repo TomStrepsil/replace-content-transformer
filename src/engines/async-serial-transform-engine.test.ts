@@ -5,7 +5,6 @@ import type { MatchResult } from "../../test/utilities.ts";
 import {
   abortingOnFirstCall,
   collectEngineSink,
-  deferred,
   mockSearchStrategy,
   mockSearchStrategyFactory
 } from "../../test/utilities.ts";
@@ -224,7 +223,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         chunk: [{ isMatch: false, content: "a" }],
         settled: [{ isMatch: true, content: "M", streamIndices: [1, 2] }]
       });
-      const gate = deferred<string>();
+      const gate = Promise.withResolvers<string>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: () => gate.promise });
       engine.start(sink);

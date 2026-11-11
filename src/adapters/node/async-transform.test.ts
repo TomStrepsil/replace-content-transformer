@@ -4,7 +4,6 @@ import { finished } from "node:stream/promises";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
 import {
   collectWritable,
-  deferred,
   mockAsyncEngine,
   startedSinkOf,
   textWrittenTo
@@ -126,7 +125,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
 
   it("cancels the engine when the stream is destroyed while end() is pending", async () => {
     const engine = mockAsyncEngine();
-    const ending = deferred<void>();
+    const ending = Promise.withResolvers<void>();
     engine.end.mockReturnValue(ending.promise);
     const transform = new AsyncReplaceContentTransform(engine);
 
@@ -275,7 +274,7 @@ describe("AsyncReplaceContentTransform (Node async adapter)", () => {
 
     it("waits for the engine to accept the trailing sequence before calling engine.end", async () => {
       const engine = mockAsyncEngine();
-      const trailingSequenceWrite = deferred<void>();
+      const trailingSequenceWrite = Promise.withResolvers<void>();
       engine.write
         .mockResolvedValueOnce(undefined)
         .mockReturnValueOnce(trailingSequenceWrite.promise);

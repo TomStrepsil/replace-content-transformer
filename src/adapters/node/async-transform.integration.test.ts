@@ -5,7 +5,6 @@ import { setImmediate } from "node:timers/promises";
 import { AsyncReplaceContentTransform } from "./async-transform.js";
 import { AsyncLookaheadTransformEngine, SemaphoreStrategy, nested } from "../../engines/index.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
-import { deferred } from "../../../test/utilities.js";
 
 // Engine behaviour (scan/schedule/drain, nested re-scanning, backpressure,
 // error forwarding, in-order output) is verified directly in
@@ -97,7 +96,7 @@ describe("AsyncReplaceContentTransform + AsyncLookaheadTransformEngine (Node ada
   });
 
   it("closes scheduled replacements early once the stream is destroyed", async () => {
-    const released = deferred<void>();
+    const released = Promise.withResolvers<void>();
     const started: string[] = [];
     const completed: string[] = [];
     const transform = new AsyncReplaceContentTransform(

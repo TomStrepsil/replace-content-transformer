@@ -170,11 +170,6 @@ function asyncIterable(...chunks: string[]): AsyncIterable<string> {
   };
 }
 
-/** Thin wrapper over {@link Promise.withResolvers} for test expressiveness. */
-function deferred<T>(): PromiseWithResolvers<T> {
-  return Promise.withResolvers<T>();
-}
-
 /** A result for a mock strategy to report, or a callback to run when it reaches that point. */
 type MockStep<TMatch> = MatchResult<TMatch> | (() => void);
 
@@ -380,7 +375,6 @@ export {
   collectWritable,
   asyncIterable,
   createIterableSlotNode,
-  deferred,
   indexOfWork,
   mockAsyncEngine,
   mockSearchStrategy,
