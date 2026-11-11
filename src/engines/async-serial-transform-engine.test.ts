@@ -475,6 +475,30 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(chunks).toEqual([]);
     });
 
+    it("searches no further when the sink cancels on receiving a replacement", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: false, content: "after" }
+      );
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => "R"
+      });
+
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk: string) => {
+          chunks.push(chunk);
+          engine.cancel();
+        },
+        error: () => {}
+      });
+      await engine.write("input");
+
+      expect(chunks).toEqual(["R"]);
+      expect(strategy.processChunk).toHaveBeenCalledTimes(1);
+    });
+
     it("stops mid-iterable when cancel() lands between yielded replacement chunks", async () => {
       const strategy = mockSearchStrategyFactory<string>({
         isMatch: true,

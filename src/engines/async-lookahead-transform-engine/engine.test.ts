@@ -375,6 +375,22 @@ describe("AsyncLookaheadTransformEngine", () => {
       await engine.end();
     });
 
+    it("replaces every match when a NaN highWaterMark never reports the queue full", async () => {
+      const { sink, chunks } = collectEngineSink();
+      const engine = new AsyncLookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async () => asyncIterable("R"),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        highWaterMark: NaN
+      });
+      engine.start(sink);
+
+      await engine.write("{{a}}{{b}}{{c}}");
+      await engine.end();
+
+      expect(chunks.join("")).toBe("RRR");
+    });
+
     it("suspends a write() with no match while more than highWaterMark slots are queued", async () => {
       const gate = deferred<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();

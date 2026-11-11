@@ -46,7 +46,7 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
       return true;
     }
     this.#buffer.push(node);
-    return this.#buffer.length <= this.#limit;
+    return !this.full;
   }
 
   async room(): Promise<void> {

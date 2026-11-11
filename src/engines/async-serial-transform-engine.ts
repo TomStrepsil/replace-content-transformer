@@ -122,6 +122,7 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
           if (this._stopReplacingSignal?.aborted) break;
         }
       }
+      if (this.#cancelled) return;
       if (this._stopReplacingSignal?.aborted) {
         this._enqueueHeld();
         return;
