@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { setImmediate } from "node:timers/promises";
 import { AsyncChildQueue } from "./async-child-queue.ts";
 import type { SlotNode, TextSlotNode } from "./types.ts";
 import { SLOT_KIND } from "./constants.ts";
@@ -160,11 +161,11 @@ describe("AsyncChildQueue", () => {
   });
 
   describe("offer()", () => {
-    it("reports whether the queue is still within its limit", () => {
+    it("buffers nodes until the queue holds more than its limit and is full", () => {
       const queue = new AsyncChildQueue(1);
-      expect(queue.offer(textNode("a"))).toBe(true);
+      queue.offer(textNode("a"));
       expect(queue.full).toBe(false);
-      expect(queue.offer(textNode("b"))).toBe(false);
+      queue.offer(textNode("b"));
       expect(queue.full).toBe(true);
     });
 
@@ -173,8 +174,9 @@ describe("AsyncChildQueue", () => {
       const iter = queue[Symbol.asyncIterator]();
       const next = iter.next();
 
-      expect(queue.offer(textNode("a"))).toBe(true);
-      expect(queue.offer(textNode("b"))).toBe(true);
+      queue.offer(textNode("a"));
+      queue.offer(textNode("b"));
+      expect(queue.full).toBe(false);
       expect(((await next).value as TextSlotNode).value).toBe("a");
     });
 
@@ -206,7 +208,7 @@ describe("AsyncChildQueue", () => {
       const iter = queue[Symbol.asyncIterator]();
 
       await iter.next();
-      await Promise.resolve();
+      await setImmediate();
       expect(resolved).toBe(false);
 
       await iter.next();

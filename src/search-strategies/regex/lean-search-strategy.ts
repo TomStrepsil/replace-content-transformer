@@ -164,16 +164,7 @@ export class LeanRegexSearchStrategy
           return;
         }
 
-        if (settledMatch[0].length === 0) {
-          sink.reportText(
-            skipOneCodePointPastZeroLengthMatch(haystack, cursor, settledMatch.index)
-          );
-          continue;
-        }
-        const precedingContent = advanceToMatch(settledMatch, haystack, cursor);
-        if (precedingContent) sink.reportText(precedingContent);
-        const streamIndices = takeMatch(settledMatch, cursor, baseOffset);
-        if (!sink.reportMatch(settledMatch, streamIndices)) return;
+        if (!this.reportSettledMatch(settledMatch, haystack, cursor, baseOffset, sink)) return;
       }
     } finally {
       if (cursor.reportedUpTo < length) {
@@ -181,6 +172,22 @@ export class LeanRegexSearchStrategy
       }
       state.streamOffset += haystack.length - bufferLength;
     }
+  }
+
+  private reportSettledMatch(
+    match: RegExpExecArray,
+    haystack: string,
+    cursor: ScanCursor,
+    baseOffset: number,
+    sink: MatchSink<StreamRegexMatch>
+  ): boolean {
+    if (match[0].length === 0) {
+      sink.reportText(skipOneCodePointPastZeroLengthMatch(haystack, cursor, match.index));
+      return true;
+    }
+    const precedingContent = advanceToMatch(match, haystack, cursor);
+    if (precedingContent) sink.reportText(precedingContent);
+    return sink.reportMatch(match, takeMatch(match, cursor, baseOffset));
   }
 
   override flush(state: RegexSearchState): string {
@@ -199,16 +206,7 @@ export class LeanRegexSearchStrategy
         );
         if (finalMatch === null) break;
 
-        if (finalMatch[0].length === 0) {
-          sink.reportText(
-            skipOneCodePointPastZeroLengthMatch(buffer, cursor, finalMatch.index)
-          );
-          continue;
-        }
-        const precedingContent = advanceToMatch(finalMatch, buffer, cursor);
-        if (precedingContent) sink.reportText(precedingContent);
-        const streamIndices = takeMatch(finalMatch, cursor, baseOffset);
-        if (!sink.reportMatch(finalMatch, streamIndices)) return;
+        if (!this.reportSettledMatch(finalMatch, buffer, cursor, baseOffset, sink)) return;
       }
 
       if (cursor.reportedUpTo < buffer.length) {

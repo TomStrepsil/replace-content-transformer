@@ -187,7 +187,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     },
     reportMatch: (match, streamIndices) => {
       this.#offerText();
-      if (this.#queue.offer(this.#scheduleMatch(match, streamIndices))) return true;
+      this.#queue.offer(this.#scheduleMatch(match, streamIndices));
+      if (!this.#queue.full) return true;
       this.#paused = true;
       return false;
     }
@@ -259,7 +260,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
     if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld("");
+      await this.#enqueueHeld();
       if (this.#cancelled) return;
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
@@ -275,8 +276,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     this.#text = "";
   }
 
-  async #enqueueHeld(before: string): Promise<void> {
-    const held = this._takeHeld(before);
+  async #enqueueHeld(): Promise<void> {
+    const held = this._searchStrategy.flush(this._state);
     if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
   }
 
@@ -285,7 +286,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     while (this.#queue.full) {
       await this.#queue.room();
       if (this.#cancelled) return;
-      if (this._stopReplacingSignal?.aborted) return this.#enqueueHeld("");
+      if (this._stopReplacingSignal?.aborted) return this.#enqueueHeld();
       if (this.#paused) {
         this.#paused = false;
         this._resume(settling, this.#matchSink);
@@ -306,7 +307,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       return;
     }
     if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld("");
+      await this.#enqueueHeld();
     } else {
       this._settle(this.#matchSink);
       await this.#enqueue(true);

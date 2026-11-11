@@ -4,9 +4,9 @@ import type { SlotNode } from "./types.ts";
  * A bounded single-producer / single-consumer async channel of
  * {@link SlotNode}s.
  *
- * - `offer()` buffers the node, or hands it straight to a waiting consumer,
- *   and returns whether the queue is still within `limit`.
- * - `room()` resolves once the queue is back within `limit`, or closed.
+ * - `offer()` buffers the node, or hands it straight to a waiting consumer.
+ * - `full` is whether the queue holds more than `limit` nodes and is open.
+ * - `room()` resolves once the queue is no longer `full`.
  * - `push()` offers the node, then waits for room. A node pushed before
  *   `close()` is always drained.
  * - `close()` signals end-of-stream; any waiting consumer is resolved
@@ -36,17 +36,16 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
     return this.#buffer.length > this.#limit && !this.#closed;
   }
 
-  offer(node: SlotNode): boolean {
+  offer(node: SlotNode): void {
     if (this.#closed) {
       throw new Error("Cannot push to a closed AsyncChildQueue");
     }
     const waitingConsumer = this.#pendingConsumers.shift();
     if (waitingConsumer) {
       waitingConsumer({ value: node, done: false });
-      return true;
+      return;
     }
     this.#buffer.push(node);
-    return !this.full;
   }
 
   async room(): Promise<void> {
@@ -56,7 +55,8 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
   }
 
   async push(node: SlotNode): Promise<void> {
-    if (!this.offer(node)) await this.room();
+    this.offer(node);
+    await this.room();
   }
 
   close(): void {

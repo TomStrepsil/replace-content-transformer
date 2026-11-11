@@ -49,12 +49,8 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
     else this._searchStrategy.processChunk("", this._state, sink);
   }
 
-  protected _takeHeld(before = ""): string {
-    return before + this._searchStrategy.flush(this._state);
-  }
-
   protected _enqueueHeld(before = ""): void {
-    const held = this._takeHeld(before);
+    const held = before + this._searchStrategy.flush(this._state);
     if (held) this._sink.enqueue(held);
   }
 }
