@@ -29,8 +29,8 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
    * match first. It stops searching too: straight after the output of a
    * replacement that aborts it, or otherwise at the next match it finds,
    * what is left of the current chunk and what the strategy holds are
-   * emitted verbatim as one chunk. Available
-   * symmetrically on both Node and web adapters.
+   * emitted verbatim as one chunk. Available symmetrically on both Node 
+   * and web adapters.
    */
   stopReplacingSignal?: AbortSignal;
 }
