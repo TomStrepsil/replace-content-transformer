@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { RegexSearchStrategy } from "./search-strategy.js";
 import type { RegexSearchStrategyOptions, StreamRegexMatch } from "./types.js";
-import type { BufferGuardOptions, MatchResult } from "../types.js";
+import type { BufferGuardOptions } from "../types.js";
 import validateInput from "./input-validation.js";
 import optionsValidation from "./options-validation.js";
 import PartialMatchRegExp from "regex-partial-match";
@@ -11,12 +11,16 @@ import {
   asMatch,
   asText,
   collectCanonicalSearchStrategyResults,
+  collectPausedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   heldWhileDriving,
-  regexMatchDetailsOf
+  processChunkResults,
+  regexMatchDetailsOf,
+  settleResults,
+  sinkInto
 } from "../../../test/utilities.js";
-import type { CanonicalSegment } from "../../../test/utilities.js";
+import type { CanonicalSegment, MatchResult } from "../../../test/utilities.js";
 import {
   chunksOf,
   everySplitOf,
@@ -124,7 +128,7 @@ function bufferingAtEveryTwoWaySplit(pattern: RegExp, haystack: string) {
     const strategy = new RegexSearchStrategy(pattern);
     const state = strategy.createState();
     chunks.forEach((chunk, index) => {
-      Array.from(strategy.processChunk(chunk, state));
+      processChunkResults(strategy, chunk, state);
       peakBuffer = Math.max(peakBuffer, state.buffer.length);
       const isBoundary = index < chunks.length - 1;
       if (isBoundary && state.buffer.length > 0) deferrals++;
@@ -1393,7 +1397,7 @@ describe("RegexSearchStrategy", () => {
     it("yields nothing when the buffer is empty", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
-      expect([...strategy.settle(state)]).toEqual([]);
+      expect(settleResults(strategy, state)).toEqual([]);
     });
   });
 
@@ -1428,7 +1432,7 @@ describe("RegexSearchStrategy", () => {
         const originalExec = vi.spyOn(pattern, "exec");
         const partialExec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
         try {
-          const results = [...strategy.processChunk(haystack, state)];
+          const results = processChunkResults(strategy, haystack, state);
           const matchCount = results.filter((result) => result.isMatch).length;
           const scanIterations = matchCount + 1;
           expect(partialExec).toHaveBeenCalledTimes(scanIterations);
@@ -1444,7 +1448,7 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
       vi.spyOn(PartialMatchRegExp.prototype, "exec").mockReturnValue(null);
       try {
-        const results = [...strategy.processChunk("anything", state)];
+        const results = processChunkResults(strategy, "anything", state);
         expect(results).toEqual([{ isMatch: false, content: "anything" }]);
         expect(state.buffer).toBe("");
       } finally {
@@ -1453,47 +1457,38 @@ describe("RegexSearchStrategy", () => {
     });
   });
 
-  describe("cancellation scenarios", () => {
-    it("has no remainder when cancelling with no matches", () => {
+  describe("what it holds for flush", () => {
+    it("holds nothing with no matches", () => {
       const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
-      const outputs: string[] = [];
-
-      let generator = strategy.processChunk("Text with ", state);
-      outputs.push(getValue(generator.next().value!));
-      expect(generator.return().value).toBeUndefined();
+      expect(processChunkResults(strategy, "Text with ", state)).toEqual([
+        { isMatch: false, content: "Text with " }
+      ]);
       expect(strategy.flush(state)).toBe("");
-      expect(outputs).toMatchObject(["Text with "]);
     });
 
-    it("has no remainder when cancelling with only buffered partial match (mid first anchor)", () => {
+    it("holds a partial match", () => {
       const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
 
-      const outputs: string[] = [];
-
-      let generator = strategy.processChunk("Text with {", state);
-      outputs.push(getValue(generator.next().value!));
-      const remainder = generator.return().value;
-      outputs.push(strategy.flush(state));
-      expect(remainder).toBeUndefined();
-      expect(outputs).toMatchObject(["Text with ", "{"]);
+      expect(processChunkResults(strategy, "Text with {", state)).toEqual([
+        { isMatch: false, content: "Text with " }
+      ]);
+      expect(strategy.flush(state)).toBe("{");
     });
 
-    it("has appropriate flush when cancelling after a match, with matches remaining", () => {
+    it("holds the rest of the chunk when stopped at a match", () => {
       const strategy = new RegexSearchStrategy(/{{.+?}}/s);
       const state = strategy.createState();
-
       const outputs: MatchResult<StreamRegexMatch>[] = [];
 
-      for (const value of strategy.processChunk(
+      strategy.processChunk(
         "Text with {{ something }} and {{ something more }}",
-        state
-      )) {
-        outputs.push(value);
-        if (outputs.length === 2) break;
-      }
+        state,
+        sinkInto(outputs, () => false)
+      );
+
       expect(outputs).toMatchObject([
         { isMatch: false, content: "Text with " },
         { isMatch: true, content: expect.arrayContaining(["{{ something }}"]) }
@@ -1509,15 +1504,21 @@ describe("RegexSearchStrategy", () => {
       ["with alternatives that could still grow", new RegexSearchStrategy(/a+b|a/), "aaab aa"],
       ["with a lookahead", new RegexSearchStrategy(/\w(?=!)/), "a! b!c"]
     ])(
-      "leaves whatever it has not yielded for flush, wherever iteration stops, %s",
+      "leaves whatever it has not reported for flush, at whichever match it stops, and carries on from there, %s",
       (_label, strategy, input) => {
         for (const chunks of everySplitOf(input)) {
           const { results, settledResults } = collectSearchStrategyResults(
             strategy,
             chunks
           );
-          const total = results.length + settledResults.length;
-          for (let limit = 1; limit <= total; limit++) {
+          expect(
+            collectPausedSearchStrategyResults(strategy, chunks),
+            `${chunks.join("|")} paused at every match`
+          ).toEqual([...results, ...settledResults]);
+          const matches = [...results, ...settledResults].filter(
+            (result) => result.isMatch
+          ).length;
+          for (let limit = 1; limit <= matches; limit++) {
             const { stopped, output } = collectStoppedSearchStrategyResults(
               strategy,
               chunks,
@@ -1533,36 +1534,34 @@ describe("RegexSearchStrategy", () => {
     it("leaves the unsettled rest for flush when settle is stopped after a match", () => {
       const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
       const state = strategy.createState();
-      const reported = [...strategy.processChunk('x "y z', state)];
+      const reported = processChunkResults(strategy, 'x "y z', state);
 
-      for (const result of strategy.settle(state)) {
-        reported.push(result);
-        if (result.isMatch) break;
-      }
+      strategy.settle(state, sinkInto(reported, () => false));
 
       expect(reported.map((result) => getValue(result)).join("")).toBe('x "y');
       expect(strategy.flush(state)).toBe(" z");
     });
 
-    it("leaves nothing for flush when settle is stopped after its final non-match", () => {
-      const strategy = new RegexSearchStrategy(/"[^"]*"/);
+    it("carries on where it stopped when settle is called again", () => {
+      const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
       const state = strategy.createState();
-      Array.from(strategy.processChunk('x "y', state));
+      processChunkResults(strategy, 'x "y z', state);
+      strategy.settle(state, sinkInto([], () => false));
 
-      const settled = strategy.settle(state)[Symbol.iterator]();
-      expect(settled.next().value).toEqual({ isMatch: false, content: '"y' });
-      settled.return?.();
-
+      expect(settleResults(strategy, state)).toEqual([
+        { isMatch: false, content: " " },
+        { isMatch: true, content: expect.arrayContaining(["z"]), streamIndices: [5, 6] }
+      ]);
       expect(strategy.flush(state)).toBe("");
     });
 
     it("settles nothing when flushed first", () => {
       const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
       const state = strategy.createState();
-      Array.from(strategy.processChunk('x "y z', state));
+      processChunkResults(strategy, 'x "y z', state);
 
       expect(strategy.flush(state)).toBe('"y z');
-      expect([...strategy.settle(state)]).toEqual([]);
+      expect(settleResults(strategy, state)).toEqual([]);
     });
   });
 
@@ -1571,7 +1570,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("before OLD after", state)];
+      const results = processChunkResults(strategy, "before OLD after", state);
 
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
@@ -1583,8 +1582,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("prefix OL", state)];
-      const results2 = [...strategy.processChunk("D suffix", state)];
+      const results1 = processChunkResults(strategy, "prefix OL", state);
+      const results2 = processChunkResults(strategy, "D suffix", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -1597,7 +1596,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("a OLD b OLD c", state)];
+      const results = processChunkResults(strategy, "a OLD b OLD c", state);
 
       const matches = results.filter((r) => r.isMatch);
       expect(matches).toHaveLength(2);
@@ -1613,8 +1612,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("chunk1 no matches ", state)];
-      const results2 = [...strategy.processChunk("chunk2 OLD end", state)];
+      const results1 = processChunkResults(strategy, "chunk1 no matches ", state);
+      const results2 = processChunkResults(strategy, "chunk2 OLD end", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -1628,16 +1627,16 @@ describe("RegexSearchStrategy", () => {
 
       const state1 = strategy.createState();
       const results1 = [
-        ...strategy.processChunk("OLD", state1),
-        ...strategy.settle(state1)
+        ...processChunkResults(strategy, "OLD", state1),
+        ...settleResults(strategy, state1)
       ];
       const match1 = results1.find((r) => r.isMatch);
       expect(match1?.streamIndices[0]).toBe(0);
 
       const state2 = strategy.createState();
       const results2 = [
-        ...strategy.processChunk("OLD", state2),
-        ...strategy.settle(state2)
+        ...processChunkResults(strategy, "OLD", state2),
+        ...settleResults(strategy, state2)
       ];
       const match2 = results2.find((r) => r.isMatch);
       expect(match2?.streamIndices[0]).toBe(0);
@@ -1648,7 +1647,7 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [
-        ...strategy.processChunk("prefix {{name}} suffix", state)
+        ...processChunkResults(strategy, "prefix {{name}} suffix", state)
       ];
 
       const match = results.find((r) => r.isMatch);
@@ -1661,8 +1660,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{.+?}}/);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("text {", state)];
-      const results2 = [...strategy.processChunk("{done}} after", state)];
+      const results1 = processChunkResults(strategy, "text {", state);
+      const results2 = processChunkResults(strategy, "{done}} after", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -1675,7 +1674,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("OLD after", state)];
+      const results = processChunkResults(strategy, "OLD after", state);
 
       expect(results[0]).toMatchObject({
         isMatch: true,
@@ -1689,7 +1688,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix OLD suffix", state)];
+      const results = processChunkResults(strategy, "prefix OLD suffix", state);
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
         isMatch: true,
@@ -1703,7 +1702,7 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [
-        ...strategy.processChunk("prefix {{name}} suffix", state)
+        ...processChunkResults(strategy, "prefix {{name}} suffix", state)
       ];
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
@@ -1719,7 +1718,7 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       const results = [
-        ...strategy.processChunk("prefix {{foo}} suffix", state)
+        ...processChunkResults(strategy, "prefix {{foo}} suffix", state)
       ];
       const match = results.find((r) => r.isMatch);
       const indices = match!.content.indices!;
@@ -1731,8 +1730,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/{{(?<name>\w+)}}/d);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("prefix ", state)];
-      const results2 = [...strategy.processChunk("{{value}} tail", state)];
+      const results1 = processChunkResults(strategy, "prefix ", state);
+      const results2 = processChunkResults(strategy, "{{value}} tail", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -1749,8 +1748,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/d);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("chunk1 no match ", state)];
-      const results2 = [...strategy.processChunk("chunk2 OLD end", state)];
+      const results1 = processChunkResults(strategy, "chunk1 no match ", state);
+      const results2 = processChunkResults(strategy, "chunk2 OLD end", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -1764,7 +1763,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("a OLD b OLD c", state)];
+      const results = processChunkResults(strategy, "a OLD b OLD c", state);
 
       const matches = results.filter((r) => r.isMatch);
       expect(matches).toHaveLength(2);
@@ -1776,8 +1775,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/d);
       const state = strategy.createState();
 
-      const results1 = [...strategy.processChunk("text OL", state)];
-      const results2 = [...strategy.processChunk("D end", state)];
+      const results1 = processChunkResults(strategy, "text OL", state);
+      const results2 = processChunkResults(strategy, "D end", state);
       const results = [...results1, ...results2];
 
       const match = results.find((r) => r.isMatch);
@@ -1791,7 +1790,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/a(b)?c/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix ac suffix", state)];
+      const results = processChunkResults(strategy, "prefix ac suffix", state);
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
         streamIndices: [7, 9]
@@ -1805,7 +1804,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/a(b)?c/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix abc suffix", state)];
+      const results = processChunkResults(strategy, "prefix abc suffix", state);
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
         streamIndices: [7, 10]
@@ -1819,7 +1818,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/a(?<mid>b)?c/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix ac suffix", state)];
+      const results = processChunkResults(strategy, "prefix ac suffix", state);
       const match = results.find((r) => r.isMatch);
       expect(match).toMatchObject({
         streamIndices: [7, 9]
@@ -1834,7 +1833,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/a(?<mid>b)?c/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix abc suffix", state)];
+      const results = processChunkResults(strategy, "prefix abc suffix", state);
       const match = results.find((r) => r.isMatch);
       const indices = match!.content.indices!;
       expect(indices[0]).toEqual([7, 10]);
@@ -1847,7 +1846,7 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       // Only "y" matches — both optional groups unmatched
-      const results1 = [...strategy.processChunk("prefix y suffix", state)];
+      const results1 = processChunkResults(strategy, "prefix y suffix", state);
       const match1 = results1.find((r) => r.isMatch);
       const indices1 = match1!.content.indices!;
       expect(indices1[0]).toEqual([7, 8]);
@@ -1860,10 +1859,8 @@ describe("RegexSearchStrategy", () => {
     it("should handle optional groups with offset from prior chunks", () => {
       const strategy = new RegexSearchStrategy(/a(?<opt>b)?c/d);
       const state = strategy.createState();
-
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- just need to dummy process a chunk to advance the stream index
-      [...strategy.processChunk("first chunk no match ", state)];
-      const results2 = [...strategy.processChunk("ac end", state)];
+      processChunkResults(strategy, "first chunk no match ", state);
+      const results2 = processChunkResults(strategy, "ac end", state);
       const match = results2.find((r) => r.isMatch);
       expect(match).toMatchObject({
         streamIndices: [21, 23]
@@ -1878,7 +1875,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/(?<word>\w+)|(?<num>\d+)/d);
       const state = strategy.createState();
 
-      const results = [...strategy.processChunk("prefix hello suffix", state)];
+      const results = processChunkResults(strategy, "prefix hello suffix", state);
       const match = results.find((r) => r.isMatch);
       const indices = match!.content.indices!;
       // "word" group matched, "num" group undefined
@@ -1891,13 +1888,13 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       // Stream 1: match at position 7
-      const results1 = [...strategy.processChunk("prefix hello suffix", state)];
+      const results1 = processChunkResults(strategy, "prefix hello suffix", state);
       strategy.flush(state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [7, 12] });
 
       // Stream 2: reuse state after flush — indices should start from 0 again
-      const results2 = [...strategy.processChunk("prefix hello suffix", state)];
+      const results2 = processChunkResults(strategy, "prefix hello suffix", state);
       strategy.flush(state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [7, 12] });
@@ -1908,17 +1905,15 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       // Stream 1: two chunks
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      [...strategy.processChunk("hello ", state)];
-      const results1 = [...strategy.processChunk("world!", state)];
+      processChunkResults(strategy, "hello ", state);
+      const results1 = processChunkResults(strategy, "world!", state);
       strategy.flush(state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [6, 11] });
 
       // Stream 2: same content, reused state — should get same indices
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      [...strategy.processChunk("hello ", state)];
-      const results2 = [...strategy.processChunk("world!", state)];
+      processChunkResults(strategy, "hello ", state);
+      const results2 = processChunkResults(strategy, "world!", state);
       strategy.flush(state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [6, 11] });
@@ -1960,7 +1955,7 @@ describe("RegexSearchStrategy", () => {
     it("returns the full matched string (match[0])", () => {
       const strategy = new RegexSearchStrategy(/hello/);
       const state = strategy.createState();
-      const results = [...strategy.processChunk("say hello world", state)];
+      const results = processChunkResults(strategy, "say hello world", state);
       const match = results.find((r) => r.isMatch)!;
       expect(strategy.matchToString(match.content)).toBe("hello");
     });
@@ -1969,8 +1964,8 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/(\w+)@(\w+)/);
       const state = strategy.createState();
       const results = [
-        ...strategy.processChunk("user@example", state),
-        ...strategy.settle(state)
+        ...processChunkResults(strategy, "user@example", state),
+        ...settleResults(strategy, state)
       ];
       const match = results.find((r) => r.isMatch)!;
       expect(strategy.matchToString(match.content)).toBe("user@example");
@@ -2315,6 +2310,22 @@ describe("RegexSearchStrategy", () => {
         }
       });
 
+      it("matches a nullable pattern as its non-nullable equivalent at every split point, including inside a run", () => {
+        const input = "a12b3c";
+        const allMatchesOf = (pattern: RegExp, chunks: string[]) => {
+          const { results, settledResults } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            chunks
+          );
+          return matchesOf([...results, ...settledResults]);
+        };
+
+        for (let i = 1; i < input.length; i++) {
+          const chunks = [input.slice(0, i), input.slice(i)];
+          expect(allMatchesOf(/\d*/, chunks)).toEqual(allMatchesOf(/\d+/, chunks));
+        }
+      });
+
       it("passes the character through and advances when no partial match could grow from that position", () => {
         const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
@@ -2521,7 +2532,7 @@ describe("RegexSearchStrategy", () => {
       const onGuardExceeded = vi.fn();
       const strategy = new RegexSearchStrategy(/\S+/, { onGuardExceeded });
       const state = strategy.createState();
-      for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
+      for (const chunk of chunks) processChunkResults(strategy, chunk, state);
       expect(state.buffer).toBe(unbrokenRun);
       expect(onGuardExceeded).not.toHaveBeenCalled();
     });
@@ -2530,9 +2541,9 @@ describe("RegexSearchStrategy", () => {
       const onGuardExceeded = vi.fn();
       const strategy = new RegexSearchStrategy(/\S+/, { onGuardExceeded });
       const state = strategy.createState();
-      Array.from(strategy.processChunk("a".repeat(65_536), state));
+      processChunkResults(strategy, "a".repeat(65_536), state);
       expect(onGuardExceeded).not.toHaveBeenCalled();
-      Array.from(strategy.processChunk("a", state));
+      processChunkResults(strategy, "a", state);
       expect(onGuardExceeded).toHaveBeenCalledTimes(1);
     });
 
@@ -2562,12 +2573,12 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
       let peakBuffer = 0;
       for (const chunk of chunks) {
-        Array.from(strategy.processChunk(chunk, state));
+        processChunkResults(strategy, chunk, state);
         peakBuffer = Math.max(peakBuffer, state.buffer.length);
       }
       expect(peakBuffer).toBeLessThanOrEqual(MAX_BUFFER_LENGTH);
       expect(onGuardExceeded).toHaveBeenCalledTimes(2);
-      expect(matchesOf(Array.from(strategy.settle(state)))).toEqual(["a".repeat(50)]);
+      expect(matchesOf(settleResults(strategy, state))).toEqual(["a".repeat(50)]);
     });
 
     it.each([
@@ -2585,7 +2596,7 @@ describe("RegexSearchStrategy", () => {
         const state = strategy.createState();
         let reported = "";
         const drain = (chunk: string) => {
-          for (const result of strategy.processChunk(chunk, state)) {
+          for (const result of processChunkResults(strategy, chunk, state)) {
             reported += getValue(result);
           }
         };
@@ -2622,14 +2633,14 @@ describe("RegexSearchStrategy", () => {
       expect(onGuardExceeded).not.toHaveBeenCalled();
     });
 
-    it("keeps what follows a release for flush, when a consumer stops after it", () => {
-      const input = "aXXb aXb";
+    it("keeps what follows a match after a release for flush, when stopped there", () => {
+      const input = "aXXb aXb aXb";
       const strategy = new RegexSearchStrategy(/a.*?b/, { maxBufferLength: 3 });
       const state = strategy.createState();
-      const results = strategy.processChunk(input, state)[Symbol.iterator]();
-      const reported = getValue(results.next().value!);
-      results.return?.();
-      expect(reported).toBe("aXX");
+      const results: MatchResult<StreamRegexMatch>[] = [];
+      strategy.processChunk(input, state, sinkInto(results, () => false));
+      const reported = results.map(getValue).join("");
+      expect(reported).toBe("aXXb aXb");
       expect(reported + strategy.flush(state)).toBe(input);
     });
 
@@ -2640,8 +2651,8 @@ describe("RegexSearchStrategy", () => {
         bufferGrowthFactorBetweenEvaluations: 100
       });
       const state = strategy.createState();
-      for (const chunk of ["xx", "x😀"]) Array.from(strategy.processChunk(chunk, state));
-      const reported = Array.from(strategy.processChunk("a ", state)).map(getValue);
+      for (const chunk of ["xx", "x😀"]) processChunkResults(strategy, chunk, state);
+      const reported = processChunkResults(strategy, "a ", state).map(getValue);
       expect(reported).toEqual(["a", " "]);
     });
 
@@ -2650,7 +2661,7 @@ describe("RegexSearchStrategy", () => {
         maxBufferLength: MAX_BUFFER_LENGTH
       });
       const state = strategy.createState();
-      for (const chunk of chunks) Array.from(strategy.processChunk(chunk, state));
+      for (const chunk of chunks) processChunkResults(strategy, chunk, state);
       strategy.flush(state);
       expect(state).toEqual(strategy.createState());
     });

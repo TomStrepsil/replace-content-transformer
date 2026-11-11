@@ -41,4 +41,4 @@ Every strategy holds back no more than `maxBufferLength` code units (65,536 by d
 
 ## 📊 Benchmark Strategies
 
-Additional search strategy implementations exist for performance comparison and algorithmic research. These are **not part of the public API** but are maintained in the [`benchmarking`](./benchmarking/README.md) subdirectory for optimization insights and algorithm comparison.
+Additional search strategy implementations exist for performance comparison and algorithmic research. These are **not part of the public API** but are maintained as [reference implementations](../../test/benchmarks/references/README.md) alongside the benchmarks, for optimization insights and algorithm comparison.

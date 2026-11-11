@@ -43,16 +43,17 @@ This optimization provides **~27% performance improvement** in scenarios with fe
 
 ## Implementation Details
 
-This is a **generator-based strategy** implementing `SearchStrategy<TState>` with cancellation support:
+It implements `SearchStrategy<TState>`, reporting to a sink that can stop it at any match:
 
 ```typescript
-*processChunk(
+processChunk(
   chunk: string,
-  state: LoopedIndexOfAnchoredSearchState
-): Generator<MatchResult, void, undefined> {
+  state: LoopedIndexOfAnchoredSearchState,
+  sink: MatchSink
+): undefined {
   // Sequentially searches for each needle in order
   // Only buffers when partial matches detected at boundaries
-  // Yields matches and non-matches
+  // Reports non-matches via sink.reportText() and matches via sink.reportMatch()
 }
 ```
 
@@ -68,7 +69,7 @@ Process:
   1. Find '{{' at position 5 (currentNeedleIndex: 0 → 1)
   2. From position 7, find '!' at position 7 (currentNeedleIndex: 1 → 2)
   3. From position 8, find '}}' at position 15 (currentNeedleIndex: 2 → 0)
-  4. Complete match! Yield "{{!content}}" as match
+  4. Complete match! Report "{{!content}}" as match
 
 ┌──────────────────────────────────────────────┐
 │ Chunk: "Text {{!content}} more"              │
@@ -104,7 +105,7 @@ for (
     const beforePartial = haystack.slice(position, -partialLength);
     position = length - partialLength;
     if (beforePartial) {
-      yield { isMatch: false, content: beforePartial };
+      sink.reportText(beforePartial);
     }
     return;
   }
@@ -147,7 +148,7 @@ Process Chunk 1:
 Process Chunk 2:
   - Combined: "{{world}}"
   - Find '}}' at position 7 (currentNeedleIndex: 1 → 0)
-  - Complete match! Yield "{{world}}" as match
+  - Complete match! Report "{{world}}" as match
 ```
 
 **Compared to blind buffering:**
@@ -185,7 +186,7 @@ type LoopedIndexOfAnchoredSearchState = {
 - **First needle not found + partial match:** Buffer only the partial match suffix
 - **Mid-sequence:** Buffer from first needle onwards until all needles found
 - **Complete match:** Reset `currentNeedleIndex` to 0, clear buffer
-- **Cancel:** if consuming processor breaks iteration, remainder of current chunk pushed to flush buffer. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit this buffer as one chunk
+- **Stop:** when `sink.reportMatch()` returns `false`, the remainder of the current chunk is left in the buffer, for `flush` to return or for `processChunk("")` to carry on from. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit this buffer as one chunk
 - **Flush:** Returns and clears any buffered content
 
 ## Buffer limit

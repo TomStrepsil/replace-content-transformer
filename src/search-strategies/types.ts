@@ -10,48 +10,52 @@ export type StreamIndices = [
 ];
 
 /**
- * Result of processing content - either a match or literal content.
+ * Receives a search strategy's results, in stream order.
  *
- * Uses boolean discrimination with typed content:
- * - `{ isMatch: false, content: string }` - Literal content to yield as-is
- * - `{ isMatch: true, content: T, streamIndices: [startIndex, endIndex] }` - Match value passed to replacement function (endIndex is exclusive / half-open interval)
- *
- * @typeParam T - The type of value returned for matches (default: string)
+ * @template TMatch - The type of match reported by the strategy (default: string)
  */
-export type MatchResult<T = string> =
-  | { isMatch: false; content: string }
-  | { isMatch: true; content: T; streamIndices: StreamIndices };
+export interface MatchSink<TMatch = string> {
+  /** Report literal content, to be emitted as-is. */
+  reportText(content: string): void;
+  /**
+   * Report a match.
+   *
+   * @param content - Match value passed to the replacement function
+   * @param streamIndices - Stream offsets of the match; `endIndex` is exclusive
+   * @returns `false` to stop: the strategy returns at once, leaving everything after this
+   * match in `state`. Once the strategy has returned, {@link SearchStrategy.flush | flush}
+   * returns it as raw text, or the same scan carries on when called again with no new input.
+   * Neither may be called from within the sink.
+   */
+  reportMatch(content: TMatch, streamIndices: StreamIndices): boolean;
+}
 
 /**
  * Search strategy for finding patterns in streaming content.
  *
- * Strategies are stateless and reusable across multiple streams, hence state is owned by the consuming processor.
+ * Strategies are stateless and reusable across multiple streams, hence state is owned by the engine.
  *
  * @template TState - The type of state this strategy requires (use void for stateless strategies)
- * @template TMatch - The type of match returned by the strategy (default: string)
+ * @template TMatch - The type of match reported by the strategy (default: string)
  */
 export interface SearchStrategy<TState, TMatch = string> {
   /**
    * Create initial state for this strategy.
-   * Called once per stream processor instance.
+   * Called once per engine.
    */
   createState(): TState;
 
   /**
-   * Process input chunk and yield match results as they're determined.
+   * Process an input chunk, reporting results to `sink` as they're determined.
    *
-   * A caller may stop iterating the result early, as engines do once `stopReplacingSignal`
-   * aborts. Whatever was not yet yielded must then be left in `state`, so {@link flush}
-   * returns it.
+   * Stops early when {@link MatchSink.reportMatch} returns `false`. Calling it again with `""`
+   * carries on from that match.
    *
    * @param haystack - New content to process
    * @param state - Mutable state object to track search progress
-   * @yields MatchResult - Either `{ isMatch: false, content: string }` or `{ isMatch: true, content: TMatch, streamIndices: [startIndex, endIndex] }`
+   * @param sink - Receives literal content and matches, in stream order
    */
-  processChunk(
-    haystack: string,
-    state: TState
-  ): Generator<MatchResult<TMatch>, void, undefined>;
+  processChunk(haystack: string, state: TState, sink: MatchSink<TMatch>): undefined;
 
   /**
    * Return everything held in `state` as raw text, without searching it, and re-set `state`
@@ -67,19 +71,19 @@ export interface SearchStrategy<TState, TMatch = string> {
 
   /**
    * Optional. Decide whatever remains held in `state`, now that no further input can arrive,
-   * and re-set `state` when called.
+   * and re-set `state` when it completes.
    *
-   * Yields the same {@link MatchResult} union as {@link processChunk}, so a strategy that
-   * deferred a decision at a chunk boundary can still report a real match once the stream
-   * ends. A strategy without it has its held text emitted verbatim via {@link flush}.
+   * Reports to `sink` as {@link processChunk} does, so a strategy that deferred a decision
+   * at a chunk boundary can still report a real match once the stream ends. A strategy
+   * without it has its held text emitted verbatim via {@link flush}.
    *
-   * As with {@link processChunk}, a caller may stop iterating the result early, so it must be
-   * lazy: whatever was not yet yielded is put back into `state` for {@link flush} to return.
-   * The caller must call {@link flush} before re-using `state`.
+   * Stops early when {@link MatchSink.reportMatch} returns `false`. Calling it again carries on
+   * from that match; {@link flush} returns the rest as raw text instead.
    *
    * @param state - Mutable state
+   * @param sink - Receives literal content and matches, in stream order
    */
-  settle?(state: TState): Iterable<MatchResult<TMatch>>;
+  settle?(state: TState, sink: MatchSink<TMatch>): undefined;
 
   /**
    * Convert a match value to the raw matched string.
@@ -87,7 +91,7 @@ export interface SearchStrategy<TState, TMatch = string> {
    * Used when a match must be emitted verbatim (e.g. when
    * {@link AsyncLookaheadTransformEngineOptions.abandonPendingSignal} fires).
    * For string-based strategies this is the identity function; for richer
-   * match types (e.g. `RegExpExecArray`) implementations should return the
+   * match types (e.g. `StreamRegexMatch`) implementations should return the
    * full matched text (`match[0]`).
    */
   matchToString(match: TMatch): string;

@@ -39,7 +39,7 @@ Perfect for server-side rendering, edge composition, log processing, template en
 - 🔮 **Eager discovery** - Supporting lookahead replacement, with configurable concurrency
 - 🎨 **Dynamic content** - Replace with strings, functions, or iterables, sync or async
 - ⏹️ **Cancellable** - Replacement can be halted mid-chunk
-- ♻️ **Generator based** - Consuming stream has control
+- ⏯️ **Pausable search** - Engines stop or pause the search at any match, so the consuming stream has control
 - ⚡ **Minimal setup overhead** - Stateless & re-usable search strategies
 - 🔌 **Composable** - Pluggable search strategies & engines
 - 📦 **TypeScript** - Full type definitions included
@@ -517,28 +517,30 @@ The library uses a composable architecture that finds and replaces patterns acro
 It has separated concerns:
 
 1. **[Search Strategies](#-search-strategies)** - Define _what_ to match (e.g., literal strings, arrays of strings as anchors, regular expressions)
-2. **[Engines](#-engines)** - Orchestrate search and replacement, yielding output via generators
+2. **[Engines](#-engines)** - Orchestrate search and replacement, receiving each result from the strategy through a sink
 
 ### 🔍 Search Strategies
 
 Pluggable strategies implement the `SearchStrategy` interface:
 
 ```typescript
-type MatchResult<T = string> =
-  | { isMatch: false; content: string }
-  | { isMatch: true; content: T, streamIndices: [startIndex: number, endIndex: number]};
+type StreamIndices = [startIndex: number, endIndex: number];
+
+interface MatchSink<TMatch = string> {
+  reportText(content: string): void;
+  reportMatch(content: TMatch, streamIndices: StreamIndices): boolean;
+}
 
 interface SearchStrategy<TState, TMatch = string> {
   createState(): TState;
-  processChunk(
-    haystack: string,
-    state: TState
-  ): Generator<MatchResult<TMatch>, void, undefined>;
+  processChunk(haystack: string, state: TState, sink: MatchSink<TMatch>): undefined;
   flush(state: TState): string;
-  settle?(state: TState): Iterable<MatchResult<TMatch>>;
+  settle?(state: TState, sink: MatchSink<TMatch>): undefined;
   matchToString(match: TMatch): string;
 }
 ```
+
+The `processChunk` reports the chunk to the sink in stream order: literal content through `reportText`, and each match through `reportMatch`. `processChunk` and `settle` return `undefined` rather than `void`, so a strategy still written as a generator is a type error rather than one that silently reports nothing.
 
 The `TState` type is specific to the strategy, managed by the consuming engine / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
 
@@ -546,9 +548,9 @@ The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchSt
 
 The `flush` returns anything the strategy is still holding as raw text, without searching it, and re-sets the provided state parameter for re-use. The engine calls it at the end of the stream when the strategy has no `settle`, and once `stopReplacingSignal` has aborted.
 
-The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It yields the same `MatchResult` union as `processChunk`, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
+The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It reports to the sink as `processChunk` does, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
 
-An engine may stop iterating a `processChunk` or `settle` result early: once `stopReplacingSignal` aborts, it stops searching at the next match rather than rendering every remaining match verbatim. A strategy must then leave whatever it has not yielded in the state, so `flush` returns it. The built-in strategies do this from the `finally` blocks of their generators.
+`reportMatch` returns whether to carry on. When it returns `false`, the strategy returns at once, leaving everything after that match in the state. From there, the engine either calls `flush` to emit it verbatim, as it does once `stopReplacingSignal` aborts, or carries on where the search stopped by calling `processChunk` with `""` (or `settle` again). Either call has to wait until `processChunk` (or `settle`) has returned: the state is only complete once it has. `AsyncSerialReplacementTransformEngine` pauses like this at every match while its replacement is awaited, and `AsyncLookaheadTransformEngine` at a match that fills its queue. The built-in strategies leave the rest in the state from a `finally` block, which also keeps the state intact if a sink call throws.
 
 The `matchToString` converts a match back to the raw matched text, for a match emitted verbatim.
 
@@ -663,35 +665,43 @@ There are three concrete engines:
 The sync/async distinction determines which adapter accepts the engine (`ReplaceContentTransformer` / `AsyncReplaceContentTransformer`).
 
 ```typescript
-#emit(results: Iterable<MatchResult<TMatch>>) {
-  for (const { isMatch, content } of results) {
-    sink.enqueue(
-      isMatch
-        ? /* some replacement form (static, functional, iterator, async...) */
-        : content
-    );
+let stoppedAt: string | undefined;
+const sink: MatchSink<TMatch> = {
+  reportText: (content) => output.enqueue(content),
+  reportMatch: (content, streamIndices) => {
+    if (stopReplacingSignal?.aborted) {
+      stoppedAt = this.searchStrategy.matchToString(content);
+      return false;
+    }
+    output.enqueue(/* some replacement form (static, functional, iterator, async...) */);
+    return true;
   }
-}
+};
 write(chunk: string) {
-  this.#emit(this.searchStrategy.processChunk(chunk, this.searchState));
+  this.searchStrategy.processChunk(chunk, this.searchState, sink);
+  if (stoppedAt !== undefined) {
+    /* the match verbatim, then the rest of the chunk and anything held */
+    output.enqueue(stoppedAt + this.searchStrategy.flush(this.searchState));
+    stoppedAt = undefined;
+  }
 }
 end() {
   if (this.searchStrategy.settle) {
-    this.#emit(this.searchStrategy.settle(this.searchState));
+    this.searchStrategy.settle(this.searchState, sink);
   } else {
     const held = this.searchStrategy.flush(this.searchState);
-    if (held) sink.enqueue(held);
+    if (held) output.enqueue(held);
   }
 }
 ```
 
-**Why generators?**
+**Why a sink?**
 
-- **Lazy evaluation** - Output is produced only when deemed consumable
-- **Memory efficient** - No need to accumulate entire result
-- **[Backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) support** - Downstream can control the flow rate
-- **Cancellable** - Consumer can stop matching mid-chunk, e.g. once `stopReplacingSignal` aborts
-- **Composition** - Easily chain with iterables, async iterables, or streams
+- **Nothing accumulated** - Each result goes straight to the engine, as it is found
+- **Stops at any match** - `reportMatch` returning `false` ends the search, e.g. once `stopReplacingSignal` aborts, with no work done past that match
+- **Pauses and resumes** - The rest stays in the state, so an engine can wait at a match and carry on with `processChunk("")`. 
+  - This is how the [async serial engine](./src/engines/async-serial-transform-engine.ts) waits for each replacement, and how the lookahead queue's [backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) reaches the search
+- **Composable** - A strategy can wrap another's sink; replacements can still be iterables, async iterables or streams
 
 ## 🔧 Development
 
@@ -745,13 +755,13 @@ npm run build
 For each pattern in a curated table, the regex search strategy is driven over **every** two-way split of the input, every three-way split, and a character-by-character split, asserting:
 
 - **Chunk invariance** - the match sequence is identical however the input was split, and equal to the non-streaming result
-- **Lossless output** - concatenating every yield plus `flush()` reproduces the input exactly
+- **Lossless output** - concatenating every reported result plus `flush()` reproduces the input exactly
 
 The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, a terminator the pattern's own body can consume, and lookaheads whose assertion reaches past the text the match consumes — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced, except where a chunk ends more than 64 characters into the text a backreference repeats (see [Backreferences](./src/search-strategies/regex/README.md#️-backreferences)).
 
 ### Functional Validation Tests
 
-- **Algorithm comparison** - 17 different search strategy implementations validated against identical test scenarios:
+- **Algorithm comparison** - 18 harnesses, each a search strategy with an engine shape, validated against identical test scenarios:
   - Single and multi-chunk replacements
   - Tokens split across chunk boundaries at various positions
   - Consecutive and nested patterns
@@ -771,15 +781,19 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 - **Bun** 1.0+
 - **Deno** 1.38+
 - **Browsers:**
-  - Chrome 52+
-  - Firefox 65+
-  - Safari 14.1+
-  - Edge 79+
+  - Chrome 85+
+  - Firefox 102+
+  - Safari 15+
+  - Edge 85+
 - **Edge Workers:**
   - Cloudflare Workers
   - Vercel Edge Functions
   - Akamai EdgeWorkers
   - Fastly Compute
+
+`AsyncLookaheadTransformEngine` also needs [`AbortSignal.any()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static): Chrome and Edge 116+, Firefox 124+, Safari 17.4+, Deno 1.39+ and Bun 1.1.4+.
+
+A regex search strategy also needs whatever its pattern's own syntax needs, such as the `v` flag. See `regex-partial-match`'s [Compatibility](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/compatibility.md).
 
 ## 📜 License
 

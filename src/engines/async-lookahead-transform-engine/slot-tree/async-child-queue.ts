@@ -4,17 +4,19 @@ import type { SlotNode } from "./types.ts";
  * A bounded single-producer / single-consumer async channel of
  * {@link SlotNode}s.
  *
- * - `push()` buffers the node, then suspends while the queue is over
- *   `limit`; resolves immediately if a consumer is already waiting
- *   (direct hand-off). A node pushed before `close()` is always drained.
+ * - `offer()` buffers the node, or hands it straight to a waiting consumer.
+ * - `full` is whether the queue holds more than `limit` nodes and is open.
+ * - `room()` resolves once the queue is no longer `full`.
+ * - `push()` offers the node, then waits for room. A node pushed before
+ *   `close()` is always drained.
  * - `close()` signals end-of-stream; any waiting consumer is resolved
  *   with `{ done: true }`.
  * - Iteration yields nodes in push order and terminates after `close()`
  *   once the buffered nodes are drained.
  *
- * Backpressure for the lookahead transformer is implemented by the
- * `push()` suspension: when the scanner runs ahead of the drainer, the
- * queue fills and the scanner's next push awaits a consumer pull.
+ * Backpressure for the lookahead transformer is implemented by `offer()`
+ * and `room()`: when the scanner runs ahead of the drainer, the queue fills,
+ * the scanner stops at the next match and waits for a consumer pull.
  */
 export class AsyncChildQueue implements AsyncIterable<SlotNode> {
   readonly #limit: number;
@@ -24,13 +26,14 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
   #closed = false;
 
   constructor(limit: number) {
-    if (limit < 1) {
-      throw new RangeError(`AsyncChildQueue limit must be >= 1 (got ${limit})`);
-    }
     this.#limit = limit;
   }
 
-  async push(node: SlotNode): Promise<void> {
+  get full(): boolean {
+    return this.#buffer.length > this.#limit && !this.#closed;
+  }
+
+  offer(node: SlotNode): void {
     if (this.#closed) {
       throw new Error("Cannot push to a closed AsyncChildQueue");
     }
@@ -40,9 +43,17 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
       return;
     }
     this.#buffer.push(node);
-    if (this.#buffer.length > this.#limit) {
+  }
+
+  async room(): Promise<void> {
+    while (this.full) {
       await new Promise<void>((resolve) => this.#pendingProducers.push(resolve));
     }
+  }
+
+  async push(node: SlotNode): Promise<void> {
+    this.offer(node);
+    await this.room();
   }
 
   close(): void {

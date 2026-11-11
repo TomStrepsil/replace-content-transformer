@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
-import * as harnesses from "../../harnesses/index.ts";
-import type { BaseHarness } from "../../harnesses/types.ts";
+import * as harnesses from "../harnesses/index.ts";
+import type { BaseHarness } from "../harnesses/types.ts";
 import { mockTransformStreamDefaultControllerFactory } from "../../utilities.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
 
-for (const harness of Object.values(harnesses) as BaseHarness[]) {
+const allHarnesses: BaseHarness[] = Object.values(harnesses);
+
+for (const harness of allHarnesses) {
   const { name, createSearchStrategy, createTransformer, isAsync } = harness;
 
   const substitutionData = {
@@ -135,6 +137,13 @@ for (const harness of Object.values(harnesses) as BaseHarness[]) {
         tokens: ["{{", "}}"],
         expected: "{ y",
         replacement: () => "y"
+      },
+      {
+        chunks: ["a {{x}} {{unterminated"],
+        tokens: ["{{", "}}"],
+        expected: "a y {{unterminated",
+        replacement: () => "y",
+        balanced: false
       }
     ].forEach(({ chunks, tokens, replacement, expected, balanced }) => {
       test.skipIf(harness.skipScenario?.({ balanced }))(`replaces content ("${chunks.join(

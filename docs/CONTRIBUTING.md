@@ -163,8 +163,8 @@ Correct behaviour shouldn't depend on where the stream happens to be split. Any 
 ### Further reading
 
 - [`test/README.md`](../test/README.md): shared mocks, collectors and chunk-split helpers
-- [`test/harnesses/README.md`](../test/harnesses/README.md): running a strategy through the shared validation and benchmark scenarios
-- [`src/search-strategies/benchmarking/README.md`](../src/search-strategies/benchmarking/README.md#-testing): how much testing the reference strategies need
+- [`test/benchmarks/harnesses/README.md`](../test/benchmarks/harnesses/README.md): running a strategy through the shared validation and benchmark scenarios
+- [`test/benchmarks/references/README.md`](../test/benchmarks/references/README.md#-testing): how much testing the reference strategies and engine shapes need
 
 ## 🎨 Code Style
 

@@ -1,7 +1,5 @@
-import type {
-  MatchResult,
-  SearchStrategy
-} from "../src/search-strategies/types.ts";
+import type { MatchSink, SearchStrategy } from "../src/search-strategies/types.ts";
+import type { MatchResult } from "./search-strategy-results.ts";
 import type { IterableSlotNode } from "../src/engines/async-lookahead-transform-engine/slot-tree/types.ts";
 import type { Nested } from "../src/engines/async-lookahead-transform-engine/nested.ts";
 import type {
@@ -172,65 +170,78 @@ function asyncIterable(...chunks: string[]): AsyncIterable<string> {
   };
 }
 
-/** Thin wrapper over {@link Promise.withResolvers} for test expressiveness. */
-function deferred<T>(): PromiseWithResolvers<T> {
-  return Promise.withResolvers<T>();
-}
+/** A result for a mock strategy to report, or a callback to run when it reaches that point. */
+type MockStep<TMatch> = MatchResult<TMatch> | (() => void);
 
-function mockSearchStrategyFactory<TMatch = string>(
-  ...results: MatchResult<TMatch>[]
-): Mocked<SearchStrategy<object, TMatch>> {
-  return {
-    createState: vi.fn().mockReturnValue({}),
-    processChunk: vi.fn().mockImplementation(function* () {
-      for (const result of results) {
-        yield result;
-      }
-    }),
-    flush: vi.fn().mockReturnValue(""),
-    matchToString: vi.fn().mockImplementation((match: TMatch) => String(match))
-  };
-}
+type MockSearchState<TMatch> = { unreported?: MockStep<TMatch>[] };
 
 /**
- * A mock strategy whose `processChunk` and `settle` yield `chunk` and `settled`, and
- * which keeps to the stop-early contract: when a caller stops either iteration part-way,
- * it holds `rest` for `flush` to return. `pulled` counts the results the caller took.
+ * A mock strategy that reports `chunk`'s steps for every chunk, and `settled`'s from
+ * `settle` when given. Stopped at a match, it keeps the steps not yet reported in `state`:
+ * a call with `""` (or `settle` again) carries on with them, and `flush` returns them as
+ * raw text, followed by `rest`. `pulled` counts the results it reported.
  */
-function mockStoppableSearchStrategy<TMatch = string>({
+function mockSearchStrategy<TMatch = string>({
   chunk = [],
-  settled = [],
-  rest
+  settled,
+  rest = ""
 }: {
-  chunk?: MatchResult<TMatch>[];
-  settled?: MatchResult<TMatch>[];
-  rest: string;
-}) {
-  const strategy = mockSearchStrategyFactory<TMatch>();
+  chunk?: MockStep<TMatch>[] | ((haystack: string) => MockStep<TMatch>[]);
+  settled?: MockStep<TMatch>[] | (() => MockStep<TMatch>[]);
+  rest?: string;
+} = {}) {
   const counts = { pulled: 0 };
-  let held = "";
-  function* yieldUnlessStopped(
-    results: MatchResult<TMatch>[]
-  ): Generator<MatchResult<TMatch>, void, undefined> {
-    let finished = false;
-    try {
-      for (const result of results) {
-        counts.pulled++;
-        yield result;
+  const stepsFor = typeof chunk === "function" ? chunk : () => chunk;
+  const report = (
+    steps: MockStep<TMatch>[],
+    state: MockSearchState<TMatch>,
+    sink: MatchSink<TMatch>
+  ): undefined => {
+    state.unreported = undefined;
+    for (let index = 0; index < steps.length; index++) {
+      const step = steps[index];
+      if (typeof step === "function") {
+        step();
+        continue;
       }
-      finished = true;
-    } finally {
-      if (!finished) held = rest;
+      counts.pulled++;
+      if (!step.isMatch) {
+        sink.reportText(step.content);
+      } else if (!sink.reportMatch(step.content, step.streamIndices)) {
+        state.unreported = steps.slice(index + 1);
+        return;
+      }
     }
+  };
+  const strategy: Mocked<SearchStrategy<MockSearchState<TMatch>, TMatch>> = {
+    createState: vi.fn((): MockSearchState<TMatch> => ({})),
+    processChunk: vi.fn((haystack: string, state: MockSearchState<TMatch>, sink: MatchSink<TMatch>) =>
+      report(state.unreported ?? stepsFor(haystack), state, sink)
+    ),
+    flush: vi.fn((state: MockSearchState<TMatch>) => {
+      const unreported = state.unreported;
+      state.unreported = undefined;
+      if (unreported === undefined) return "";
+      const text = unreported
+        .filter((step) => typeof step !== "function")
+        .map((step) => (step.isMatch ? strategy.matchToString(step.content) : step.content))
+        .join("");
+      return text + rest;
+    }),
+    matchToString: vi.fn((match: TMatch) => String(match))
+  };
+  if (settled !== undefined) {
+    const settledSteps = typeof settled === "function" ? settled : () => settled;
+    strategy.settle = vi.fn((state: MockSearchState<TMatch>, sink: MatchSink<TMatch>) =>
+      report(state.unreported ?? settledSteps(), state, sink)
+    );
   }
-  strategy.processChunk.mockImplementation(() => yieldUnlessStopped(chunk));
-  strategy.settle = vi.fn(() => yieldUnlessStopped(settled));
-  strategy.flush.mockImplementation(() => {
-    const flushed = held;
-    held = "";
-    return flushed;
-  });
   return { strategy, counts };
+}
+
+/** A {@link mockSearchStrategy} that reports `results` for every chunk. */
+function mockSearchStrategyFactory<TMatch = string>(...results: MatchResult<TMatch>[]) {
+  return mockSearchStrategy<TMatch>({ chunk: results }).strategy;
 }
 
 /**
@@ -340,17 +351,22 @@ function startedSinkOf(engine: {
   return lastCall[0];
 }
 
-export type { CanonicalSegment, GuardedStrategy } from "./search-strategy-results.ts";
+export type { CanonicalSegment, GuardedStrategy, MatchResult } from "./search-strategy-results.ts";
+export type { MockStep };
 
 export {
   asMatch,
   asText,
   collectCanonicalSearchStrategyResults,
+  collectPausedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   heldWhileDriving,
   outputWhenGuardThrows,
-  regexMatchDetailsOf
+  processChunkResults,
+  regexMatchDetailsOf,
+  settleResults,
+  sinkInto
 } from "./search-strategy-results.ts";
 
 export {
@@ -359,11 +375,10 @@ export {
   collectWritable,
   asyncIterable,
   createIterableSlotNode,
-  deferred,
   indexOfWork,
   mockAsyncEngine,
+  mockSearchStrategy,
   mockSearchStrategyFactory,
-  mockStoppableSearchStrategy,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   startTestHttpServer,

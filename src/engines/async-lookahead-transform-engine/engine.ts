@@ -1,5 +1,5 @@
 import type {
-  MatchResult,
+  MatchSink,
   SearchStrategy,
   StreamIndices
 } from "../../search-strategies/types.ts";
@@ -12,6 +12,7 @@ import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { IterableSlotNode, SlotNode, TextSlotNode } from "./slot-tree/types.ts";
 import { TransformEngineBase } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
+import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 
@@ -31,7 +32,8 @@ export type LookaheadReplacementContext = ReplacementContext & {
 
 /**
  * Default backpressure limit on the internal slot queue. Scanning
- * suspends when this many slots are buffered ahead of the drain loop.
+ * suspends at the next match once more slots than this are buffered ahead
+ * of the drain loop.
  * Override via {@link AsyncLookaheadTransformEngineOptions.highWaterMark}
  * if your platform's sub-request ceiling exceeds this.
  */
@@ -105,18 +107,19 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
   concurrencyStrategy: ConcurrencyStrategy;
   /**
    * Maximum number of buffered slots in the internal queue before
-   * scanning suspends. Provides backpressure when the drain loop
-   * (downstream emission) lags behind the scanner.
+   * scanning suspends, at the next match. The text before a match is
+   * queued as one slot with it, so the queue holds at most two slots more.
+   * Provides backpressure when the drain loop (downstream emission) lags
+   * behind the scanner.
    *
    * @default 32
    */
   highWaterMark?: number;
   /**
    * When aborted, the scanner stops calling the replacement function and
-   * stops searching at the next match it finds: that match is emitted
-   * verbatim (using {@link SearchStrategy.matchToString}) together with the
-   * rest of the current chunk and what the strategy holds, as one chunk, and
-   * later chunks pass through unchanged. No replacement is called once the
+   * stops searching: what is left of the current chunk and what the strategy
+   * holds are emitted verbatim as one chunk, and later chunks pass through
+   * unchanged. No replacement is called once the
    * signal has fired: a match scheduled earlier whose replacement has not
    * been called, such as one still waiting for a concurrency slot, is
    * emitted verbatim in its place, without waiting for the slot. Replacements
@@ -158,6 +161,9 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * internally by spawning a child engine and bridging its sink into the
  * outer drain loop — adapters need not plumb nesting themselves.
  *
+ * @throws {RangeError} If `highWaterMark` is not a whole number of at least 1.
+ * `Infinity` is allowed; `undefined` selects the default.
+ *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type
  */
@@ -177,6 +183,20 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
   #cancelled = false;
+  #paused = false;
+  #text = "";
+  readonly #matchSink: MatchSink<TMatch> = {
+    reportText: (content) => {
+      this.#text += content;
+    },
+    reportMatch: (match, streamIndices) => {
+      this.#offerText();
+      this.#queue.offer(this.#scheduleMatch(match, streamIndices));
+      if (!this.#queue.full) return true;
+      this.#paused = true;
+      return false;
+    }
+  };
 
   constructor(
     options: AsyncLookaheadTransformEngineOptions<TState, TMatch>,
@@ -192,6 +212,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
      */
     depth: number = 0
   ) {
+    const { highWaterMark = DEFAULT_HIGH_WATER_MARK } = options;
+    validateWholeNumberAtLeast("highWaterMark", highWaterMark, 1);
     const cancelAbortController = new AbortController();
     const abandonSignal = AbortSignal.any(
       [options.abandonPendingSignal, cancelAbortController.signal].filter(isDefinedSignal)
@@ -204,9 +226,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
-    this.#queue = new AsyncChildQueue(
-      options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
-    );
+    this.#queue = new AsyncChildQueue(highWaterMark);
     this.#cancelAbortController = cancelAbortController;
     this.#abandonSignal = abandonSignal;
   }
@@ -244,37 +264,39 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   async write(chunk: string): Promise<void> {
     if (this.#cancelled) return;
     if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld("");
+      await this.#enqueueHeld();
       if (this.#cancelled) return;
       await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
       return;
     }
 
-    await this.#enqueue(this._searchStrategy.processChunk(chunk, this._state));
+    this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
+    await this.#enqueue(false);
   }
 
-  async #enqueueHeld(before: string): Promise<void> {
-    const held = this._takeHeld(before);
+  #offerText(): void {
+    if (!this.#text) return;
+    this.#queue.offer(textSlot(this.#siblingIndex++, this.#text));
+    this.#text = "";
+  }
+
+  async #enqueueHeld(): Promise<void> {
+    const held = this._searchStrategy.flush(this._state);
     if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
   }
 
-  async #enqueue(results: Iterable<MatchResult<TMatch>>): Promise<void> {
-    let stoppedAt: string | undefined;
-    for (const result of results) {
+  async #enqueue(settling: boolean): Promise<void> {
+    this.#offerText();
+    while (this.#queue.full) {
+      await this.#queue.room();
       if (this.#cancelled) return;
-      if (!result.isMatch) {
-        await this.#queue.push(textSlot(this.#siblingIndex++, result.content));
-        continue;
+      if (this._stopReplacingSignal?.aborted) return this.#enqueueHeld();
+      if (this.#paused) {
+        this.#paused = false;
+        this._resume(settling, this.#matchSink);
+        this.#offerText();
       }
-      if (this._stopReplacingSignal?.aborted) {
-        stoppedAt = this._renderVerbatim(result);
-        break;
-      }
-      await this.#queue.push(
-        this.#scheduleMatch(result.content, result.streamIndices)
-      );
     }
-    if (stoppedAt !== undefined) await this.#enqueueHeld(stoppedAt);
   }
 
   /**
@@ -289,9 +311,10 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       return;
     }
     if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld("");
+      await this.#enqueueHeld();
     } else {
-      await this.#enqueue(this._settle());
+      this._settle(this.#matchSink);
+      await this.#enqueue(true);
     }
     this.#queue.close();
     await this.#drainDone;

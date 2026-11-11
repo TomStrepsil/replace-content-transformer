@@ -1,6 +1,6 @@
 # Regex Search Strategy
 
-A generator-based strategy that matches patterns using **regular expressions** with intelligent partial match detection to handle patterns spanning chunk boundaries.
+A strategy that matches patterns using **regular expressions** with intelligent partial match detection to handle patterns spanning chunk boundaries.
 
 ## Algorithm Overview
 
@@ -12,10 +12,10 @@ This library uses a sibling package ([`regex-partial-match`](https://github.com/
 
 This has been chosen for simplicity and performance, with libraries such as [`incr-regex-package`](https://www.npmjs.com/package/incr-regex-package), [`dfa`](https://github.com/foliojs/dfa), [`refa`](https://github.com/RunDevelopment/refa), which might provide partial-match capability (and perhaps resolve some of the lookaround [limitations](#limitations)), not evaluated [^1].
 
-To enable optimistic/early yielding, certain regular expression features are unsupported, e.g. [lookbehinds](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion) and negative [lookaheads](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion). [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) are supported, but carry streaming-specific caveats. See [Limitations](#limitations) for full explanation.
+To enable optimistic/early reporting, certain regular expression features are unsupported, e.g. [lookbehinds](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookbehind_assertion) and negative [lookaheads](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Lookahead_assertion). [Backreferences](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Backreference) are supported, but carry streaming-specific caveats. See [Limitations](#limitations) for full explanation.
 
 > [!WARNING]
-> The strategy yields an object containing `{ content: StreamRegexMatch }` for matches (rather than `{ content: string }`). This array-like value provides capture groups via `match.content[1]`, `match.content[2]`, etc., and named groups via `match.content.groups`. Its `index` is an offset into the whole stream. The native `input` property identifies the string passed to one `exec()` call; a streaming scan uses changing buffers, so that property cannot identify the complete stream and is omitted. `StreamRegexMatch` is exported from the package root.
+> The strategy reports each match to `sink.reportMatch()` as a `StreamRegexMatch` (rather than a `string`). This array-like value provides capture groups via `match[1]`, `match[2]`, etc., and named groups via `match.groups`. Its `index` is an offset into the whole stream. The native `input` property identifies the string passed to one `exec()` call; a streaming scan uses changing buffers, so that property cannot identify the complete stream and is omitted. `StreamRegexMatch` is exported from the package root.
 
 > [!NOTE]
 > Where the `d` flag is provided, indices are mapped to be offsets into the stream as a whole. The indices on the match will duplicate the `streamIndices` passed to the replacement function. However, the `groups` property on indices is also updated, which may prove more useful.
@@ -252,9 +252,9 @@ Output: "a" (non-match), then "b" (match)
 Every match found this way is emitted as a real match; whatever never becomes one is emitted as a single trailing non-match segment. This is what allows the scan to defer — content held back at a chunk boundary is still reported as a match if it is one.
 
 > [!NOTE]
-> This is the strategy's [`settle()`](../types.ts), which yields `MatchResult`s, the same union as `processChunk`. Its [`flush()`](../types.ts) returns the buffer as it is, without searching it, which is what an engine uses once `stopReplacingSignal` has aborted.
+> This is the strategy's [`settle()`](../types.ts), which reports to the sink as `processChunk` does. Its [`flush()`](../types.ts) returns the buffer as it is, without searching it, which is what an engine uses once `stopReplacingSignal` has aborted.
 >
-> If an engine stops iterating `processChunk` or `settle` part-way, e.g. once `stopReplacingSignal` aborts, whatever was not yet yielded is put back in the buffer for `flush()` to return.
+> When the sink stops `processChunk` or `settle` at a match, e.g. once `stopReplacingSignal` aborts, whatever was not yet reported is put back in the buffer, for `flush()` to return or for the search to carry on from. `settle` also restores the stream offset, so carrying on reports the same `streamIndices`.
 
 ## Partial Match Transformation
 
@@ -501,6 +501,15 @@ Where a partial match _is_ viable at a position the strategy defers instead of s
 
 Chunks must not split a surrogate pair. Only whole astral characters are supported, as with [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#surrogate-pair-matching). If the source is bytes, decode them with a `TextDecoder` (or `TextDecoderStream`, which never emits half a pair) before the stream reaches the transformer. The strategy has no handling for a pair divided across two chunks.
 
+### ⚠️ Strings of several code points (`v` flag)
+
+```js
+/\p{RGI_Emoji}/v;
+/[\q{abc|de}]/v;
+```
+
+In `v` mode, a property of strings such as `\p{RGI_Emoji}`, or a `\q{…}` string in a class, matches a sequence of several code points as one. [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#string-properties) matches such a sequence only in full, never part way, so where a chunk ends inside one there is no candidate to hold for the next chunk, and the match is lost. `/\p{RGI_Emoji}/v` matches the flag 🇬🇧 (two code points) in `"b🇬🇧c"`, but not over `"b🇬"` + `"🇧c"`, and `/[\q{abc|de}]/v` matches `abc` in `"xabcy"`, but not over `"xab"` + `"cy"`. `TextDecoderStream` keeps surrogate pairs together, but not these sequences, so it can split one. Classes whose members are single code points, such as `/[\p{Script=Hiragana}]+/v`, are unaffected.
+
 ### ✅ Supported Features
 
 - 🔤 [Literal characters](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Literal_character) / simple patterns: `/test/`
@@ -510,7 +519,7 @@ Chunks must not split a surrogate pair. Only whole astral characters are support
 - 🔣 [Character escapes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape): (`\n`, `\t`, `\x61`, `\u0061`, `\u{1F600}`)
 - 🧩 [Character class escapes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_class_escape): `/\w+/`, `/\d{3}/`
 - 🌐 [Unicode character class escapes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Unicode_character_class_escape): `/\p{Script_Extensions=Latin}+/u`
-- 🧮 [Unicode sets (`v` flag)](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/unicodeSets): (`/[\p{Lowercase}&&\p{Script=Greek}]/v`)
+- 🧮 [Unicode sets (`v` flag)](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/unicodeSets): (`/[\p{Lowercase}&&\p{Script=Greek}]/v`) (see [caveats](#️-strings-of-several-code-points-v-flag) above)
 - 🔀 [Disjunctions](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Disjunction): `/cat|dog/`
 - 👥 [Non-capturing groups](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Non-capturing_group): `/(?:hello)+/`
 - 👪 Capturing groups (🫥 [unnamed](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Capturing_group) and 📛 [named](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Named_capturing_group)): `/(hello|hi) there (?<name>.+?)/`

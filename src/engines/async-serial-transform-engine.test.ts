@@ -1,13 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { setImmediate } from "node:timers/promises";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
-import type { MatchResult } from "../search-strategies/types.ts";
+import type { MatchResult } from "../../test/utilities.ts";
 import {
   abortingOnFirstCall,
   collectEngineSink,
-  deferred,
-  mockSearchStrategyFactory,
-  mockStoppableSearchStrategy
+  mockSearchStrategy,
+  mockSearchStrategyFactory
 } from "../../test/utilities.ts";
 
 async function runEngine<TState>(
@@ -66,14 +65,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
     });
 
     it("increments matchIndex across chunks", async () => {
-      const strategy = {
-        createState: vi.fn().mockReturnValue({}),
-        processChunk: vi.fn().mockImplementation(function* () {
-          yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
-        }),
-        flush: vi.fn().mockReturnValue(""),
-        matchToString: vi.fn().mockImplementation((m: string) => m)
-      };
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
       const fn = vi.fn().mockResolvedValue("R");
       const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: fn });
       await runEngine(engine, ["M", "M", "M"]);
@@ -101,15 +93,12 @@ describe("AsyncSerialReplacementTransformEngine", () => {
     it("processes matches serially — next match waits for previous iterable to drain", async () => {
       const order: string[] = [];
       let call = 0;
-      const strategy = {
-        createState: vi.fn().mockReturnValue({}),
-        processChunk: vi.fn().mockImplementation(function* () {
-          yield { isMatch: true, content: `M${call}`, streamIndices: [call, call + 1] as [number, number] };
-          call++;
-        }),
-        flush: vi.fn().mockReturnValue(""),
-        matchToString: vi.fn().mockImplementation((m: string) => m)
-      };
+      const { strategy } = mockSearchStrategy({
+        chunk: () => {
+          const index = call++;
+          return [{ isMatch: true, content: `M${index}`, streamIndices: [index, index + 1] }];
+        }
+      });
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
         replacement: async (match) => (async function* () {
@@ -127,20 +116,15 @@ describe("AsyncSerialReplacementTransformEngine", () => {
   describe("multi-chunk state", () => {
     it("preserves strategy state across write() calls — partial match completes in later chunk", async () => {
       let call = 0;
-      const strategy = {
-        createState: vi.fn().mockReturnValue({}),
-        processChunk: vi.fn().mockImplementation(function* () {
-          call++;
-          if (call === 1) {
-            yield { isMatch: false, content: "text " };
-          } else {
-            yield { isMatch: true, content: "OLD", streamIndices: [5, 8] as [number, number] };
-            yield { isMatch: false, content: " end" };
-          }
-        }),
-        flush: vi.fn().mockReturnValue(""),
-        matchToString: vi.fn().mockImplementation((m: string) => m)
-      };
+      const { strategy } = mockSearchStrategy({
+        chunk: () =>
+          ++call === 1
+            ? [{ isMatch: false, content: "text " }]
+            : [
+                { isMatch: true, content: "OLD", streamIndices: [5, 8] },
+                { isMatch: false, content: " end" }
+              ]
+      });
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
         replacement: async () => "NEW"
@@ -216,12 +200,30 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(await runEngine(engine, ["a"])).toEqual(["a", "TAIL"]);
     });
 
-    it("resolves end() only after a match settled at end() has been replaced", async () => {
-      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.settle = vi.fn().mockImplementation(function* () {
-        yield { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] };
+    it("carries on settling after each match settled at end()", async () => {
+      const { strategy } = mockSearchStrategy({
+        settled: [
+          { isMatch: true, content: "M", streamIndices: [0, 1] },
+          { isMatch: true, content: "M", streamIndices: [1, 2] },
+          { isMatch: false, content: "tail" }
+        ]
       });
-      const gate = deferred<string>();
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "R"
+      });
+
+      expect((await runEngine(engine, ["chunk"])).join("")).toBe("RRtail");
+      expect(strategy.processChunk.mock.calls.map(([haystack]) => haystack)).toEqual(["chunk"]);
+      expect(strategy.settle).toHaveBeenCalledTimes(3);
+    });
+
+    it("resolves end() only after a match settled at end() has been replaced", async () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: false, content: "a" }],
+        settled: [{ isMatch: true, content: "M", streamIndices: [1, 2] }]
+      });
+      const gate = Promise.withResolvers<string>();
       const { sink, chunks } = collectEngineSink();
       const engine = new AsyncSerialReplacementTransformEngine({ searchStrategy: strategy, replacement: () => gate.promise });
       engine.start(sink);
@@ -240,9 +242,9 @@ describe("AsyncSerialReplacementTransformEngine", () => {
     });
 
     it("rejects end() when replacing a match settled at end() fails", async () => {
-      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
-      strategy.settle = vi.fn().mockImplementation(function* () {
-        yield { isMatch: true, content: "M", streamIndices: [1, 2] as [number, number] };
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: false, content: "a" }],
+        settled: [{ isMatch: true, content: "M", streamIndices: [1, 2] }]
       });
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
@@ -303,9 +305,9 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       content
     });
 
-    it("stops searching at the next match, and flushes it with the rest of the chunk", async () => {
+    it("stops searching once a replacement aborts the signal, and flushes the rest of the chunk", async () => {
       const ac = new AbortController();
-      const { strategy, counts } = mockStoppableSearchStrategy({
+      const { strategy, counts } = mockSearchStrategy({
         chunk: [nonMatch("a"), match("1"), nonMatch("b"), match("2"), match("3")],
         rest: "REST"
       });
@@ -319,11 +321,10 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       expect(await runEngine(engine, ["chunk", "next"])).toEqual([
         "a",
         "R",
-        "b",
-        "2REST",
+        "b23REST",
         "next"
       ]);
-      expect(counts.pulled).toBe(4);
+      expect(counts.pulled).toBe(2);
       expect(replacement).toHaveBeenCalledOnce();
     });
 
@@ -350,7 +351,7 @@ describe("AsyncSerialReplacementTransformEngine", () => {
 
     it("stops settling at end() once a settled match's replacement aborts the signal", async () => {
       const ac = new AbortController();
-      const { strategy, counts } = mockStoppableSearchStrategy({
+      const { strategy, counts } = mockSearchStrategy({
         settled: [match("M1"), match("M2"), match("M3")],
         rest: "REST"
       });
@@ -360,46 +361,47 @@ describe("AsyncSerialReplacementTransformEngine", () => {
         replacement,
         stopReplacingSignal: ac.signal
       });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
 
-      expect(await runEngine(engine, [])).toEqual(["R", "M2REST"]);
-      expect(counts.pulled).toBe(2);
+      await engine.end();
+
+      expect(chunks).toEqual(["R", "M2M3REST"]);
+      expect(counts.pulled).toBe(1);
       expect(replacement).toHaveBeenCalledOnce();
     });
 
-    it("keeps the rest of the chunk when end() is called from an abort listener mid-write", async () => {
+    it("does not replace a match found after the sink aborts the signal mid-scan", async () => {
       const ac = new AbortController();
-      const { strategy } = mockStoppableSearchStrategy({
-        chunk: [match("a"), nonMatch("tail"), match("b"), nonMatch("unreached")],
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1"), nonMatch("b")],
         rest: "REST"
       });
+      const replacement = vi.fn(async () => "R");
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
-        replacement: abortingOnFirstCall(ac, async () => "R"),
+        replacement,
         stopReplacingSignal: ac.signal
       });
-      const { sink, chunks } = collectEngineSink();
-      engine.start(sink);
-      let ended: Promise<void> | undefined;
-      ac.signal.addEventListener("abort", () => {
-        ended = engine.end();
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          ac.abort();
+        },
+        error: () => {}
       });
 
       await engine.write("chunk");
-      await ended;
+      await engine.end();
 
-      expect(chunks.join("")).toBe("RtailbREST");
+      expect(chunks).toEqual(["a", "1bREST"]);
+      expect(replacement).not.toHaveBeenCalled();
     });
   });
   describe("cancel", () => {
     it("stops processing after cancel() is called", async () => {
-      const strategy = {
-        createState: vi.fn().mockReturnValue({}),
-        processChunk: vi.fn().mockImplementation(function* () {
-          yield { isMatch: true, content: "M", streamIndices: [0, 1] as [number, number] };
-        }),
-        flush: vi.fn().mockReturnValue(""),
-        matchToString: vi.fn().mockImplementation((m: string) => m)
-      };
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
       const fn = vi.fn().mockResolvedValue("R");
       const engine = new AsyncSerialReplacementTransformEngine({
         searchStrategy: strategy,
@@ -456,6 +458,88 @@ describe("AsyncSerialReplacementTransformEngine", () => {
       await engine.write("input");
 
       expect(chunks).toEqual([]);
+    });
+
+    it("doesn't read an iterable resolved after cancel() lands while the replacement is pending", async () => {
+      const strategy = mockSearchStrategyFactory<string>({
+        isMatch: true,
+        content: "M",
+        streamIndices: [0, 1]
+      });
+      const next = vi.fn().mockResolvedValue({ done: true, value: undefined });
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      const written = engine.write("input");
+      engine.cancel();
+      gate.resolve({ [Symbol.asyncIterator]: () => ({ next }) });
+      await written;
+
+      expect(next).not.toHaveBeenCalled();
+      expect(chunks).toEqual([]);
+    });
+
+    it("searches no further when the sink cancels on receiving a replacement", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: false, content: "after" }
+      );
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => "R"
+      });
+
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk: string) => {
+          chunks.push(chunk);
+          engine.cancel();
+        },
+        error: () => {}
+      });
+      await engine.write("input");
+
+      expect(chunks).toEqual(["R"]);
+      expect(strategy.processChunk).toHaveBeenCalledTimes(1);
+    });
+
+    it.each<{ scan: string; before: MatchResult[]; expected: string[] }>([
+      { scan: "a chunk", before: [], expected: ["text"] },
+      {
+        scan: "a chunk resumed after a replacement",
+        before: [{ isMatch: true, content: "M", streamIndices: [0, 1] }],
+        expected: ["R", "text"]
+      }
+    ])("stops scanning $scan when the sink cancels on receiving text", async ({ before, expected }) => {
+      const laterScanWork = vi.fn(() => {
+        throw new Error("scanned after cancel()");
+      });
+      const { strategy } = mockSearchStrategy({
+        chunk: [...before, { isMatch: false, content: "text" }, laterScanWork, { isMatch: false, content: "more" }]
+      });
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => "R"
+      });
+
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk: string) => {
+          chunks.push(chunk);
+          if (chunk === "text") engine.cancel();
+        },
+        error: () => {}
+      });
+      await engine.write("input");
+      await engine.end();
+
+      expect(chunks).toEqual(expected);
+      expect(laterScanWork).not.toHaveBeenCalled();
     });
 
     it("stops mid-iterable when cancel() lands between yielded replacement chunks", async () => {

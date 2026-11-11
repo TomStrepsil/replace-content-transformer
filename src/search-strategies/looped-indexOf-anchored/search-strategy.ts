@@ -1,6 +1,6 @@
 import type {
   BufferGuardOptions,
-  MatchResult,
+  MatchSink,
   SearchStrategy,
   StringBufferState
 } from "../types.js";
@@ -55,10 +55,11 @@ export class LoopedIndexOfAnchoredSearchStrategy
     return { ...super.createState(), currentNeedleIndex: 0, matchConsumedLength: 0 };
   }
 
-  *processChunk(
+  processChunk(
     haystack: string,
-    state: LoopedIndexOfAnchoredSearchState
-  ): Generator<MatchResult, void, undefined> {
+    state: LoopedIndexOfAnchoredSearchState,
+    sink: MatchSink
+  ): undefined {
     const bufferLength = state.buffer.length;
     const baseOffset = state.streamOffset - bufferLength;
     haystack = state.buffer + haystack;
@@ -76,13 +77,13 @@ export class LoopedIndexOfAnchoredSearchStrategy
               length - partialMatchLength(haystack, currentNeedle, length - position);
             const nonMatch = haystack.slice(position, resumeAt);
             position = resumeAt;
-            if (nonMatch) yield { isMatch: false, content: nonMatch };
+            if (nonMatch) sink.reportText(nonMatch);
             return;
           }
           if (index > position) {
             const nonMatch = haystack.slice(position, index);
             position = index;
-            yield { isMatch: false, content: nonMatch };
+            sink.reportText(nonMatch);
           }
           matchStartPosition = index;
         } else {
@@ -95,7 +96,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
             const nonMatch = haystack.slice(matchStartPosition, releasedTo);
             state.currentNeedleIndex = 0;
             position = releasedTo;
-            yield { isMatch: false, content: nonMatch };
+            sink.reportText(nonMatch);
             continue;
           }
         }
@@ -104,11 +105,10 @@ export class LoopedIndexOfAnchoredSearchStrategy
         state.currentNeedleIndex =
           (state.currentNeedleIndex + 1) % this.needles.length;
         if (state.currentNeedleIndex === 0) {
-          yield {
-            isMatch: true,
-            content: haystack.slice(matchStartPosition, position),
-            streamIndices: [baseOffset + matchStartPosition, baseOffset + position]
-          };
+          const match = haystack.slice(matchStartPosition, position);
+          if (!sink.reportMatch(match, [baseOffset + matchStartPosition, baseOffset + position])) {
+            return;
+          }
         }
       }
     } finally {

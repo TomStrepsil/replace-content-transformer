@@ -5,6 +5,8 @@
 
 set -e
 
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
 echo "🎯 Cross-Runtime Benchmark Comparison"
 echo "======================================"
 echo
@@ -32,7 +34,9 @@ fi
 echo "🚀 Found runtimes: ${AVAILABLE_RUNTIMES[*]}"
 echo
 
-# Function to run benchmarks with specific runtime
+npm run build --silent
+
+# Function to run benchmarks with specific runtime, skipping its pre-build
 run_benchmark() {
     local runtime=$1
     echo "📊 Running benchmarks with $runtime"
@@ -40,13 +44,13 @@ run_benchmark() {
     
     case $runtime in
         "bun")
-            npm run bench:bun
+            npm run bench:bun --ignore-scripts
             ;;
         "deno")
-            npm run bench:deno
+            npm run bench:deno --ignore-scripts
             ;;
         "node")
-            npm run bench:node
+            npm run bench:node --ignore-scripts
             ;;
     esac
     

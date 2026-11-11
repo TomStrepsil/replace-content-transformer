@@ -5,7 +5,7 @@ export * from "./regex/index.js";
 export * from "./balanced-pair/index.js";
 export type {
   BufferGuardOptions,
-  MatchResult,
+  MatchSink,
   SearchStrategy,
   StreamIndices
 } from "./types.js";

@@ -1,5 +1,5 @@
 import { RegexSearchStrategy } from "../../../src/search-strategies/regex/search-strategy.ts";
-import type { MatchResult } from "../../../src/search-strategies/types.ts";
+import type { MatchSink } from "../../../src/search-strategies/types.ts";
 import type { StreamRegexMatch } from "../../../src/search-strategies/regex/types.ts";
 
 type Span = [number, number] | undefined;
@@ -63,32 +63,31 @@ export function drive(
   let output = "";
   let peakBuffer = 0;
 
-  const record = (
-    results: Iterable<MatchResult<StreamRegexMatch>>,
-    into: EmittedMatch[]
-  ) => {
-    for (const result of results) {
-      if (!result.isMatch) {
-        output += result.content;
-        continue;
-      }
-      const text = strategy.matchToString(result.content);
+  let into = matches;
+  const sink: MatchSink<StreamRegexMatch> = {
+    reportText: (content) => {
+      output += content;
+    },
+    reportMatch: (match, [start, end]) => {
+      const text = strategy.matchToString(match);
       into.push({
         text,
-        start: result.streamIndices[0],
-        end: result.streamIndices[1],
-        captures: [...result.content],
-        ...spansOf(result.content)
+        start,
+        end,
+        captures: [...match],
+        ...spansOf(match)
       });
       output += text;
+      return true;
     }
   };
 
   for (const chunk of chunks) {
-    record(strategy.processChunk(chunk, state), matches);
+    strategy.processChunk(chunk, state, sink);
     if (state.buffer.length > peakBuffer) peakBuffer = state.buffer.length;
   }
-  record(strategy.settle(state), settledMatches);
+  into = settledMatches;
+  strategy.settle(state, sink);
 
   return { output, matches, settledMatches, peakBuffer };
 }

@@ -4,3 +4,4 @@ coverage/
 test-results/
 bench-results.json
 *.tsbuildinfo
+test/benchmarks/build/

@@ -1,10 +1,16 @@
 import type {
   BufferGuardOptions,
-  MatchResult,
-  SearchStrategy
+  MatchSink,
+  SearchStrategy,
+  StreamIndices
 } from "../src/search-strategies/types.ts";
 import type { StreamRegexMatch } from "../src/search-strategies/regex/types.ts";
 import settleOrFlush from "../src/search-strategies/settle-or-flush.ts";
+
+/** One result reported to a sink: literal text, or a match with its stream indices. */
+type MatchResult<TMatch = string> =
+  | { isMatch: false; content: string }
+  | { isMatch: true; content: TMatch; streamIndices: StreamIndices };
 
 type CanonicalSegment = { isMatch: boolean; text: string };
 
@@ -18,7 +24,48 @@ function resultToString<TMatch>(
 }
 
 /**
- * Drive `strategy` over `chunks`, collecting every yield plus what it settles at end
+ * A sink that records every result into `into`, calling `afterEach` after each one.
+ * A match continues the scan when `afterEach` returns `true`.
+ */
+function sinkInto<TMatch>(
+  into: MatchResult<TMatch>[],
+  afterEach: () => boolean = () => true
+): MatchSink<TMatch> {
+  return {
+    reportText(content) {
+      into.push({ isMatch: false, content });
+      afterEach();
+    },
+    reportMatch(content, streamIndices) {
+      into.push({ isMatch: true, content, streamIndices });
+      return afterEach();
+    }
+  };
+}
+
+/** Every result `strategy.processChunk` reports for `haystack`. */
+function processChunkResults<TState, TMatch>(
+  strategy: SearchStrategy<TState, TMatch>,
+  haystack: string,
+  state: TState
+): MatchResult<TMatch>[] {
+  const results: MatchResult<TMatch>[] = [];
+  strategy.processChunk(haystack, state, sinkInto(results));
+  return results;
+}
+
+/** Every result `strategy.settle` reports. */
+function settleResults<TState, TMatch>(
+  strategy: SearchStrategy<TState, TMatch>,
+  state: TState
+): MatchResult<TMatch>[] {
+  const results: MatchResult<TMatch>[] = [];
+  strategy.settle!(state, sinkInto(results));
+  return results;
+}
+
+/**
+ * Drive `strategy` over `chunks`, collecting every result plus what it settles at end
  * of stream (its `settle`, or its `flush` as one non-match when it has no `settle`).
  *
  * `output` concatenates everything the strategy reported, matches rendered as their
@@ -45,26 +92,35 @@ function collectSearchStrategyResults<TState, TMatch = string>(
 
   const collectBounded = (
     source: string,
-    yields: Iterable<MatchResult<TMatch>>,
+    scan: (sink: MatchSink<TMatch>) => void,
     into: MatchResult<TMatch>[]
-  ) => {
-    for (const result of yields) {
-      into.push(result);
-      if (into.length > maxResults) {
-        throw new Error(
-          `${source} did not advance: exceeded ${maxResults} results`
-        );
-      }
-    }
-  };
+  ) =>
+    scan(
+      sinkInto(into, () => {
+        if (into.length > maxResults) {
+          throw new Error(
+            `${source} did not advance: exceeded ${maxResults} results`
+          );
+        }
+        return true;
+      })
+    );
 
   const results: MatchResult<TMatch>[] = [];
   for (const chunk of chunks) {
-    collectBounded("processChunk", strategy.processChunk(chunk, state), results);
+    collectBounded(
+      "processChunk",
+      (sink) => strategy.processChunk(chunk, state, sink),
+      results
+    );
   }
 
   const settledResults: MatchResult<TMatch>[] = [];
-  collectBounded("settle", settleOrFlush(strategy, state), settledResults);
+  collectBounded(
+    "settle",
+    (sink) => settleOrFlush(strategy, state, sink),
+    settledResults
+  );
   const settled = settledResults
     .map((result) => resultToString(strategy, result))
     .join("");
@@ -115,30 +171,11 @@ function collectCanonicalSearchStrategyResults<TState, TMatch = string>(
 }
 
 /**
- * Iterate `results` into `into` until it holds `limit` results, then stop, as an
- * engine stops once `stopReplacingSignal` aborts. An engine only stops after a
- * result, so `limit` must be at least 1. Returns whether it broke out of the
- * iteration, which runs the generator's `return()` even when the limit falls on
- * its last result.
- */
-function iterateUntil<TMatch>(
-  results: Iterable<MatchResult<TMatch>>,
-  into: MatchResult<TMatch>[],
-  limit: number
-): boolean {
-  for (const result of results) {
-    into.push(result);
-    if (into.length >= limit) return true;
-  }
-  return false;
-}
-
-/**
- * Drive `strategy` over `chunks`, stopping after `limit` results in total, whether
- * they came from `processChunk` or `settle`. Then do what an engine does after an
- * abort: emit `flush()`, and pass the chunks not yet written through untouched.
+ * Drive `strategy` over `chunks`, stopping at the `limit`th match, whether it came from
+ * `processChunk` or `settle`. Then do what an engine does after an abort: emit `flush()`,
+ * and pass the chunks not yet written through untouched.
  *
- * `output` must reproduce the input exactly, wherever iteration stopped.
+ * `output` must reproduce the input exactly, wherever the scan stopped.
  */
 function collectStoppedSearchStrategyResults<TState, TMatch = string>(
   strategy: SearchStrategy<TState, TMatch>,
@@ -147,23 +184,62 @@ function collectStoppedSearchStrategyResults<TState, TMatch = string>(
 ): { stopped: boolean; output: string } {
   const state = strategy.createState();
   const reported: MatchResult<TMatch>[] = [];
+  let matches = 0;
+  const sink: MatchSink<TMatch> = {
+    reportText: (content) => {
+      reported.push({ isMatch: false, content });
+    },
+    reportMatch: (content, streamIndices) => {
+      reported.push({ isMatch: true, content, streamIndices });
+      return ++matches < limit;
+    }
+  };
   let written = 0;
-  let stopped = false;
-  while (!stopped && written < chunks.length) {
-    stopped = iterateUntil(
-      strategy.processChunk(chunks[written++], state),
-      reported,
-      limit
-    );
+  while (matches < limit && written < chunks.length) {
+    strategy.processChunk(chunks[written++], state, sink);
   }
-  if (!stopped) {
-    stopped = iterateUntil(settleOrFlush(strategy, state), reported, limit);
-  }
+  if (matches < limit) settleOrFlush(strategy, state, sink);
   const output =
     reported.map((result) => resultToString(strategy, result)).join("") +
     strategy.flush(state) +
     chunks.slice(written).join("");
-  return { stopped, output };
+  return { stopped: matches === limit, output };
+}
+
+/**
+ * Drive `strategy` over `chunks` as the async engines do: stop at every match, then carry
+ * on with `processChunk("")`, or with `settle` again at end of stream, until nothing is
+ * left. The results must equal an uninterrupted run's.
+ */
+function collectPausedSearchStrategyResults<TState, TMatch = string>(
+  strategy: SearchStrategy<TState, TMatch>,
+  chunks: string[]
+): MatchResult<TMatch>[] {
+  const state = strategy.createState();
+  const reported: MatchResult<TMatch>[] = [];
+  let paused = false;
+  const sink: MatchSink<TMatch> = {
+    reportText: (content) => {
+      reported.push({ isMatch: false, content });
+    },
+    reportMatch: (content, streamIndices) => {
+      reported.push({ isMatch: true, content, streamIndices });
+      paused = true;
+      return false;
+    }
+  };
+  for (const chunk of chunks) {
+    strategy.processChunk(chunk, state, sink);
+    while (paused) {
+      paused = false;
+      strategy.processChunk("", state, sink);
+    }
+  }
+  do {
+    paused = false;
+    settleOrFlush(strategy, state, sink);
+  } while (paused);
+  return reported;
 }
 
 /**
@@ -181,7 +257,7 @@ function heldWhileDriving<TState, TMatch = string>(
   let reportedBeforeLastChunk = false;
   chunks.forEach((chunk, index) => {
     unreported += chunk.length;
-    for (const result of strategy.processChunk(chunk, state)) {
+    for (const result of processChunkResults(strategy, chunk, state)) {
       unreported -= resultToString(strategy, result).length;
       reportedBeforeLastChunk ||= index < chunks.length - 1;
     }
@@ -218,9 +294,15 @@ function outputWhenGuardThrows<TState, TMatch>(
   let output = "";
   for (const [index, chunk] of chunks.entries()) {
     try {
-      for (const result of strategy.processChunk(chunk, state)) {
-        output += resultToString(strategy, result);
-      }
+      strategy.processChunk(chunk, state, {
+        reportText: (content) => {
+          output += content;
+        },
+        reportMatch: (content) => {
+          output += strategy.matchToString(content);
+          return true;
+        }
+      });
     } catch {
       return {
         threw: true,
@@ -255,15 +337,19 @@ function regexMatchDetailsOf({
     }));
 }
 
-export type { CanonicalSegment, GuardedStrategy };
+export type { CanonicalSegment, GuardedStrategy, MatchResult };
 
 export {
   asMatch,
   asText,
   collectCanonicalSearchStrategyResults,
+  collectPausedSearchStrategyResults,
   collectSearchStrategyResults,
   collectStoppedSearchStrategyResults,
   heldWhileDriving,
   outputWhenGuardThrows,
-  regexMatchDetailsOf
+  processChunkResults,
+  regexMatchDetailsOf,
+  settleResults,
+  sinkInto
 };

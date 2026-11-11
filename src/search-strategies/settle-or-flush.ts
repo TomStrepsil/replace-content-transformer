@@ -1,12 +1,11 @@
-import type { MatchResult, SearchStrategy } from "./types.js";
-
-const NOTHING_HELD: readonly MatchResult<never>[] = [];
+import type { MatchSink, SearchStrategy } from "./types.js";
 
 export default function settleOrFlush<TState, TMatch>(
   strategy: Pick<SearchStrategy<TState, TMatch>, "flush" | "settle">,
-  state: TState
-): Iterable<MatchResult<TMatch>> {
-  if (strategy.settle) return strategy.settle(state);
+  state: TState,
+  sink: MatchSink<TMatch>
+): void {
+  if (strategy.settle) return strategy.settle(state, sink);
   const held = strategy.flush(state);
-  return held ? [{ isMatch: false, content: held }] : NOTHING_HELD;
+  if (held) sink.reportText(held);
 }
