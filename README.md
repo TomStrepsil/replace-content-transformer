@@ -699,8 +699,9 @@ end() {
 
 - **Nothing accumulated** - Each result goes straight to the engine, as it is found
 - **Stops at any match** - `reportMatch` returning `false` ends the search, e.g. once `stopReplacingSignal` aborts, with no work done past that match
-- **Pauses and resumes** - The rest stays in the state, so an engine can wait at a match and carry on with `processChunk("")`. This is how the async serial engine waits for each replacement, and how the lookahead queue's [backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) reaches the search
-- **Composable** - A strategy can wrap another's sink, as `BalancedPairSearchStrategy` does around `StringAnchorSearchStrategy`; replacements can still be iterables, async iterables or streams
+- **Pauses and resumes** - The rest stays in the state, so an engine can wait at a match and carry on with `processChunk("")`. 
+  - This is how the [async serial engine](./src/engines/async-serial-transform-engine.ts) waits for each replacement, and how the lookahead queue's [backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) reaches the search
+- **Composable** - A strategy can wrap another's sink; replacements can still be iterables, async iterables or streams
 
 ## 🔧 Development
 
