@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { setImmediate } from "node:timers/promises";
 import { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.ts";
 import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
+import { LoopedIndexOfAnchoredSearchStrategy as StringAnchorSearchStrategy } from "../search-strategies/looped-indexOf-anchored/search-strategy.ts";
+import type { SearchStrategy } from "../search-strategies/types.ts";
 import type { MatchResult } from "../../test/utilities.ts";
 import {
   abortingOnFirstCall,
@@ -497,6 +499,47 @@ describe("AsyncSerialReplacementTransformEngine", () => {
 
       expect(chunks).toEqual(["R"]);
       expect(strategy.processChunk).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      {
+        scan: "a chunk",
+        input: "bbaaaaaa",
+        cancelOn: "b",
+        strategy: (onGuardExceeded: () => void): SearchStrategy<unknown, unknown> =>
+          new RegexSearchStrategy(/a*/, { maxBufferLength: 4, onGuardExceeded }),
+        expected: ["b"]
+      },
+      {
+        scan: "a chunk resumed after a replacement",
+        input: "{{x}}tail{{abcdefgh",
+        cancelOn: "tail",
+        strategy: (onGuardExceeded: () => void): SearchStrategy<unknown, unknown> =>
+          new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength: 8, onGuardExceeded }),
+        expected: ["R", "tail"]
+      }
+    ])("stops scanning $scan when the sink cancels on receiving text", async ({ input, cancelOn, strategy, expected }) => {
+      const onGuardExceeded = vi.fn(() => {
+        throw new Error("limit");
+      });
+      const engine = new AsyncSerialReplacementTransformEngine({
+        searchStrategy: strategy(onGuardExceeded),
+        replacement: () => "R"
+      });
+
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk: string) => {
+          chunks.push(chunk);
+          if (chunk === cancelOn) engine.cancel();
+        },
+        error: () => {}
+      });
+      await engine.write(input);
+      await engine.end();
+
+      expect(chunks).toEqual(expected);
+      expect(onGuardExceeded).not.toHaveBeenCalled();
     });
 
     it("stops mid-iterable when cancel() lands between yielded replacement chunks", async () => {

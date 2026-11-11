@@ -46,6 +46,8 @@ export interface AsyncSerialReplacementTransformEngineOptions<TState, TMatch> {
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
+const scanCancelled = new Error("Scan cancelled");
+
 export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
   extends TransformEngineBase<TState, TMatch>
   implements AsyncTransformEngine
@@ -55,7 +57,8 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
   #pending: { match: TMatch; streamIndices: StreamIndices } | undefined;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
-      if (!this.#cancelled) this._sink.enqueue(content);
+      this._sink.enqueue(content);
+      if (this.#cancelled) throw scanCancelled;
     },
     reportMatch: (match, streamIndices) => {
       this.#pending = { match, streamIndices };
@@ -81,8 +84,10 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
       return;
     }
 
-    this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
-    await this.#replacePending(false);
+    await this.#scanThenReplace(
+      () => this._searchStrategy.processChunk(chunk, this._state, this.#matchSink),
+      false
+    );
   }
 
   override async end(): Promise<void> {
@@ -91,8 +96,16 @@ export class AsyncSerialReplacementTransformEngine<TState, TMatch = string>
       this._enqueueHeld();
       return;
     }
-    this._settle(this.#matchSink);
-    await this.#replacePending(true);
+    await this.#scanThenReplace(() => this._settle(this.#matchSink), true);
+  }
+
+  async #scanThenReplace(scan: () => void, settling: boolean): Promise<void> {
+    try {
+      scan();
+      await this.#replacePending(settling);
+    } catch (error) {
+      if (error !== scanCancelled) throw error;
+    }
   }
 
   async #replacePending(settling: boolean): Promise<void> {
