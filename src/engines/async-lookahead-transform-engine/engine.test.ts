@@ -5,7 +5,6 @@ import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts"
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { SlotTreeNode, IterableSlotNode } from "./slot-tree/types.ts";
 import { nested } from "./nested.ts";
-import { RegexSearchStrategy } from "../../search-strategies/regex/search-strategy.ts";
 import type { EngineSink } from "../types.ts";
 import type { MatchResult } from "../../../test/utilities.ts";
 import {
@@ -445,32 +444,34 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it.each([
-      {
-        stage: "a chunk",
-        pattern: /ab+c|a/,
-        chunks: ["a a a abb", "c tail"],
-        expected: "[a] [a] [a] [abbc] t[a]il"
-      },
-      {
-        stage: "the end of the stream",
-        pattern: /x.*y|a/,
-        chunks: ["x a a a x a"],
-        expected: "x [a] [a] [a] x [a]"
-      }
-    ])("resumes $stage paused on a full queue the way it was scanning", async ({ pattern, chunks, expected }) => {
-      const { sink, chunks: output } = collectEngineSink();
+      { stage: "a chunk", paused: "chunk", scans: [["chunk"], [""]], settles: 1 },
+      { stage: "the end of the stream", paused: "settled", scans: [["chunk"]], settles: 2 }
+    ] as const)("resumes $stage paused on a full queue the way it was scanning", async ({ paused, scans, settles }) => {
+      const steps: MatchResult[] = [
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: true, content: "M", streamIndices: [1, 2] },
+        { isMatch: true, content: "M", streamIndices: [2, 3] },
+        { isMatch: false, content: "tail" }
+      ];
+      const { strategy } = mockSearchStrategy({
+        chunk: paused === "chunk" ? steps : [],
+        settled: paused === "settled" ? steps : []
+      });
+      const { sink, chunks } = collectEngineSink();
       const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: new RegexSearchStrategy(pattern),
-        replacement: async (match) => asyncIterable(`[${match[0]}]`),
+        searchStrategy: strategy,
+        replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(8),
         highWaterMark: 1
       });
       engine.start(sink);
 
-      for (const chunk of chunks) await engine.write(chunk);
+      await engine.write("chunk");
       await engine.end();
 
-      expect(output.join("")).toBe(expected);
+      expect(chunks.join("")).toBe("RRRtail");
+      expect(strategy.processChunk.mock.calls.map(([haystack]) => [haystack])).toEqual(scans);
+      expect(strategy.settle).toHaveBeenCalledTimes(settles);
     });
 
     it("queues the text between two matches as one slot, however many pieces the strategy reports", async () => {

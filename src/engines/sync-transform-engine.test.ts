@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
 import type { MatchResult } from "../../test/utilities.ts";
-import { RegexSearchStrategy } from "../search-strategies/regex/search-strategy.ts";
-import type { StreamRegexMatch } from "../search-strategies/regex/types.ts";
 import {
   abortingOnFirstCall,
   collectEngineSink,
@@ -479,53 +477,6 @@ describe("SyncTransformEngine", () => {
 
       expect(chunks).toEqual(["a", "1bREST"]);
       expect(replacement).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("zero-length matches", () => {
-    function drive(
-      pattern: RegExp,
-      inputs: string[],
-      replacement: string | ((match: StreamRegexMatch) => string)
-    ): { output: string; seen: string[] } {
-      const seen: string[] = [];
-      const engine = new SyncReplacementTransformEngine({
-        searchStrategy: new RegexSearchStrategy(pattern),
-        replacement:
-          typeof replacement === "string"
-            ? replacement
-            : (match: StreamRegexMatch) => {
-                seen.push(match[0]);
-                return replacement(match);
-              }
-      });
-      const { sink, chunks } = collectEngineSink();
-      engine.start(sink);
-      for (const input of inputs) engine.write(input);
-      engine.end();
-
-      return { output: chunks.join(""), seen };
-    }
-
-    it.each([/a?/, /a*/, /(?:)/, /x|/, /(?=a)/, new RegExp("")])(
-      "%s terminates, never calls the replacement with an empty match, and echoing each match back reproduces the input exactly",
-      (pattern) => {
-        const echoMatchBack = (match: StreamRegexMatch): string => match[0];
-        const { output, seen } = drive(pattern, ["xy", "z"], echoMatchBack);
-        expect(seen).not.toContain("");
-        expect(output).toBe("xyz");
-      }
-    );
-
-    it("treats a nullable pattern exactly as its non-nullable equivalent, including where a chunk boundary splits a run", () => {
-      const inputs = ["a1", "2b3c"];
-      expect(drive(/\d*/, inputs, "#").output).toBe(
-        drive(/\d+/, inputs, "#").output
-      );
-    });
-
-    it("still matches a nullable pattern split across a chunk boundary, buffering instead of passing both characters through", () => {
-      expect(drive(/(ab)?/, ["a", "b"], "#").output).toBe("#");
     });
   });
 

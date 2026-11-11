@@ -2310,6 +2310,22 @@ describe("RegexSearchStrategy", () => {
         }
       });
 
+      it("matches a nullable pattern as its non-nullable equivalent at every split point, including inside a run", () => {
+        const input = "a12b3c";
+        const allMatchesOf = (pattern: RegExp, chunks: string[]) => {
+          const { results, settledResults } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            chunks
+          );
+          return matchesOf([...results, ...settledResults]);
+        };
+
+        for (let i = 1; i < input.length; i++) {
+          const chunks = [input.slice(0, i), input.slice(i)];
+          expect(allMatchesOf(/\d*/, chunks)).toEqual(allMatchesOf(/\d+/, chunks));
+        }
+      });
+
       it("passes the character through and advances when no partial match could grow from that position", () => {
         const { results, settled } = collectSearchStrategyResults(
           new RegexSearchStrategy(/(ab)?/),
