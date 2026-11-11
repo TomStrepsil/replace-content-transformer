@@ -12,6 +12,7 @@ import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { IterableSlotNode, SlotNode, TextSlotNode } from "./slot-tree/types.ts";
 import { TransformEngineBase } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
+import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 
@@ -160,6 +161,9 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * internally by spawning a child engine and bridging its sink into the
  * outer drain loop — adapters need not plumb nesting themselves.
  *
+ * @throws {RangeError} If `highWaterMark` is not a whole number of at least 1.
+ * `Infinity` is allowed; `undefined` selects the default.
+ *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type
  */
@@ -208,6 +212,8 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
      */
     depth: number = 0
   ) {
+    const { highWaterMark = DEFAULT_HIGH_WATER_MARK } = options;
+    validateWholeNumberAtLeast("highWaterMark", highWaterMark, 1);
     const cancelAbortController = new AbortController();
     const abandonSignal = AbortSignal.any(
       [options.abandonPendingSignal, cancelAbortController.signal].filter(isDefinedSignal)
@@ -220,9 +226,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
-    this.#queue = new AsyncChildQueue(
-      options.highWaterMark ?? DEFAULT_HIGH_WATER_MARK
-    );
+    this.#queue = new AsyncChildQueue(highWaterMark);
     this.#cancelAbortController = cancelAbortController;
     this.#abandonSignal = abandonSignal;
   }

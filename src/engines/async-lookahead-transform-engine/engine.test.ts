@@ -374,20 +374,28 @@ describe("AsyncLookaheadTransformEngine", () => {
       await engine.end();
     });
 
-    it("replaces every match when a NaN highWaterMark never reports the queue full", async () => {
-      const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
-        searchStrategy: braceStrategy(),
+    const engineWith = (highWaterMark: unknown) => () =>
+      new AsyncLookaheadTransformEngine({
+        searchStrategy: mockSearchStrategyFactory(),
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(1),
-        highWaterMark: NaN
+        highWaterMark: highWaterMark as number
       });
-      engine.start(sink);
 
-      await engine.write("{{a}}{{b}}{{c}}");
-      await engine.end();
+    it.each([0, -1, Number.NaN, null, "32"])("rejects a highWaterMark of %j", (highWaterMark) => {
+      expect(engineWith(highWaterMark)).toThrow(
+        `highWaterMark must be a number of at least 1 (or Infinity), received ${String(highWaterMark)}`
+      );
+    });
 
-      expect(chunks.join("")).toBe("RRR");
+    it("rejects a fractional highWaterMark", () => {
+      expect(engineWith(1.5)).toThrow(
+        "highWaterMark must be a whole number (or Infinity), received 1.5"
+      );
+    });
+
+    it.each([1, Infinity, undefined])("accepts a highWaterMark of %j", (highWaterMark) => {
+      expect(engineWith(highWaterMark)).not.toThrow();
     });
 
     it("suspends a write() with no match while more than highWaterMark slots are queued", async () => {

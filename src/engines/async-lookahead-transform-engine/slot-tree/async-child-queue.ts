@@ -26,9 +26,6 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
   #closed = false;
 
   constructor(limit: number) {
-    if (limit < 1) {
-      throw new RangeError(`AsyncChildQueue limit must be >= 1 (got ${limit})`);
-    }
     this.#limit = limit;
   }
 

@@ -16,16 +16,20 @@ export const validateAtLeast = (name: string, value: unknown, minimum: number) =
   }
 };
 
+export const validateWholeNumberAtLeast = (name: string, value: unknown, minimum: number) => {
+  validateAtLeast(name, value, minimum);
+  if (value !== Infinity && !Number.isInteger(value)) {
+    throw new RangeError(
+      `${name} must be a whole number (or Infinity), received ${String(value)}`
+    );
+  }
+};
+
 export default function bufferGuard(
   { maxBufferLength = DEFAULT_MAX_BUFFER_LENGTH, onGuardExceeded }: BufferGuardOptions = {},
   shortestMatchLength = 0
 ): BufferGuard {
-  validateAtLeast("maxBufferLength", maxBufferLength, shortestMatchLength);
-  if (maxBufferLength !== Infinity && !Number.isInteger(maxBufferLength)) {
-    throw new RangeError(
-      `maxBufferLength must be a whole number (or Infinity), received ${maxBufferLength}`
-    );
-  }
+  validateWholeNumberAtLeast("maxBufferLength", maxBufferLength, shortestMatchLength);
   const releasedLength = Math.max(maxBufferLength, 1);
   return {
     maxBufferLength,

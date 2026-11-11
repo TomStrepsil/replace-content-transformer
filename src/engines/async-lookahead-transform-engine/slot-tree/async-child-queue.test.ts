@@ -15,10 +15,6 @@ async function drain(queue: AsyncChildQueue): Promise<SlotNode[]> {
 }
 
 describe("AsyncChildQueue", () => {
-  it("rejects a limit below 1", () => {
-    expect(() => new AsyncChildQueue(0)).toThrow(RangeError);
-  });
-
   it("iterates pushed nodes in order", async () => {
     const queue = new AsyncChildQueue(8);
     await queue.push(textNode("a", 0));
