@@ -626,7 +626,7 @@ describe("SyncTransformEngine", () => {
         });
         const { sink, chunks } = collectEngineSink();
         engine.start(
-          deferred === undefined ? sink : { ...sink, isDeliveryDeferred: () => deferred }
+          deferred === undefined ? sink : { ...sink, deliveryDeferred: deferred }
         );
 
         engine.write("a1b2");
@@ -653,7 +653,7 @@ describe("SyncTransformEngine", () => {
         });
         const { sink, chunks } = collectEngineSink();
         engine.start(
-          deferred === undefined ? sink : { ...sink, isDeliveryDeferred: () => deferred }
+          deferred === undefined ? sink : { ...sink, deliveryDeferred: deferred }
         );
 
         engine.write("a1b");
@@ -676,7 +676,7 @@ describe("SyncTransformEngine", () => {
         stopReplacingSignal: ac.signal
       });
       const { sink, chunks } = collectEngineSink();
-      engine.start({ ...sink, isDeliveryDeferred: () => true });
+      engine.start({ ...sink, deliveryDeferred: true });
 
       engine.write("a1b2");
       engine.end();

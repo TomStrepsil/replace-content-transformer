@@ -27,7 +27,7 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     const transformer = new ReplaceContentTransformer(engine);
     transformer.start(mockTransformStreamDefaultControllerFactory([]));
 
-    expect(startedSinkOf(engine).isDeliveryDeferred?.()).toBe(true);
+    expect(startedSinkOf(engine).deliveryDeferred).toBe(true);
   });
 
   it("wires start(controller) to engine.start with a sink that forwards error", () => {

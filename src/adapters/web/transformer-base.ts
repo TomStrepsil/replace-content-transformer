@@ -28,7 +28,7 @@ export abstract class TransformerBase<
     this._engine.start({
       enqueue: (chunk) => controller.enqueue(chunk),
       error: (err) => controller.error(err),
-      isDeliveryDeferred: () => true
+      deliveryDeferred: true
     });
   }
 

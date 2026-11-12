@@ -9,20 +9,19 @@ export interface EngineSink {
   enqueue(chunk: string): void;
   error(err: unknown): void;
   /**
-   * Returns `true` when nothing downstream can observe a chunk enqueued now
-   * until the engine's current `write()` or `end()` call has returned, as
-   * with a WHATWG `TransformStreamDefaultController`, whose readers receive
-   * chunks through promises. `SyncReplacementTransformEngine` then enqueues
-   * once per call even with a `stopReplacingSignal`, rather than as output is
-   * produced, since nothing downstream could abort the signal any sooner.
+   * `true` when, for the life of the stream, nothing downstream can observe
+   * a chunk enqueued during the engine's `write()` or `end()` until that
+   * call has returned, as with a WHATWG `TransformStreamDefaultController`,
+   * whose readers receive chunks through promises.
+   * `SyncReplacementTransformEngine` then enqueues once per call even with a
+   * `stopReplacingSignal`, rather than as output is produced, since nothing
+   * downstream could abort the signal any sooner.
    *
-   * The engine calls it at the first match of each `write()` and `end()`.
-   * The Node adapters return `true` while their readable side is not
-   * flowing: `push()` emits `data` synchronously only in flowing mode, and
-   * otherwise buffers the chunk for a later tick. Leave it unset when
-   * `enqueue` can run code synchronously.
+   * Engines read it once, in `start()`. Leave it unset when `enqueue` can
+   * ever run code synchronously, as a Node `Readable`'s `push()` does once
+   * a consumer makes it flow, which can happen part-way through a call.
    */
-  isDeliveryDeferred?(): boolean;
+  readonly deliveryDeferred?: boolean;
 }
 
 /**

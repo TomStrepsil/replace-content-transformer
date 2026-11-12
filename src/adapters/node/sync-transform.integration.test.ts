@@ -122,18 +122,36 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
       return { transform, pushed };
     };
 
-    it("pushes once per write() while the readable side is read with for await, as nothing can react inside push()", async () => {
-      const { transform, pushed } = transformWithSignal();
-      const reading = (async () => {
-        let out = "";
-        for await (const chunk of transform) out += chunk;
-        return out;
-      })();
+    it("stops the next replacement in the same chunk once a replacement makes the stream flow and its data listener aborts the signal", async () => {
+      const abortController = new AbortController();
+      const chunks: string[] = [];
+      let transform: ReplaceContentTransform;
+      const replacement = vi.fn((match: string) => {
+        if (replacement.mock.calls.length === 1) {
+          transform.on("data", (chunk: Buffer) => {
+            chunks.push(chunk.toString());
+            if (chunks.join("").includes("{{A}}")) abortController.abort();
+          });
+          transform.resume();
+        }
+        return match.toUpperCase();
+      });
+      transform = new ReplaceContentTransform(
+        new SyncReplacementTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement,
+          stopReplacingSignal: abortController.signal
+        })
+      );
+      transform.write("warm");
+      await new Promise((resolve) => setImmediate(resolve));
+      transform.read();
 
-      transform.end("x{{a}}y{{b}}z");
+      transform.end("{{a}}{{b}}");
+      await finished(transform);
 
-      await reading;
-      expect(pushed()).toEqual(["x{{A}}y{{B}}z"]);
+      expect(chunks.join("")).toBe("{{A}}{{b}}");
+      expect(replacement).toHaveBeenCalledOnce();
     });
 
     it("stops the next replacement once a data listener attached after an earlier write with a match aborts the signal", async () => {

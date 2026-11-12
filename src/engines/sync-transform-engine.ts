@@ -1,4 +1,8 @@
-import type { ReplacementContext, SyncTransformEngine } from "./types.ts";
+import type {
+  EngineSink,
+  ReplacementContext,
+  SyncTransformEngine
+} from "./types.ts";
 import { TransformEngineBase } from "./transform-engine-base.ts";
 import type { MatchSink, SearchStrategy } from "../search-strategies/types.ts";
 
@@ -38,7 +42,7 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
    * iterable one. So a sink that aborts on receiving output, such as a Node
    * `data` listener, stops the search straight after that output, and an
    * iterable that checks the signal between pieces sees the abort. A sink
-   * with `EngineSink.isDeliveryDeferred` can't abort that soon, so it still
+   * with `EngineSink.deliveryDeferred` can't abort that soon, so it still
    * receives one chunk per call.
    */
   stopReplacingSignal?: AbortSignal;
@@ -54,7 +58,7 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
  * Calls `sink.enqueue` at most once per {@link write} and once per
  * {@link end}, with all the output that call produced, and not at all when
  * it produced none. With a `stopReplacingSignal`, unless the sink has
- * `EngineSink.isDeliveryDeferred`, it enqueues output as it is produced
+ * `EngineSink.deliveryDeferred`, it enqueues output as it is produced
  * instead (see that option). If the replacement throws, the output produced
  * before it is still enqueued.
  *
@@ -68,15 +72,13 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   readonly #replacement: SyncReplacementFn<TMatch>;
   #stoppedAt: string | undefined;
   #output = "";
-  #enqueueAsProduced: boolean | undefined;
+  #enqueueAsProduced = false;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
       this.#output += content;
     },
     reportMatch: (content, streamIndices) => {
-      if ((this.#enqueueAsProduced ??= this.#sinkCanReactWithinCall())) {
-        this.#enqueueOutput();
-      }
+      if (this.#enqueueAsProduced) this.#enqueueOutput();
       if (this._stopReplacingSignal?.aborted) {
         this.#stoppedAt = this._searchStrategy.matchToString(content);
         return false;
@@ -116,6 +118,12 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         : replacement;
   }
 
+  override start(sink: EngineSink): void {
+    super.start(sink);
+    this.#enqueueAsProduced =
+      this._stopReplacingSignal !== undefined && sink.deliveryDeferred !== true;
+  }
+
   write(chunk: string): void {
     try {
       if (this._stopReplacingSignal?.aborted) {
@@ -123,7 +131,6 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         this.#output += chunk;
         return;
       }
-      this.#enqueueAsProduced = undefined;
       this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
       this.#appendStopped();
     } finally {
@@ -137,7 +144,6 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         this.#appendHeld();
         return;
       }
-      this.#enqueueAsProduced = undefined;
       this._settle(this.#matchSink);
       this.#appendStopped();
     } finally {
@@ -154,13 +160,6 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
     this.#output += this.#stoppedAt;
     this.#stoppedAt = undefined;
     this.#appendHeld();
-  }
-
-  #sinkCanReactWithinCall(): boolean {
-    return (
-      this._stopReplacingSignal !== undefined &&
-      this._sink.isDeliveryDeferred?.() !== true
-    );
   }
 
   #enqueueOutput(): void {

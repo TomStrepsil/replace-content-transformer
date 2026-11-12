@@ -661,7 +661,7 @@ interface AsyncTransformEngine {
 There are three concrete engines:
 
 - **`SyncReplacementTransformEngine`** — synchronous replacement. `replacement` can be a plain `string` for static replacement, or a function returning `string | Iterable<string>` for functional and iterable use-cases
-  - Each `write()` and `end()` sends its output to the sink as one chunk, including every piece of an iterable replacement. With a `stopReplacingSignal`, a Node adapter that is flowing gets its output as it is produced instead: the text before each replacement, then each replacement or iterable piece (see [Limit replacements](#limit-replacements))
+  - Each `write()` and `end()` sends its output to the sink as one chunk, including every piece of an iterable replacement. With a `stopReplacingSignal`, a Node adapter gets its output as it is produced instead: the text before each replacement, then each replacement or iterable piece (see [Limit replacements](#limit-replacements))
 
 - **`AsyncSerialReplacementTransformEngine`** — asynchronous serial replacement. Each match is fully consumed before the engine scans for the next. `replacement` returns `string | AsyncIterable<string> | Promise<string | AsyncIterable<string>>`
 
