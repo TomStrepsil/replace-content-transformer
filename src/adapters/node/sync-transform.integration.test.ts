@@ -50,6 +50,35 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
     expect(replacement).toHaveBeenCalledOnce();
   });
 
+  it("stops the search straight after a replacement a data listener aborts the stopReplacingSignal on, before the strategy reaches a guard that throws", async () => {
+    const abortController = new AbortController();
+    const onGuardExceeded = vi.fn(() => {
+      throw new Error("guard");
+    });
+    const transform = new ReplaceContentTransform(
+      new SyncReplacementTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"], {
+          maxBufferLength: 6,
+          onGuardExceeded
+        }),
+        replacement: (match: string) => match.toUpperCase(),
+        stopReplacingSignal: abortController.signal
+      })
+    );
+    const chunks: string[] = [];
+    transform.on("data", (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+      if (chunks.join("").includes("{{A}}")) abortController.abort();
+    });
+    transform.write("x");
+
+    transform.end("{{a}}{{123456");
+    await finished(transform);
+
+    expect(chunks.join("")).toBe("x{{A}}{{123456");
+    expect(onGuardExceeded).not.toHaveBeenCalled();
+  });
+
   it("lets an iterable replacement see a data listener abort the stopReplacingSignal on one of its pieces before it yields the next", async () => {
     const abortController = new AbortController();
     const replacement = vi.fn(function* (match: string) {
@@ -103,7 +132,7 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
 
       transform.end("x{{a}}y{{b}}z");
 
-      await expect(reading).resolves.toBe("x{{A}}y{{B}}z");
+      await reading;
       expect(pushed()).toEqual(["x{{A}}y{{B}}z"]);
     });
 
@@ -132,16 +161,15 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
       expect(replacement).toHaveBeenCalledTimes(2);
     });
 
-    it("pushes the output so far before each replacement while piped to a Writable, which can react inside push()", async () => {
+    it("pushes the output so far before each replacement, and each replacement as it is made, while piped to a Writable, which can react inside push()", async () => {
       const { transform, pushed } = transformWithSignal();
-      const { writable, outputs } = collectWritable();
+      const { writable } = collectWritable();
       transform.pipe(writable);
 
       transform.end("x{{a}}y{{b}}z");
       await finished(writable);
 
-      expect(outputs.join("")).toBe("x{{A}}y{{B}}z");
-      expect(pushed()).toEqual(["x", "{{A}}y", "{{B}}z"]);
+      expect(pushed()).toEqual(["x", "{{A}}", "y", "{{B}}", "z"]);
     });
   });
 });

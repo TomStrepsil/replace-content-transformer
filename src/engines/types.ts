@@ -13,8 +13,8 @@ export interface EngineSink {
    * until the engine's current `write()` or `end()` call has returned, as
    * with a WHATWG `TransformStreamDefaultController`, whose readers receive
    * chunks through promises. `SyncReplacementTransformEngine` then enqueues
-   * once per call even with a `stopReplacingSignal`, rather than before each
-   * replacement, since nothing downstream could abort the signal any sooner.
+   * once per call even with a `stopReplacingSignal`, rather than as output is
+   * produced, since nothing downstream could abort the signal any sooner.
    *
    * The engine calls it at the first match of each `write()` and `end()`.
    * The Node adapters return `true` while their readable side is not
