@@ -50,6 +50,34 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
     expect(replacement).toHaveBeenCalledOnce();
   });
 
+  it("lets a guard callback see that a data listener aborted the stopReplacingSignal on text reported before it", async () => {
+    const abortController = new AbortController();
+    const signalAbortedAtGuard: boolean[] = [];
+    const transform = new ReplaceContentTransform(
+      new SyncReplacementTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"], {
+          maxBufferLength: 6,
+          onGuardExceeded: () => {
+            signalAbortedAtGuard.push(abortController.signal.aborted);
+          }
+        }),
+        replacement: (match: string) => match.toUpperCase(),
+        stopReplacingSignal: abortController.signal
+      })
+    );
+    const chunks: string[] = [];
+    transform.on("data", (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+      if (chunks.join("").includes("x")) abortController.abort();
+    });
+    transform.write("w");
+
+    transform.end("x{{123456");
+    await finished(transform);
+
+    expect(signalAbortedAtGuard).toEqual([true]);
+  });
+
   it("stops the search straight after a replacement a data listener aborts the stopReplacingSignal on, before the strategy reaches a guard that throws", async () => {
     const abortController = new AbortController();
     const onGuardExceeded = vi.fn(() => {

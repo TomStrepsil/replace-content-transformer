@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { constants } from "node:buffer";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
 import type { MatchResult } from "../../test/utilities.ts";
 import {
@@ -683,6 +684,47 @@ describe("SyncTransformEngine", () => {
 
       expect(chunks.join("")).toBe("aRb2REST");
       expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("delivers the output of a write() longer than the longest string the runtime can build", () => {
+      const replacementLength = Math.ceil(constants.MAX_STRING_LENGTH / 4);
+      const matches = 5;
+      const { strategy } = mockSearchStrategy({
+        chunk: Array.from({ length: matches }, (_, i) => match("M", i))
+      });
+      const replacement = "x".repeat(replacementLength);
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement
+      });
+      let delivered = 0;
+      engine.start({
+        enqueue: (chunk) => {
+          delivered += chunk.length;
+        },
+        error: () => {}
+      });
+
+      engine.write("M".repeat(matches));
+      engine.end();
+
+      expect(delivered).toBe(replacementLength * matches);
+    });
+
+    it("rethrows an error other than running out of string length while appending a replacement's output", () => {
+      const { strategy } = mockSearchStrategy({ chunk: [match("M", 0)] });
+      const unconvertible = {
+        toString: () => {
+          throw new Error("boom");
+        }
+      } as unknown as string;
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => [unconvertible]
+      });
+      engine.start(collectEngineSink().sink);
+
+      expect(() => engine.write("M")).toThrow("boom");
     });
 
     it("enqueues nothing for a call whose output is empty", () => {

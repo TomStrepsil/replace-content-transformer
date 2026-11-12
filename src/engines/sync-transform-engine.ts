@@ -37,13 +37,13 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
    * emitted verbatim as one chunk. Available symmetrically on both Node
    * and web adapters.
    *
-   * When given, output is sent to the sink as it is produced: the text
-   * before each replacement, then each replacement, or each piece of an
-   * iterable one. So a sink that aborts on receiving output, such as a Node
-   * `data` listener, stops the search straight after that output, and an
-   * iterable that checks the signal between pieces sees the abort. A sink
-   * with `EngineSink.deliveryDeferred` can't abort that soon, so it still
-   * receives one chunk per call.
+   * When given, output is sent to the sink as it is produced: each run of
+   * text, each replacement, and each piece of an iterable one. So a sink
+   * that aborts on receiving output, such as a Node `data` listener, stops
+   * the search straight after that output, and a callback such as
+   * `onGuardExceeded`, or an iterable that checks the signal between
+   * pieces, sees the abort. A sink with `EngineSink.deliveryDeferred`
+   * can't abort that soon, so it still receives one chunk per call.
    */
   stopReplacingSignal?: AbortSignal;
 }
@@ -57,10 +57,11 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
  *
  * Calls `sink.enqueue` at most once per {@link write} and once per
  * {@link end}, with all the output that call produced, and not at all when
- * it produced none. With a `stopReplacingSignal`, unless the sink has
- * `EngineSink.deliveryDeferred`, it enqueues output as it is produced
- * instead (see that option). If the replacement throws, the output produced
- * before it is still enqueued.
+ * it produced none, except that output longer than the longest string the
+ * runtime can build is split where it would overflow. With a
+ * `stopReplacingSignal`, unless the sink has `EngineSink.deliveryDeferred`,
+ * it enqueues output as it is produced instead (see that option). If the
+ * replacement throws, the output produced before it is still enqueued.
  *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
@@ -75,10 +76,10 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   #enqueueAsProduced = false;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
-      this.#output += content;
+      this.#append(content);
+      if (this.#enqueueAsProduced) this.#enqueueOutput();
     },
     reportMatch: (content, streamIndices) => {
-      if (this.#enqueueAsProduced) this.#enqueueOutput();
       if (this._stopReplacingSignal?.aborted) {
         this.#stoppedAt = this._searchStrategy.matchToString(content);
         return false;
@@ -88,7 +89,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         streamIndices
       });
       if (typeof replacement === "string") {
-        this.#output += replacement;
+        this.#append(replacement);
         if (this.#enqueueAsProduced) this.#enqueueOutput();
       } else if (this.#enqueueAsProduced) {
         for (const item of replacement) {
@@ -97,7 +98,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         }
       } else {
         for (const item of replacement) {
-          this.#output += item;
+          this.#append(item);
         }
       }
       if (!this._stopReplacingSignal?.aborted) return true;
@@ -128,7 +129,7 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
     try {
       if (this._stopReplacingSignal?.aborted) {
         this.#appendHeld();
-        this.#output += chunk;
+        this.#append(chunk);
         return;
       }
       this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
@@ -152,14 +153,24 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   }
 
   #appendHeld(): void {
-    this.#output += this._searchStrategy.flush(this._state);
+    this.#append(this._searchStrategy.flush(this._state));
   }
 
   #appendStopped(): void {
     if (this.#stoppedAt === undefined) return;
-    this.#output += this.#stoppedAt;
+    this.#append(this.#stoppedAt);
     this.#stoppedAt = undefined;
     this.#appendHeld();
+  }
+
+  #append(content: string): void {
+    try {
+      this.#output += content;
+    } catch (error) {
+      if (typeof content !== "string") throw error;
+      this.#enqueueOutput();
+      this.#output = content;
+    }
   }
 
   #enqueueOutput(): void {
