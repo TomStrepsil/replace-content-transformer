@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Readable } from "node:stream";
+import { finished } from "node:stream/promises";
 import { text } from "node:stream/consumers";
 import { ReplaceContentTransform } from "./sync-transform.js";
+import { collectWritable } from "../../../test/utilities.js";
 import { SyncReplacementTransformEngine } from "../../engines/index.js";
 import {
   RegexSearchStrategy,
@@ -22,6 +24,97 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
       Readable.from([bytes.subarray(0, 2), bytes.subarray(2)]).pipe(transform)
     );
     expect(out).toBe("héllo X wörld");
+  });
+
+  it("does not call the replacement again once a data listener aborts the stopReplacingSignal on output from the same chunk", async () => {
+    const abortController = new AbortController();
+    const replacement = vi.fn((match: string) => match.toUpperCase());
+    const transform = new ReplaceContentTransform(
+      new SyncReplacementTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement,
+        stopReplacingSignal: abortController.signal
+      })
+    );
+    const chunks: string[] = [];
+    transform.on("data", (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+      if (chunks.join("").includes("{{A}}")) abortController.abort();
+    });
+    transform.write("x");
+
+    transform.end("{{a}}y{{b}}z");
+    await finished(transform);
+
+    expect(chunks.join("")).toBe("x{{A}}y{{b}}z");
+    expect(replacement).toHaveBeenCalledOnce();
+  });
+
+  describe("with a stopReplacingSignal", () => {
+    const transformWithSignal = () => {
+      const transform = new ReplaceContentTransform(
+        new SyncReplacementTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement: (match: string) => match.toUpperCase(),
+          stopReplacingSignal: new AbortController().signal
+        })
+      );
+      const push = vi.spyOn(transform, "push");
+      const pushed = () =>
+        push.mock.calls.map(([chunk]) => chunk).filter((chunk) => chunk !== null);
+      return { transform, pushed };
+    };
+
+    it("pushes once per write() while the readable side is read with for await, as nothing can react inside push()", async () => {
+      const { transform, pushed } = transformWithSignal();
+      const reading = (async () => {
+        let out = "";
+        for await (const chunk of transform) out += chunk;
+        return out;
+      })();
+
+      transform.end("x{{a}}y{{b}}z");
+
+      await expect(reading).resolves.toBe("x{{A}}y{{B}}z");
+      expect(pushed()).toEqual(["x{{A}}y{{B}}z"]);
+    });
+
+    it("stops the next replacement once a data listener attached after an earlier write with a match aborts the signal", async () => {
+      const abortController = new AbortController();
+      const replacement = vi.fn((match: string) => match.toUpperCase());
+      const transform = new ReplaceContentTransform(
+        new SyncReplacementTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement,
+          stopReplacingSignal: abortController.signal
+        })
+      );
+      transform.write("{{x}} ");
+      const chunks: string[] = [];
+      transform.on("data", (chunk: Buffer) => {
+        chunks.push(chunk.toString());
+        if (chunks.join("").includes("{{A}}")) abortController.abort();
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      transform.end("{{a}}y{{b}}z");
+      await finished(transform);
+
+      expect(chunks.join("")).toBe("{{X}} {{A}}y{{b}}z");
+      expect(replacement).toHaveBeenCalledTimes(2);
+    });
+
+    it("pushes the output so far before each replacement while piped to a Writable, which can react inside push()", async () => {
+      const { transform, pushed } = transformWithSignal();
+      const { writable, outputs } = collectWritable();
+      transform.pipe(writable);
+
+      transform.end("x{{a}}y{{b}}z");
+      await finished(writable);
+
+      expect(outputs.join("")).toBe("x{{A}}y{{B}}z");
+      expect(pushed()).toEqual(["x", "{{A}}y", "{{B}}z"]);
+    });
   });
 });
 

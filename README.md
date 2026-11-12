@@ -424,6 +424,10 @@ const transformer = new AsyncReplaceContentTransformer(
 
 This will ensure the transform is ["pass through"](https://en.wikipedia.org/wiki/Identity_transform) once the abort is signalled.
 
+No replacement is called once the signal has aborted. If a downstream consumer aborts it on seeing output, how soon that takes effect depends on when the output reaches the consumer [^3]
+
+[^3]: With `SyncReplacementTransformEngine`, a Node `pipe()` destination or `data` listener receives the output before each replacement, so an abort there stops the next replacement in the same chunk. WHATWG readers, `pipeTo()` and `for await` only receive a chunk's output once it has been processed, so an abort from them takes effect from the next chunk.
+
 For `fetch` uses cases, with cancellation external to the replacement function, consider sharing the abort signal:
 
 ```ts
@@ -657,6 +661,7 @@ interface AsyncTransformEngine {
 There are three concrete engines:
 
 - **`SyncReplacementTransformEngine`** — synchronous replacement. `replacement` can be a plain `string` for static replacement, or a function returning `string | Iterable<string>` for functional and iterable use-cases
+  - Each `write()` and `end()` sends its output to the sink as one chunk, including every piece of an iterable replacement. With a `stopReplacingSignal`, a Node adapter that is flowing also gets the output so far before each replacement (see [Limit replacements](#limit-replacements))
 
 - **`AsyncSerialReplacementTransformEngine`** — asynchronous serial replacement. Each match is fully consumed before the engine scans for the next. `replacement` returns `string | AsyncIterable<string> | Promise<string | AsyncIterable<string>>`
 

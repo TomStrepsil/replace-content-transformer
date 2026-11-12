@@ -129,6 +129,7 @@ Stream processing performance with the same code across different JavaScript eng
 - Stream processing throughput (operations per second)
 - Transformer overhead
 - Async vs sync performance
+- Output chunks on match-dense input: each costs every downstream stage, so outside `--json` mode the count for each match-dense scenario is printed before the timings
 
 ### Lookahead Engine Benchmarks
 

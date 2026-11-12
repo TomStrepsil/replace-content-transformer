@@ -22,6 +22,14 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     expect(outputs).toEqual(["hello"]);
   });
 
+  it("reports delivery as deferred, since readers only receive enqueued chunks through promises", () => {
+    const engine = mockSyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+
+    expect(startedSinkOf(engine).isDeliveryDeferred?.()).toBe(true);
+  });
+
   it("wires start(controller) to engine.start with a sink that forwards error", () => {
     const engine = mockSyncEngine();
     const transformer = new ReplaceContentTransformer(engine);

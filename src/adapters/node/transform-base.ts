@@ -27,7 +27,8 @@ export abstract class TransformBase<T> extends Transform {
     super(options);
     engine.start({
       enqueue: (chunk) => this.#pushWholeCodePoints(chunk),
-      error: (err) => this.destroy(toError(err))
+      error: (err) => this.destroy(toError(err)),
+      isDeliveryDeferred: () => this.readableFlowing !== true
     });
   }
 

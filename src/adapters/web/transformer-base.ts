@@ -27,7 +27,8 @@ export abstract class TransformerBase<
   start(controller: TransformStreamDefaultController<string>): void {
     this._engine.start({
       enqueue: (chunk) => controller.enqueue(chunk),
-      error: (err) => controller.error(err)
+      error: (err) => controller.error(err),
+      isDeliveryDeferred: () => true
     });
   }
 

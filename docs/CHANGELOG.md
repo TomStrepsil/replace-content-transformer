@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RegexSearchStrategy`
   - **BREAKING:** matches no longer depend on chunk boundaries, except where a chunk ends more than 64 characters into the text a backreference repeats, or inside a `v`-flag string of several code points, such as an emoji flag matched by `\p{RGI_Emoji}` (see [Strings of several code points](../src/search-strategies/regex/README.md#️-strings-of-several-code-points-v-flag)). A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change.
   - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- `SyncReplacementTransformEngine`
+  - Enqueues all of a `write()` or `end()` call's output as one chunk, rather than one per text run, replacement and iterable piece. With a `stopReplacingSignal`, a sink that can react within the call, such as a Node adapter's while flowing, also receives the output so far before each replacement. See [Engines](../README.md#-engines)
 - `AsyncLookaheadTransformEngine`
   - **BREAKING:** the constructor throws a `RangeError` unless `highWaterMark` is a whole number of at least 1, or `Infinity`, as for `maxBufferLength`. `NaN` was accepted and turned backpressure off, a fraction was accepted, and `null` selected the default
   - `write()` awaits only while more than `highWaterMark` slots are queued, rather than once per queued slot. The text before a match is queued as one slot with it, so the queue holds at most two slots beyond `highWaterMark`, and adjacent text reaches the sink as one chunk. See [Backpressure](../src/engines/async-lookahead-transform-engine/README.md#backpressure-and-highwatermark)
@@ -59,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `EngineSink.isDeliveryDeferred()`, optional, for a sink whose downstream can't observe output until the engine's current call returns. The web adapters always return `true`, and the Node adapters while not flowing
 - `LeanRegexSearchStrategy`, which takes a `PartialMatchRegExp` built from `regex-partial-match/core` (or `withModules()`) so a bundle leaves out the full class, about 3.1 kB gzipped. `RegexSearchStrategy` is unchanged for callers. See [Lean Bundles](../src/search-strategies/regex/README.md#lean-bundles)
 - Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
 - Tests for engine cancellation, and for flushing rather than settling on abort

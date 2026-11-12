@@ -7,8 +7,10 @@ import type {
 
 /**
  * A replacement function for the sync engine.
- * Return a `string` or an `Iterable<string>` (e.g. an array or a generator)
- * to emit one or more replacement chunks per match.
+ * Return a `string` or an `Iterable<string>` (e.g. an array or a generator).
+ * The pieces of an iterable are concatenated into the output of the
+ * {@link SyncReplacementTransformEngine.write | write()} that found the
+ * match, rather than reaching the sink as separate chunks.
  */
 export type SyncReplacementFn<TMatch> = (
   match: TMatch,
@@ -29,8 +31,14 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
    * match first. It stops searching too: straight after the output of a
    * replacement that aborts it, or otherwise at the next match it finds,
    * what is left of the current chunk and what the strategy holds are
-   * emitted verbatim as one chunk. Available symmetrically on both Node 
+   * emitted verbatim as one chunk. Available symmetrically on both Node
    * and web adapters.
+   *
+   * When given, the output produced so far is sent to the sink before each
+   * replacement is called, so a sink that aborts on receiving output, such
+   * as a Node `data` listener, stops the next replacement. A sink with
+   * `EngineSink.isDeliveryDeferred` can't abort that soon, so it still
+   * receives one chunk per call.
    */
   stopReplacingSignal?: AbortSignal;
 }
@@ -42,6 +50,13 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
  * strings returned by a function. The adapter calls {@link start} once, then
  * {@link write} per chunk, then {@link end}.
  *
+ * Calls `sink.enqueue` at most once per {@link write} and once per
+ * {@link end}, with all the output that call produced, and not at all when
+ * it produced none. With a `stopReplacingSignal`, unless the sink has
+ * `EngineSink.isDeliveryDeferred`, it also enqueues the output so far
+ * before each replacement is called. If the replacement
+ * throws, the output produced before it is still enqueued.
+ *
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type (defaults to string)
  */
@@ -51,9 +66,16 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
 {
   readonly #replacement: SyncReplacementFn<TMatch>;
   #stoppedAt: string | undefined;
+  #output = "";
+  #enqueueBeforeReplacing: boolean | undefined;
   readonly #matchSink: MatchSink<TMatch> = {
-    reportText: (content) => this._sink.enqueue(content),
+    reportText: (content) => {
+      this.#output += content;
+    },
     reportMatch: (content, streamIndices) => {
+      if ((this.#enqueueBeforeReplacing ??= this.#sinkCanReactWithinCall())) {
+        this.#enqueueOutput();
+      }
       if (this._stopReplacingSignal?.aborted) {
         this.#stoppedAt = this._searchStrategy.matchToString(content);
         return false;
@@ -63,10 +85,10 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
         streamIndices
       });
       if (typeof replacement === "string") {
-        this._sink.enqueue(replacement);
+        this.#output += replacement;
       } else {
         for (const item of replacement) {
-          this._sink.enqueue(item);
+          this.#output += item;
         }
       }
       if (!this._stopReplacingSignal?.aborted) return true;
@@ -88,28 +110,55 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
   }
 
   write(chunk: string): void {
-    if (this._stopReplacingSignal?.aborted) {
-      this._enqueueHeld();
-      this._sink.enqueue(chunk);
-      return;
+    try {
+      if (this._stopReplacingSignal?.aborted) {
+        this.#appendHeld();
+        this.#output += chunk;
+        return;
+      }
+      this.#enqueueBeforeReplacing = undefined;
+      this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
+      this.#appendStopped();
+    } finally {
+      this.#enqueueOutput();
     }
-
-    this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
-    this.#enqueueStopped();
   }
 
   override end(): void {
-    if (this._stopReplacingSignal?.aborted) {
-      this._enqueueHeld();
-      return;
+    try {
+      if (this._stopReplacingSignal?.aborted) {
+        this.#appendHeld();
+        return;
+      }
+      this.#enqueueBeforeReplacing = undefined;
+      this._settle(this.#matchSink);
+      this.#appendStopped();
+    } finally {
+      this.#enqueueOutput();
     }
-    this._settle(this.#matchSink);
-    this.#enqueueStopped();
   }
 
-  #enqueueStopped(): void {
+  #appendHeld(): void {
+    this.#output += this._searchStrategy.flush(this._state);
+  }
+
+  #appendStopped(): void {
     if (this.#stoppedAt === undefined) return;
-    this._enqueueHeld(this.#stoppedAt);
+    this.#output += this.#stoppedAt;
     this.#stoppedAt = undefined;
+    this.#appendHeld();
+  }
+
+  #sinkCanReactWithinCall(): boolean {
+    return (
+      this._stopReplacingSignal !== undefined && this._sink.isDeliveryDeferred?.() !== true
+    );
+  }
+
+  #enqueueOutput(): void {
+    const output = this.#output;
+    if (!output) return;
+    this.#output = "";
+    this._sink.enqueue(output);
   }
 }
