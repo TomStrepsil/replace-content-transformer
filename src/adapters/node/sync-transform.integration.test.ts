@@ -50,6 +50,34 @@ describe("ReplaceContentTransform + SyncReplacementTransformEngine + StringAncho
     expect(replacement).toHaveBeenCalledOnce();
   });
 
+  it("lets an iterable replacement see a data listener abort the stopReplacingSignal on one of its pieces before it yields the next", async () => {
+    const abortController = new AbortController();
+    const replacement = vi.fn(function* (match: string) {
+      yield "<";
+      yield abortController.signal.aborted ? match : match.toUpperCase();
+      yield ">";
+    });
+    const transform = new ReplaceContentTransform(
+      new SyncReplacementTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement,
+        stopReplacingSignal: abortController.signal
+      })
+    );
+    const chunks: string[] = [];
+    transform.on("data", (chunk: Buffer) => {
+      chunks.push(chunk.toString());
+      if (chunks.join("").endsWith("<")) abortController.abort();
+    });
+    transform.write("x");
+
+    transform.end("{{a}}y{{b}}z");
+    await finished(transform);
+
+    expect(chunks.join("")).toBe("x<{{a}}>y{{b}}z");
+    expect(replacement).toHaveBeenCalledOnce();
+  });
+
   describe("with a stopReplacingSignal", () => {
     const transformWithSignal = () => {
       const transform = new ReplaceContentTransform(

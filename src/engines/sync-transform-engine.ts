@@ -10,7 +10,10 @@ import type {
  * Return a `string` or an `Iterable<string>` (e.g. an array or a generator).
  * The pieces of an iterable are concatenated into the output of the
  * {@link SyncReplacementTransformEngine.write | write()} that found the
- * match, rather than reaching the sink as separate chunks.
+ * match, rather than reaching the sink as separate chunks, unless the
+ * engine has a `stopReplacingSignal` and a sink that can react within the
+ * call: then each piece is sent before the next is requested, so a
+ * generator sees an abort the sink makes on receiving it.
  */
 export type SyncReplacementFn<TMatch> = (
   match: TMatch,
@@ -35,8 +38,10 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
    * and web adapters.
    *
    * When given, the output produced so far is sent to the sink before each
-   * replacement is called, so a sink that aborts on receiving output, such
-   * as a Node `data` listener, stops the next replacement. A sink with
+   * replacement is called, and after each piece of an iterable replacement,
+   * so a sink that aborts on receiving output, such as a Node `data`
+   * listener, stops the next replacement, and an iterable that checks the
+   * signal between pieces sees the abort. A sink with
    * `EngineSink.isDeliveryDeferred` can't abort that soon, so it still
    * receives one chunk per call.
    */
@@ -54,7 +59,8 @@ export interface SyncReplacementTransformEngineOptions<TState, TMatch> {
  * {@link end}, with all the output that call produced, and not at all when
  * it produced none. With a `stopReplacingSignal`, unless the sink has
  * `EngineSink.isDeliveryDeferred`, it also enqueues the output so far
- * before each replacement is called. If the replacement
+ * before each replacement is called and after each piece of an iterable
+ * replacement. If the replacement
  * throws, the output produced before it is still enqueued.
  *
  * @typeParam TState - The search strategy's state type
@@ -86,6 +92,11 @@ export class SyncReplacementTransformEngine<TState, TMatch = string>
       });
       if (typeof replacement === "string") {
         this.#output += replacement;
+      } else if (this.#enqueueBeforeReplacing) {
+        for (const item of replacement) {
+          this.#output += item;
+          this.#enqueueOutput();
+        }
       } else {
         for (const item of replacement) {
           this.#output += item;
