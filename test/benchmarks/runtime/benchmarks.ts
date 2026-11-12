@@ -76,6 +76,17 @@ group("⚡ Scaling & Optimization", () => {
     });
   });
 });
+group("🧱 Match-Dense Output", () => {
+  benchmarkDefinitions.matchDense.forEach((definition: BenchmarkDefinition) => {
+    if (!isJsonMode) {
+      const { chunkCount } = executeBenchmark(definition);
+      console.log(`${definition.name}: ${chunkCount} output chunks`);
+    }
+    bench(definition.name, () => {
+      executeBenchmark(definition);
+    });
+  });
+});
 group("🔄 Async Replacement Performance", () => {
   // First two are sync-engine baselines
   benchmarkDefinitions.async

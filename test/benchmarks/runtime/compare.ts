@@ -123,6 +123,8 @@ function parseMitataJsonOutput(
           category = "Multi-Chunk";
         } else if (name.includes("scaling") || name.includes("KMP")) {
           category = "Scaling";
+        } else if (name.includes("Match-dense")) {
+          category = "Match-Dense";
         }
 
         // Extract performance metrics from the runs array
@@ -224,7 +226,7 @@ function generateComparisonTable(allResults: BenchmarkResult[]): string {
   }
 
   // Group by category
-  const categories = ["Baseline", "Cross-Boundary", "Multi-Chunk", "Scaling"];
+  const categories = ["Baseline", "Cross-Boundary", "Multi-Chunk", "Scaling", "Match-Dense"];
 
   for (const category of categories) {
     const categoryBenchmarks = Array.from(benchmarkGroups.entries()).filter(

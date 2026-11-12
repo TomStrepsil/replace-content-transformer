@@ -8,6 +8,20 @@ import type { StreamIndices } from "../search-strategies/types.ts";
 export interface EngineSink {
   enqueue(chunk: string): void;
   error(err: unknown): void;
+  /**
+   * `true` when, for the life of the stream, nothing downstream can observe
+   * a chunk enqueued during the engine's `write()` or `end()` until that
+   * call has returned, as with a WHATWG `TransformStreamDefaultController`,
+   * whose readers receive chunks through promises.
+   * `SyncReplacementTransformEngine` then enqueues once per call even with a
+   * `stopReplacingSignal`, rather than as output is produced, since nothing
+   * downstream could abort the signal any sooner.
+   *
+   * Engines read it once, in `start()`. Leave it unset when `enqueue` can
+   * ever run code synchronously, as a Node `Readable`'s `push()` does once
+   * a consumer makes it flow, which can happen part-way through a call.
+   */
+  readonly deliveryDeferred?: boolean;
 }
 
 /**

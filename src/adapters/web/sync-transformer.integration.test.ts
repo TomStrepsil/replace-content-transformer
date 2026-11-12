@@ -82,4 +82,36 @@ describe("ReplaceContentTransformer + SyncReplacementTransformEngine + StringAnc
     await expect(text(transformed)).resolves.toBe("{{A}}{{b}}{{c}} next");
     expect(replacement).toHaveBeenCalledTimes(1);
   });
+
+  it("emits one chunk per input chunk with a stopReplacingSignal, as no reader sees output before transform() returns", async () => {
+    const abortController = new AbortController();
+    const replacement = vi.fn((match: string) => match.toUpperCase());
+    const stream = new TransformStream(
+      new ReplaceContentTransformer(
+        new SyncReplacementTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement,
+          stopReplacingSignal: abortController.signal
+        })
+      )
+    );
+    const chunks: string[] = [];
+    const reading = stream.readable.pipeTo(
+      new WritableStream({
+        write(chunk) {
+          chunks.push(chunk);
+          abortController.abort();
+        }
+      })
+    );
+
+    const writer = stream.writable.getWriter();
+    await writer.write("x{{a}}y{{b}}z");
+    await writer.write("{{c}}");
+    await writer.close();
+    await reading;
+
+    expect(chunks).toEqual(["x{{A}}y{{B}}z", "{{c}}"]);
+    expect(replacement).toHaveBeenCalledTimes(2);
+  });
 });

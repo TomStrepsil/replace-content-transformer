@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { constants } from "node:buffer";
 import { SyncReplacementTransformEngine } from "./sync-transform-engine.ts";
 import type { MatchResult } from "../../test/utilities.ts";
 import {
@@ -19,6 +20,13 @@ function runEngine<TState>(
   return chunks;
 }
 
+function outputOf<TState>(
+  engine: SyncReplacementTransformEngine<TState>,
+  inputs: string[]
+): string {
+  return runEngine(engine, inputs).join("");
+}
+
 describe("SyncTransformEngine", () => {
   describe("non-match passthrough", () => {
     it("passes non-match content to the sink", () => {
@@ -30,7 +38,7 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: () => "UNUSED"
       });
-      expect(runEngine(engine, ["hello world"]).join("")).toBe("hello world");
+      expect(outputOf(engine, ["hello world"])).toBe("hello world");
     });
   });
 
@@ -45,7 +53,7 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: "NEW"
       });
-      expect(runEngine(engine, ["pre OLD post"]).join("")).toBe("pre NEW post");
+      expect(outputOf(engine, ["pre OLD post"])).toBe("pre NEW post");
     });
 
     it("replaces with the function return value", () => {
@@ -109,7 +117,7 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: () => ["A", "B", "C"]
       });
-      expect(runEngine(engine, ["X"])).toEqual(["A", "B", "C"]);
+      expect(outputOf(engine, ["X"])).toBe("ABC");
     });
 
     it("emits items from a generator return value", () => {
@@ -125,7 +133,7 @@ describe("SyncTransformEngine", () => {
           yield "Q";
         }
       });
-      expect(runEngine(engine, ["X"])).toEqual(["P", "Q"]);
+      expect(outputOf(engine, ["X"])).toBe("PQ");
     });
   });
 
@@ -162,7 +170,7 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: "HI"
       });
-      expect(runEngine(engine, ["HELLO world"])).toEqual(["HI", " world"]);
+      expect(outputOf(engine, ["HELLO world"])).toBe("HI world");
     });
   });
 
@@ -177,7 +185,7 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: "X"
       });
-      expect(runEngine(engine, ["A-B"])).toEqual(["X", "-", "X"]);
+      expect(outputOf(engine, ["A-B"])).toBe("X-X");
     });
 
     it("replaces with different iterable per match index", () => {
@@ -193,7 +201,7 @@ describe("SyncTransformEngine", () => {
           `${ctx.matchIndex}b`
         ]
       });
-      expect(runEngine(engine, ["M-M"])).toEqual(["0a", "0b", "-", "1a", "1b"]);
+      expect(outputOf(engine, ["M-M"])).toBe("0a0b-1a1b");
     });
 
     it("emits nothing for a match when replacement returns an empty iterable", () => {
@@ -206,7 +214,7 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: () => []
       });
-      expect(runEngine(engine, ["pre X post"])).toEqual(["pre ", " post"]);
+      expect(outputOf(engine, ["pre X post"])).toBe("pre  post");
     });
   });
 
@@ -221,7 +229,12 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: "R"
       });
-      expect(runEngine(engine, ["a"])).toEqual(["a", "TAIL"]);
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("a");
+      const written = chunks.join("");
+      engine.end();
+      expect(chunks.join("")).toBe(`${written}TAIL`);
     });
 
     it("emits nothing on end() when flush returns empty string", () => {
@@ -234,7 +247,12 @@ describe("SyncTransformEngine", () => {
         searchStrategy: strategy,
         replacement: "R"
       });
-      expect(runEngine(engine, ["a"])).toEqual(["a"]);
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("a");
+      const enqueuedBeforeEnd = chunks.length;
+      engine.end();
+      expect(chunks).toHaveLength(enqueuedBeforeEnd);
     });
   });
 
@@ -261,7 +279,7 @@ describe("SyncTransformEngine", () => {
       engine.write("passthrough");
       engine.end();
 
-      expect(chunks).toEqual(["before MATCH", "passthrough"]);
+      expect(chunks.join("")).toBe("before MATCHpassthrough");
       expect(strategy.settle).not.toHaveBeenCalled();
       expect(replacement).not.toHaveBeenCalled();
     });
@@ -288,7 +306,7 @@ describe("SyncTransformEngine", () => {
       ac.abort();
       engine.end();
 
-      expect(chunks).toEqual(["a", "xMATCH"]);
+      expect(chunks.join("")).toBe("axMATCH");
       expect(strategy.settle).not.toHaveBeenCalled();
       expect(replacement).not.toHaveBeenCalled();
     });
@@ -304,7 +322,7 @@ describe("SyncTransformEngine", () => {
         replacement: "R"
       });
 
-      expect(runEngine(engine, ["a"])).toEqual(["a", "R"]);
+      expect(outputOf(engine, ["a"])).toBe("aR");
     });
 
     it("drops an empty flush rather than enqueuing an empty chunk", () => {
@@ -326,7 +344,7 @@ describe("SyncTransformEngine", () => {
       engine.write("passthrough");
       engine.end();
 
-      expect(chunks).toEqual(["passthrough"]);
+      expect(chunks).not.toContain("");
     });
   });
 
@@ -345,7 +363,7 @@ describe("SyncTransformEngine", () => {
         replacement: fn,
         stopReplacingSignal: ac.signal
       });
-      expect(runEngine(engine, ["X"])).toEqual(["X"]);
+      expect(outputOf(engine, ["X"])).toBe("X");
       expect(fn).not.toHaveBeenCalled();
     });
 
@@ -368,8 +386,7 @@ describe("SyncTransformEngine", () => {
       engine.write("X");
       engine.write("Y");
       engine.end();
-      // BUF flushed on first aborted write, X and Y passed through, end() gets "" from flush
-      expect(chunks).toEqual(["BUF", "X", "Y"]);
+      expect(chunks.join("")).toBe("BUFXY");
     });
 
     it("stops replacement mid-chunk when signal is aborted inside the replacement fn", () => {
@@ -395,7 +412,7 @@ describe("SyncTransformEngine", () => {
       engine.write("AB");
       engine.end();
       expect(fn).toHaveBeenCalledTimes(1);
-      expect(chunks).toEqual(["R", "B"]);
+      expect(chunks.join("")).toBe("RB");
     });
   });
 
@@ -423,12 +440,7 @@ describe("SyncTransformEngine", () => {
         stopReplacingSignal: ac.signal
       });
 
-      expect(runEngine(engine, ["chunk", "next"])).toEqual([
-        "a",
-        "R",
-        "b23REST",
-        "next"
-      ]);
+      expect(outputOf(engine, ["chunk", "next"])).toBe("aRb23RESTnext");
       expect(counts.pulled).toBe(2);
       expect(replacement).toHaveBeenCalledOnce();
     });
@@ -446,7 +458,7 @@ describe("SyncTransformEngine", () => {
         stopReplacingSignal: ac.signal
       });
 
-      expect(runEngine(engine, [])).toEqual(["R", "M2M3REST"]);
+      expect(outputOf(engine, [])).toBe("RM2M3REST");
       expect(counts.pulled).toBe(1);
       expect(replacement).toHaveBeenCalledOnce();
     });
@@ -475,9 +487,296 @@ describe("SyncTransformEngine", () => {
       engine.write("chunk");
       engine.end();
 
-      expect(chunks).toEqual(["a", "1bREST"]);
+      expect(chunks.join("")).toBe("a1bREST");
       expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("does not call the replacement again once the sink aborts the signal on a replacement's output", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [match("1"), nonMatch("b"), match("2"), nonMatch("c")],
+        rest: "REST"
+      });
+      const replacement = vi.fn(() => "R");
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          if (chunk.includes("R")) ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("Rb2cREST");
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("lets an iterable replacement see the sink abort the signal on one of its pieces before it yields the next", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [match("1"), nonMatch("b"), match("2")],
+        rest: "REST"
+      });
+      const replacement = vi.fn(function* () {
+        yield "A";
+        yield ac.signal.aborted ? "B" : "C";
+      });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("ABb2REST");
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("ends an iterable replacement that yields until the sink aborts the signal", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({ chunk: [match("1")] });
+      const yieldsUntilAborted = function* () {
+        for (let piece = 0; piece < 100 && !ac.signal.aborted; piece++) yield "x";
+      };
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: yieldsUntilAborted,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          if (chunks.join("").length === 3) ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("xxx");
     });
   });
 
+  describe("one output chunk per call", () => {
+    const match = (content: string, start: number): MatchResult => ({
+      isMatch: true,
+      content,
+      streamIndices: [start, start + 1]
+    });
+    const nonMatch = (content: string): MatchResult => ({
+      isMatch: false,
+      content
+    });
+
+    it("enqueues once per write() and once per end(), however many results each reports", () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: (haystack) => [
+          nonMatch(`<${haystack}>`),
+          match("M", 0),
+          nonMatch("-"),
+          match("M", 2)
+        ],
+        settled: [match("S", 0), nonMatch("."), match("S", 2)]
+      });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: (content) => [content.toLowerCase(), "!"]
+      });
+
+      expect(runEngine(engine, ["1", "2"])).toEqual([
+        "<1>m!-m!",
+        "<2>m!-m!",
+        "s!.s!"
+      ]);
+    });
+
+    it.each([
+      { deferred: undefined, expected: ["a", "R", "b", "R"] },
+      { deferred: false, expected: ["a", "R", "b", "R"] },
+      { deferred: true, expected: ["aRbR"] }
+    ])(
+      "with a stopReplacingSignal, enqueues before and after each replacement unless the sink reports delivery as deferred ($deferred)",
+      ({ deferred, expected }) => {
+        const { strategy } = mockSearchStrategy({
+          chunk: [nonMatch("a"), match("1", 1), nonMatch("b"), match("2", 3)]
+        });
+        const engine = new SyncReplacementTransformEngine({
+          searchStrategy: strategy,
+          replacement: "R",
+          stopReplacingSignal: new AbortController().signal
+        });
+        const { sink, chunks } = collectEngineSink();
+        engine.start(
+          deferred === undefined ? sink : { ...sink, deliveryDeferred: deferred }
+        );
+
+        engine.write("a1b2");
+        engine.end();
+
+        expect(chunks).toEqual(expected);
+      }
+    );
+
+    it.each([
+      { deferred: undefined, expected: ["a", "P", "Q", "b"] },
+      { deferred: false, expected: ["a", "P", "Q", "b"] },
+      { deferred: true, expected: ["aPQb"] }
+    ])(
+      "with a stopReplacingSignal, enqueues each piece of an iterable replacement unless the sink reports delivery as deferred ($deferred)",
+      ({ deferred, expected }) => {
+        const { strategy } = mockSearchStrategy({
+          chunk: [nonMatch("a"), match("1", 1), nonMatch("b")]
+        });
+        const engine = new SyncReplacementTransformEngine({
+          searchStrategy: strategy,
+          replacement: () => ["P", "Q"],
+          stopReplacingSignal: new AbortController().signal
+        });
+        const { sink, chunks } = collectEngineSink();
+        engine.start(
+          deferred === undefined ? sink : { ...sink, deliveryDeferred: deferred }
+        );
+
+        engine.write("a1b");
+        engine.end();
+
+        expect(chunks).toEqual(expected);
+      }
+    );
+
+    it("stops at the replacement that aborts the signal when the sink reports delivery as deferred", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1", 1), nonMatch("b"), match("2", 3)],
+        rest: "REST"
+      });
+      const replacement = abortingOnFirstCall(ac, () => "R");
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start({ ...sink, deliveryDeferred: true });
+
+      engine.write("a1b2");
+      engine.end();
+
+      expect(chunks.join("")).toBe("aRb2REST");
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("delivers the output of a write() longer than the longest string the runtime can build", () => {
+      const replacementLength = Math.ceil(constants.MAX_STRING_LENGTH / 4);
+      const matches = 5;
+      const { strategy } = mockSearchStrategy({
+        chunk: Array.from({ length: matches }, (_, i) => match("M", i))
+      });
+      const replacement = "x".repeat(replacementLength);
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement
+      });
+      let delivered = 0;
+      engine.start({
+        enqueue: (chunk) => {
+          delivered += chunk.length;
+        },
+        error: () => {}
+      });
+
+      engine.write("M".repeat(matches));
+      engine.end();
+
+      expect(delivered).toBe(replacementLength * matches);
+    });
+
+    it("rethrows an error other than running out of string length while appending a replacement's output", () => {
+      const { strategy } = mockSearchStrategy({ chunk: [match("M", 0)] });
+      const unconvertible = {
+        toString: () => {
+          throw new Error("boom");
+        }
+      } as unknown as string;
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => [unconvertible]
+      });
+      engine.start(collectEngineSink().sink);
+
+      expect(() => engine.write("M")).toThrow("boom");
+    });
+
+    it("enqueues nothing for a call whose output is empty", () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [match("X", 0), match("Y", 1)],
+        settled: [match("Z", 2)]
+      });
+      const { sink } = collectEngineSink();
+      const enqueue = vi.spyOn(sink, "enqueue");
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement: ""
+      });
+      engine.start(sink);
+
+      engine.write("XY");
+      engine.end();
+
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        thrower: "a replacement function",
+        replacement: (content: string) => {
+          if (content === "2") throw new Error("boom");
+          return "R";
+        },
+        expected: "xRy"
+      },
+      {
+        thrower: "an iterable replacement",
+        replacement: function* (content: string) {
+          yield `${content}a`;
+          if (content === "2") throw new Error("boom");
+          yield `${content}b`;
+        },
+        expected: "x1a1by2a"
+      }
+    ])("still enqueues the output produced before $thrower throws", ({ replacement, expected }) => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("x"), match("1", 1), nonMatch("y"), match("2", 3), nonMatch("z")]
+      });
+      const engine = new SyncReplacementTransformEngine({
+        searchStrategy: strategy,
+        replacement
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      expect(() => engine.write("x1y2z")).toThrow("boom");
+      expect(chunks.join("")).toBe(expected);
+    });
+  });
 });

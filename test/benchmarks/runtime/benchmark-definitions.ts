@@ -34,6 +34,7 @@ export const benchmarkDefinitions: {
   crossBoundary: BenchmarkDefinition[];
   multiChunk: BenchmarkDefinition[];
   scaling: BenchmarkDefinition[];
+  matchDense: BenchmarkDefinition[];
   async: BenchmarkDefinition[];
 } = {
   baseline: [
@@ -278,6 +279,38 @@ export const benchmarkDefinitions: {
       }
     }
   ],
+  matchDense: [
+    { chunkLength: 16 * 1024, withSignal: false, iterable: false },
+    { chunkLength: 64, withSignal: false, iterable: false },
+    { chunkLength: 16 * 1024, withSignal: true, iterable: false },
+    { chunkLength: 16 * 1024, withSignal: false, iterable: true },
+    { chunkLength: 16 * 1024, withSignal: true, iterable: true }
+  ].map(({ chunkLength, withSignal, iterable }) => ({
+    name: `Match-dense document - ${chunkLength} code unit chunks${iterable ? ", iterable replacement" : ""}${withSignal ? ", with stopReplacingSignal" : ""}`,
+    description:
+      "40,000 matches in 280,000 code units; each output chunk costs every downstream stage, so the chunk count is reported alongside the time",
+    setup: (() => {
+      const searchStrategy = new StringAnchorSearchStrategy(["{{", "}}"]);
+      const document = "ab{{x}}".repeat(40_000);
+      const input = Array.from(
+        { length: Math.ceil(document.length / chunkLength) },
+        (_, i) => document.slice(i * chunkLength, (i + 1) * chunkLength)
+      );
+      return () => ({
+        engine: new SyncReplacementTransformEngine({
+          searchStrategy,
+          replacement: iterable ? () => ["R", "S"] : "R",
+          stopReplacingSignal: withSignal ? new AbortController().signal : undefined
+        }),
+        input
+      });
+    })(),
+    validate: (result: string) => {
+      if (result !== (iterable ? "abRS" : "abR").repeat(40_000)) {
+        throw new Error("Benchmark validation failed - replacement incomplete");
+      }
+    }
+  })),
   async: [
     // First two are sync-engine baselines (run via executeBenchmark)
     {
