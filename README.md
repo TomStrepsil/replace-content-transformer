@@ -61,7 +61,7 @@ yarn add replace-content-transformer regex-partial-match
 
 See [Design](#-design) on composable parts to import and combine.
 
-### WHATWG Transformers
+### WHATWG Transformer
 
 The constructor is available from the `/web` import path:
 
@@ -791,7 +791,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 
 ### ✅ Fully Supported Runtimes
 
-- **Node.js** 22.0.0+ (`TextEncoderStream` is much faster from 24.21.0 and 26.8.0; see [WHATWG Transformers](#whatwg-transformers))
+- **Node.js** 22.0.0+ (`TextEncoderStream` is much faster from 24.21.0 and 26.8.0; see [WHATWG Transformer](#whatwg-transformer))
 - **Bun** 1.0+
 - **Deno** 1.38+
 - **Browsers:**
