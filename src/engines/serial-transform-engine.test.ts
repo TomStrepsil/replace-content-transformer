@@ -1706,6 +1706,57 @@ describe("SerialTransformEngine", () => {
       expect(thenCalled).toHaveBeenCalledOnce();
     });
 
+    it("leaves no rejection unhandled from a replacement whose match follows text the sink throws on", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => Promise.reject(new Error("replacement failed"))
+      });
+      engine.start({
+        enqueue: () => {
+          throw new Error("sink failed");
+        },
+        error: () => {}
+      });
+      const unhandled = vi.fn();
+      process.on("unhandledRejection", unhandled);
+
+      try {
+        await Promise.resolve(engine.write("input")).catch(() => {});
+        await setImmediate();
+
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+    });
+
+    it("closes an async iterable returned for a match that follows text the sink throws on", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const { iterable, close } = closableAsyncIterable("R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => iterable
+      });
+      engine.start({
+        enqueue: () => {
+          throw new Error("sink failed");
+        },
+        error: () => {}
+      });
+
+      await Promise.resolve(engine.write("input")).catch(() => {});
+      await setImmediate();
+
+      expect(close).toHaveBeenCalledOnce();
+    });
+
     it("closes, without emitting from, an async iterable that a pending replacement resolves to after cancel() lands", async () => {
       const strategy = mockSearchStrategyFactory<string>({
         isMatch: true,

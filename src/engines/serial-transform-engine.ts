@@ -239,8 +239,8 @@ export class SerialTransformEngine<
   }
 
   async #replaceAsync(settling: boolean): Promise<void> {
-    this.#enqueueOutput();
     try {
+      this.#enqueueOutput();
       while (this.#pending !== undefined && !this.#cancelled) {
         const pending = this.#pending;
         const awaited = pending instanceof Promise;
