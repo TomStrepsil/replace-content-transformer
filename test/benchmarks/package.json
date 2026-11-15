@@ -29,6 +29,8 @@
     "bench:regex-shapes:json": "node build/test/benchmarks/regex-shapes/run.bench.js --json",
     "prebench:partial-match-length": "npm run build --silent",
     "bench:partial-match-length": "node build/test/benchmarks/partial-match-length/run.bench.js",
+    "prebench:partial-match-length:bun": "npm run build --silent",
+    "bench:partial-match-length:bun": "bun run build/test/benchmarks/partial-match-length/run.bench.js",
     "bench:lookahead-engine": "./lookahead-engine/run.sh",
     "bench:lookahead-engine:timeline": "./lookahead-engine/run.sh --timeline",
     "bench:lookahead-engine:scenario": "./lookahead-engine/run.sh --scenario"

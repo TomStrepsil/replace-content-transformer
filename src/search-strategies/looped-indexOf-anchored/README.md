@@ -95,7 +95,7 @@ The key optimization over blind buffering happens when no match is found for the
 const resumeAt = length - partialMatchLength(haystack, currentNeedle, length - position);
 ```
 
-[`partialMatchLength`](./partial-match-length.ts) looks for the needle's first character in the last `needle.length - 1` characters. It reads a short window one character at a time and calls `indexOf` on a longer one, which [`npm run bench:partial-match-length`](../../../test/benchmarks/README.md#partial-match-length-benchmarks) measures as faster at each size. From each position it finds, the earliest first, it compares character codes up to the end of the haystack, without allocating, and returns the first full comparison as the longest partial match.
+[`partialMatchLength`](./partial-match-length.ts) looks for the needle's first character in the last `needle.length - 1` characters. With a one-character window, as a two-character needle such as `{{` has, it compares that character directly. On a longer window it calls `indexOf`: on V8, reading each character is still faster for a few characters, but on JavaScriptCore `indexOf` is faster from two, as [`npm run bench:partial-match-length`](../../../test/benchmarks/README.md#partial-match-length-benchmarks) shows. From each position it finds, the earliest first, it compares character codes up to the end of the haystack, without allocating, and returns the first full comparison as the longest partial match.
 
 **Example with a false start:**
 
@@ -185,7 +185,7 @@ So a stray first anchor holds back no more than the limit, and a real match star
 
 | Scenario                               | Performance                              | Reason                                                                                                         |
 | -------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| No or sparse matches, 1 KB chunks & up | **1.3x faster at 1 KB, ~4x at 16 KB**    | Holds nothing, so each chunk is searched as it arrived; blind buffering copies it to join the tail it held back |
+| No or sparse matches, 1 KB chunks & up | **1.3x faster at 1 KB, 4–5x at 16 KB**   | Holds nothing, so each chunk is searched as it arrived; blind buffering copies it to join the tail it held back |
 | No or sparse matches, small chunks     | **Similar**                              | Checking the end of each chunk costs about what holding back nothing saves                                     |
 | Dense matches                          | **Similar**                              | Both strategies buffer during actual matches                                                                   |
 | Partial matches at boundaries          | **Similar**                              | Both correctly handle cross-chunk matches                                                                      |

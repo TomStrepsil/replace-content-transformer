@@ -107,12 +107,15 @@ A deterministic report (`npm run bench:regex-shapes:report`) accompanies the tim
 What [`partialMatchLength`](../../src/search-strategies/looped-indexOf-anchored/partial-match-length.ts), the check `StringAnchorSearchStrategy` makes at the end of each chunk for a partial first anchor, costs at each window size, the last `anchor.length - 1` characters:
 
 ```bash
-npm run bench:partial-match-length
+npm run bench:partial-match-length       # Node
+npm run bench:partial-match-length:bun   # Bun
 ```
 
 #### What's Measured
 
-The shipped check finds the anchor's first character in the window in one of two ways: by reading each character of a short window, and with `indexOf` in a longer one. Each way runs on its own at every window size, next to the shipped check, so the size where `indexOf` starts to pay shows, and the shipped check should keep pace with the faster at each size.
+The check looks for the anchor's first character in the window, either by reading each character or with `indexOf`. Each way runs on its own at every window size, next to the shipped check, so the size where `indexOf` starts to pay shows on each runtime. The shipped check reads a one-character window and calls `indexOf` on a longer one, because reading pays beyond one character only on V8.
+
+Each window size runs in a process of its own: on JavaScriptCore, a check that has run one of its branches for earlier sizes is slower when it switches to the other. Chunks come from a `TextDecoder`, as the adapters' do, since V8 reads a sliced string more slowly than a flat one.
 
 ### Runtime Benchmarks
 

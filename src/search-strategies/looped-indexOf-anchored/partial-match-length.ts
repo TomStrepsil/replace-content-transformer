@@ -1,5 +1,3 @@
-const LONGEST_WINDOW_TO_SCAN = 3;
-
 function matchesToEnd(haystack: string, needle: string, start: number): boolean {
   const length = haystack.length;
   let at = start + 1;
@@ -14,14 +12,8 @@ export default function partialMatchLength(
 ): number {
   const length = haystack.length;
   const window = Math.min(needle.length - 1, unreportedLength);
-  if (window <= LONGEST_WINDOW_TO_SCAN) {
-    const firstCode = needle.charCodeAt(0);
-    for (let start = length - window; start < length; start++) {
-      if (haystack.charCodeAt(start) === firstCode && matchesToEnd(haystack, needle, start)) {
-        return length - start;
-      }
-    }
-    return 0;
+  if (window <= 1) {
+    return window === 1 && haystack.charCodeAt(length - 1) === needle.charCodeAt(0) ? 1 : 0;
   }
   const firstCharacter = needle[0];
   for (
