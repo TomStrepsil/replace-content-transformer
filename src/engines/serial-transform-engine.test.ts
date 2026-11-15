@@ -1646,6 +1646,66 @@ describe("SerialTransformEngine", () => {
       }
     });
 
+    it.each([
+      { iterable: "returned", returning: (pieces: Iterable<string>) => pieces },
+      { iterable: "a Promise resolves to", returning: (pieces: Iterable<string>) => Promise.resolve(pieces) }
+    ])("doesn't advance an iterable $iterable by a replacement whose own call cancelled the engine", async ({ returning }) => {
+      const advanced = vi.fn();
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => {
+          engine.cancel();
+          return returning(
+            (function* () {
+              advanced();
+              yield "R";
+            })()
+          );
+        }
+      });
+
+      engine.start(collectEngineSink().sink);
+      await engine.write("input");
+
+      expect(advanced).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        settles: "rejects",
+        settle: (engine: SerialTransformEngine<unknown>, gate: PromiseWithResolvers<string>) => gate.reject(new Error("failed"))
+      },
+      {
+        settles: "resolves after cancel()",
+        settle: (engine: SerialTransformEngine<unknown>, gate: PromiseWithResolvers<string>) => {
+          engine.cancel();
+          gate.resolve("R");
+        }
+      }
+    ])("calls then() once on a thenable replacement that $settles", async ({ settle }) => {
+      const gate = Promise.withResolvers<string>();
+      const thenCalled = vi.fn();
+      const thenable: PromiseLike<string> = {
+        then: (onFulfilled, onRejected) => {
+          thenCalled();
+          return gate.promise.then(onFulfilled, onRejected);
+        }
+      };
+      const engine: SerialTransformEngine<unknown> = new SerialTransformEngine({
+        searchStrategy: mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] }),
+        replacement: () => thenable
+      });
+      engine.start(collectEngineSink().sink);
+
+      const written = Promise.resolve(engine.write("input")).catch(() => {});
+      settle(engine, gate);
+      await written;
+      await setImmediate();
+
+      expect(thenCalled).toHaveBeenCalledOnce();
+    });
+
     it("closes, without emitting from, an async iterable that a pending replacement resolves to after cancel() lands", async () => {
       const strategy = mockSearchStrategyFactory<string>({
         isMatch: true,

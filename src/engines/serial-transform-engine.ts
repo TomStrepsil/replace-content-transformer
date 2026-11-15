@@ -92,6 +92,10 @@ export interface SerialTransformEngineOptions<
 
 const scanCancelled = new Error("Scan cancelled");
 
+function isPromiseLike<T>(value: PromiseLike<T> | object): value is PromiseLike<T> {
+  return typeof (value as PromiseLike<T>).then === "function";
+}
+
 function closeIfAsyncIterable(replacement: ReplacementValue): Promise<void> | undefined {
   if (typeof replacement === "string" || Symbol.iterator in replacement) return;
   return closeAbandoned(replacement);
@@ -140,7 +144,7 @@ export class SerialTransformEngine<
   #stoppedAt: string | undefined;
   #output = "";
   #enqueueAsProduced = false;
-  #pending: PromiseLike<ReplacementValue> | AsyncIterable<string> | undefined;
+  #pending: Promise<ReplacementValue> | AsyncIterable<string> | undefined;
   #cancelled = false;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
@@ -162,7 +166,7 @@ export class SerialTransformEngine<
       } else if (Symbol.iterator in replacement) {
         this.#appendIterable(replacement);
       } else {
-        this.#pending = replacement;
+        this.#pending = isPromiseLike(replacement) ? Promise.resolve(replacement) : replacement;
         return false;
       }
       if (this.#cancelled) throw scanCancelled;
@@ -238,13 +242,23 @@ export class SerialTransformEngine<
     this.#enqueueOutput();
     try {
       while (this.#pending !== undefined && !this.#cancelled) {
-        const replacement = await this.#pending;
+        const pending = this.#pending;
+        const awaited = pending instanceof Promise;
+        const replacement = awaited ? await pending : pending;
         if (this.#cancelled) return;
         this.#pending = undefined;
-        if (typeof replacement === "string") this.#append(replacement);
-        else if (Symbol.iterator in replacement) this.#appendIterable(replacement);
-        else await this.#appendAsyncIterable(replacement);
-        this.#enqueueOutput();
+        if (typeof replacement === "string") {
+          if (replacement) this._sink.enqueue(replacement);
+        } else if (awaited && Symbol.iterator in replacement) {
+          this.#appendIterable(replacement);
+          this.#enqueueOutput();
+        } else {
+          for await (const item of replacement) {
+            if (this.#cancelled) return;
+            if (item) this._sink.enqueue(item);
+            if (this.#cancelled) return;
+          }
+        }
         if (this.#cancelled) return;
         if (this._stopReplacingSignal?.aborted) {
           this.#appendHeld();
@@ -269,15 +283,8 @@ export class SerialTransformEngine<
     void Promise.resolve(abandoned).then(closeIfAsyncIterable).catch(ignore);
   }
 
-  async #appendAsyncIterable(replacement: AsyncIterable<string>): Promise<void> {
-    for await (const item of replacement) {
-      this.#append(item);
-      this.#enqueueOutput();
-      if (this.#cancelled) return;
-    }
-  }
-
   #appendIterable(replacement: Iterable<string>): void {
+    if (this.#cancelled) throw scanCancelled;
     for (const item of replacement) {
       if (this.#cancelled) throw scanCancelled;
       this.#appendProduced(item);
