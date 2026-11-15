@@ -561,7 +561,7 @@ interface SearchStrategy<TState, TMatch = string> {
 }
 ```
 
-Strategies report to a sink rather than returning or yielding results. Each result is handled as it is found, with no iterator step per result, and the engine can stop or pause the scan at any match (see `reportMatch` below). A strategy can also wrap another's sink, as `BalancedPairSearchStrategy` does to count nesting around an anchor strategy. Against a generator, the sink is typically 1.05–1.3x faster across the streaming scenarios of the algorithm benchmarks (see [Engine shapes](./test/benchmarks/references/README.md#-engine-shapes)).
+Strategies report to a sink rather than returning or yielding results. Each result is handled as it is found, with no iterator step per result, and the engine can stop or pause the scan at any match (see `reportMatch` below). A strategy can also wrap another's sink, as `BalancedPairSearchStrategy` does to count nesting around an anchor strategy. Against a generator, the sink is 1.03–1.7x faster across the streaming scenarios of the algorithm benchmarks, about 1.2x in a typical one, with each run alone in its process (see [Engine shapes](./test/benchmarks/references/README.md#-engine-shapes)).
 
 The `processChunk` reports the chunk to the sink in stream order: literal content through `reportText`, and each match through `reportMatch`. `processChunk` and `settle` return `undefined` rather than `void`, so a strategy still written as a generator is a type error rather than one that silently reports nothing.
 

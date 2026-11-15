@@ -88,7 +88,7 @@ Pre-emptive optimisation via initial implementation of [Knuth-Morris-Pratt](http
 ### Key Performance Insights
 
 1. **Native runtime optimisations dominate** - Brute-force approaches using `indexOf` and regex consistently outperform hand-rolled algorithmic optimisations like KMP, due to highly-optimised engine internals (V8/JavaScriptCore implemented in C++, with SIMD optimisations)
-2. **Async replacement has a cost** - Awaiting each replacement adds overhead over a synchronous one
+2. **Async replacement has a cost** - Awaiting each replacement takes up to about 1.9x as long as a synchronous one on match-dense input, and makes no difference where there are no matches
 3. **Smart buffering trade-offs** - Smart buffering (looped-indexOf) emits earlier and usually holds nothing between chunks, so it is faster than blind buffering with large chunks, which copies every chunk to join the tail it held back. With small chunks, how cheaply it checks the end of each chunk decides which is faster
 
 ## 🧩 Engine Shapes
