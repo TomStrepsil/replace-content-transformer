@@ -18,8 +18,8 @@ This strategy uses **intelligent partial matching** at chunk boundaries — only
 Needles: ['{{', '}}']
 Chunk ends: "Hello {"
 
-Smart check: Does "{" match a prefix of "{{"?
-  - Try 1-char suffix "{" vs 1-char prefix "{" → MATCH!
+Smart check: Is there a "{" in the last 1 character, and is the rest a prefix of "{{"?
+  - "{" found, and "{" is a prefix of "{{" → MATCH!
   - Buffer: "{" (only because we detected a partial match)
 
 Next chunk: "{!data}}>tail"
@@ -33,13 +33,13 @@ Combined: "{{!data}}>tail"
 ```
 Chunk ends: "Hello x"
 
-Smart check: Does "x" match a prefix of "{{"?
-  - Try 1-char suffix "x" vs 1-char prefix "{" → NO MATCH
+Smart check: Is there a "{" in the last 1 character?
+  - No → NO MATCH, nothing to compare
   - Buffer: "" (no unnecessary buffering!)
   - Output: "Hello x" immediately
 ```
 
-This optimization provides **~27% performance improvement** in scenarios with few or no matches compared to blind buffering.
+Only the positions holding the first needle's first character are compared, which is rare, so the check is cheap even for a long needle. See [Performance Characteristics](#performance-characteristics).
 
 ## Implementation Details
 
@@ -91,44 +91,22 @@ Process:
 The key optimization over blind buffering happens when no match is found for the first needle:
 
 ```typescript
-// When index === -1 and currentNeedleIndex === 0
-const unreportedLength = length - position;
-for (
-  let partialLength = Math.min(currentNeedle.length - 1, unreportedLength);
-  partialLength >= 1;
-  partialLength--
-) {
-  const haystackSuffix = haystack.slice(-partialLength);
-  const needlePrefix = currentNeedle.slice(0, partialLength);
-  if (haystackSuffix === needlePrefix) {
-    // Found partial match - report what precedes it, leave the cursor on it
-    const beforePartial = haystack.slice(position, -partialLength);
-    position = length - partialLength;
-    if (beforePartial) {
-      sink.reportText(beforePartial);
-    }
-    return;
-  }
-}
-// No partial match - output everything
+// When index === -1 and currentNeedleIndex === 0, report all but the partial match
+const resumeAt = length - partialMatchLength(haystack, currentNeedle, length - position);
 ```
 
-**Example with 2-character needle:**
+[`partialMatchLength`](./partial-match-length.ts) looks for the needle's first character in the last `needle.length - 1` characters. With a one-character window, as a two-character needle such as `{{` has, it compares that character directly. On a longer window it calls `indexOf`: on V8, reading each character is still faster for a few characters, but on JavaScriptCore `indexOf` is faster from two, as [`npm run bench:partial-match-length`](../../../test/benchmarks/README.md#partial-match-length-benchmarks) shows. From each position it finds, the earliest first, it compares character codes up to the end of the haystack, without allocating, and returns the first full comparison as the longest partial match.
+
+**Example with a false start:**
 
 ```
-Needles: ['{{', '}}']
-Chunk ends: "Hello world{"
+Needles: ['<esi:include', '/>']
+Chunk ends: "text <<esi:inc"
 
-Loop checks:
-  1. partialLength = 1: Does "{" === "{"? YES!
-     → Output "Hello world", buffer "{"
-
-Needles: ['{{', '}}']
-Chunk ends: "Hello world!"
-
-Loop checks:
-  1. partialLength = 1: Does "!" === "{"? NO
-     → Output "Hello world!", no buffering
+Checks, from the first "<" in the last 11 characters:
+  1. Is "<<esi:inc" a prefix of "<esi:include"? NO
+  2. Next "<": is "<esi:inc" a prefix of "<esi:include"? YES!
+     → Output "text <", buffer "<esi:inc"
 ```
 
 ### Cross-Chunk Matching with Smart Buffering
@@ -161,9 +139,9 @@ Buffered Strategy:
   - Always buffers last 1 character: "d"
 
 Looped Strategy:
-  - Checks: Does "d" match prefix of "{{"? NO
+  - Checks: Is there a "{" in the last 1 character? NO
   - Buffers: "" (nothing)
-  - Benefit: Avoids unnecessary buffering and string operations
+  - Benefit: the next chunk is searched as it arrived, not copied to join a held tail
 ```
 
 ## State Management
@@ -205,12 +183,14 @@ So a stray first anchor holds back no more than the limit, and a real match star
 
 **Compared to BufferedIndexOfAnchoredSearchStrategy:**
 
-| Scenario                      | Performance     | Reason                                                          |
-| ----------------------------- | --------------- | --------------------------------------------------------------- |
-| No matches                    | **~27% faster** | Avoids unnecessary buffering at every chunk boundary            |
-| Sparse matches                | **Faster**      | Most chunks have no partial matches, avoiding buffer operations |
-| Dense matches                 | **Similar**     | Both strategies buffer during actual matches                    |
-| Partial matches at boundaries | **Similar**     | Both correctly handle cross-chunk matches                       |
+| Scenario                               | Performance                              | Reason                                                                                                         |
+| -------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| No or sparse matches, 1 KB chunks & up | **1.3x faster at 1 KB, 4–5x at 16 KB**   | Holds nothing, so each chunk is searched as it arrived; blind buffering copies it to join the tail it held back |
+| No or sparse matches, small chunks     | **Similar**                              | Checking the end of each chunk costs about what holding back nothing saves                                     |
+| Dense matches                          | **Similar**                              | Both strategies buffer during actual matches                                                                   |
+| Partial matches at boundaries          | **Similar**                              | Both correctly handle cross-chunk matches                                                                      |
+
+Figures are from the "Long first anchor, 1 KB chunks" and "16 KB chunks" scenarios of `npm run bench:algorithms`, on Node 24.20.0 and an Apple M4. How much faster depends on how much of each chunk blind buffering copies, so it varies with chunk size and stream length.
 
 ## Usage Examples
 

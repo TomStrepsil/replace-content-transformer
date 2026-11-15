@@ -220,7 +220,9 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
       ["a three-anchor match awaiting its last anchor", ["{{", "}}", "!"], "text {{ }}", Infinity, "{{ }}"],
       ["a partial first anchor of several code units", ["START", "END"], "text STA", Infinity, "STA"],
       ["nothing, when what follows a match is no prefix of the first anchor", ["{{", "}}"], "{{ complete }} xyz", Infinity, ""],
-      ["a long partial first anchor", ["{{{{", "}}"], "test {{{", Infinity, "{{{"]
+      ["a long partial first anchor", ["{{{{", "}}"], "test {{{", Infinity, "{{{"],
+      ["a partial first anchor after a false start", ["<esi:include", "/>"], "text <<esi:inc", Infinity, "<esi:inc"],
+      ["a partial short first anchor after a false start", ["<%=", "%>"], "text <<", Infinity, "<"]
     ])("holds %s", (_label, needles, chunk, stopAt, held) => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(needles);
       const state = strategy.createState();

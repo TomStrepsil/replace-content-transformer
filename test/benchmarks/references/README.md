@@ -50,7 +50,7 @@ Simple, efficient strategies using **blind buffering** (always buffer last N-1 c
 
 ### Looped IndexOf (Smart Buffering)
 
-Strategies using **smart buffering** (only buffer when suffix matches needle prefix), via a brute-force loop over possible prefix/suffix matches using `indexOf`. Slightly less performant than blind buffering, but emits non-matches earlier. The shipped [`looped-indexOf-anchored`](../../../src/search-strategies/looped-indexOf-anchored/README.md) is in this family.
+Strategies using **smart buffering** (only buffer when suffix matches needle prefix), via a brute-force loop over possible prefix/suffix matches using `indexOf`. Slower than blind buffering with small chunks and a long first anchor, but emits non-matches earlier. The shipped [`looped-indexOf-anchored`](../../../src/search-strategies/looped-indexOf-anchored/README.md) is in this family, but compares only where the first anchor's first character appears, so with typical anchors it is level with blind buffering or faster. It can still be slower where the cost per chunk dominates: by a few nanoseconds per chunk with a one-character first anchor, which shows with small chunks ([#122](https://github.com/TomStrepsil/replace-content-transformer/issues/122)), and by up to 2x with a first anchor that repeats its first character over text full of it, as in [#107](https://github.com/TomStrepsil/replace-content-transformer/issues/107).
 
 - **[looped-indexOf-cancellable](./algorithms/looped-indexOf-cancellable/README.md)** - Smart buffering with cancellation support (so can be composed into the `anchor-sequence` meta-strategy).
 
@@ -89,7 +89,7 @@ Pre-emptive optimisation via initial implementation of [Knuth-Morris-Pratt](http
 
 1. **Native runtime optimisations dominate** - Brute-force approaches using `indexOf` and regex consistently outperform hand-rolled algorithmic optimisations like KMP, due to highly-optimised engine internals (V8/JavaScriptCore implemented in C++, with SIMD optimisations)
 2. **Async has significant cost** - Async iteration adds substantial overhead compared to synchronous processing
-3. **Smart buffering trade-offs** - Smart buffering (looped-indexOf) emits earlier and reduces memory use between chunks, but adds marginal CPU overhead vs blind buffering
+3. **Smart buffering trade-offs** - Smart buffering (looped-indexOf) emits earlier and usually holds nothing between chunks, so it is faster than blind buffering with large chunks, which copies every chunk to join the tail it held back. With small chunks, how cheaply it checks the end of each chunk decides which is faster
 
 ## 🧩 Engine Shapes
 

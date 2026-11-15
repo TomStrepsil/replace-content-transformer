@@ -3,6 +3,7 @@ import * as harnesses from "../harnesses/index.ts";
 import type { BaseHarness } from "../harnesses/types.ts";
 import { comparisons } from "./comparisons.ts";
 import { summariseComparisons, type BenchResults } from "./summarise-comparisons.ts";
+import { chunksOf } from "../../splits.ts";
 
 const allHarnesses: BaseHarness[] = Object.values(harnesses);
 
@@ -26,6 +27,9 @@ interface BenchmarkScenario {
   expectedMatches: number;
   validate?: (result: string) => boolean;
 }
+
+const markup = '<div class="item"><a href="/page">Link</a> <span>Some text</span></div>\n'.repeat(1024);
+const prose = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor. ".repeat(1024);
 
 const scenarios: BenchmarkScenario[] = [
   {
@@ -333,6 +337,30 @@ const scenarios: BenchmarkScenario[] = [
     tokens: ["<%", "_DESCRIPTIVE%>"],
     replacement: () => "VALUE",
     expectedMatches: 1
+  },
+  {
+    name: "Long first anchor, 64 B chunks (no matches)",
+    description: "Markup checked for a partial 12-character anchor at the end of every small chunk",
+    chunks: chunksOf(markup, 64),
+    tokens: ["<esi:include", "/>"],
+    replacement: () => "",
+    expectedMatches: 0
+  },
+  {
+    name: "Long first anchor, 1 KB chunks (no matches)",
+    description: "As above, with fewer, larger chunks",
+    chunks: chunksOf(markup, 1024),
+    tokens: ["<esi:include", "/>"],
+    replacement: () => "",
+    expectedMatches: 0
+  },
+  {
+    name: "16 KB chunks (no matches)",
+    description: "Holding back a tail copies each large chunk when the two are joined",
+    chunks: chunksOf(prose, 16384),
+    tokens: ["{{", "}}"],
+    replacement: () => "",
+    expectedMatches: 0
   }
 ];
 
