@@ -9,21 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** `SyncReplacementTransformEngine` and `AsyncSerialReplacementTransformEngine` are replaced by `SerialTransformEngine`, which takes a synchronous or asynchronous replacement, and completes a call synchronously unless a replacement in it is asynchronous. `ReplaceContentTransform` and `ReplaceContentTransformer` take any engine, and `AsyncReplaceContentTransform` and `AsyncReplaceContentTransformer` are removed. `SyncTransformEngine` and `AsyncTransformEngine` are replaced by `TransformEngine`. Unlike `AsyncSerialReplacementTransformEngine`, it calls a replacement before the text in front of its match is enqueued, unless it has a `stopReplacingSignal` and a sink that can react within the call. See [Engines](../README.md#-engines)
+- **BREAKING:** `AsyncLookaheadTransformEngine` is renamed `LookaheadTransformEngine`, its options `LookaheadTransformEngineOptions`, and its `ReplacementFn` `LookaheadReplacementFn`
 - **BREAKING:** `regex-partial-match` is a peer dependency rather than a dependency, so a `PartialMatchRegExp` you build and the one this package checks for come from the same copy. 
   - npm 7+, pnpm 8+, Bun and Deno install it automatically; with Yarn, Classic or Berry, add it yourself. See [Installation](../README.md#-installation)
 - **BREAKING:** every search strategy limits the content it holds back awaiting a decision to `maxBufferLength`, 65,536 code units by default. A match still incomplete that far from its start no longer matches: its text up to there passes through, and the search restarts after it, so a match after it can still match. Pass `maxBufferLength: Infinity` for the previous behaviour. See [Buffer limit](../README.md#buffer-limit)
 - `SearchStrategy` implementations:
-  - **BREAKING:** reports text and matches to a `MatchSink` instead of returning a generator of `MatchResult`s, so a custom strategy must be rewritten. On match-dense input, `StringAnchorSearchStrategy` is about 2x faster through `SyncReplacementTransformEngine` and 1.3x through `AsyncSerialReplacementTransformEngine`, and `RegexSearchStrategy` 1.3x and 1.1x. See [Search Strategies](../README.md#-search-strategies)
+  - **BREAKING:** reports text and matches to a `MatchSink` instead of returning a generator of `MatchResult`s, so a custom strategy must be rewritten. On match-dense input, `StringAnchorSearchStrategy` is about 2x faster with a synchronous replacement and 1.3x with an asynchronous one, and `RegexSearchStrategy` 1.3x and 1.1x. See [Search Strategies](../README.md#-search-strategies)
 - `RegexSearchStrategy`
   - **BREAKING:** matches no longer depend on chunk boundaries, except where a chunk ends more than 64 characters into the text a backreference repeats, or inside a `v`-flag string of several code points, such as an emoji flag matched by `\p{RGI_Emoji}` (see [Strings of several code points](../src/search-strategies/regex/README.md#️-strings-of-several-code-points-v-flag)). A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change.
   - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
 - `StringAnchorSearchStrategy`
-  - Checks whether a chunk ends part way through the first anchor only where that anchor's first character appears, so with small chunks and a long first anchor it is no longer slower than holding back a fixed tail. See [Performance Characteristics](../src/search-strategies/looped-indexOf-anchored/README.md#performance-characteristics)
-- `SyncReplacementTransformEngine`
-  - Enqueues all of a `write()` or `end()` call's output as one chunk, rather than one per text run, replacement and iterable piece. With a `stopReplacingSignal`, a sink that can react within the call, such as a Node adapter's, still receives output as it is produced. See [Engines](../README.md#-engines)
-- `AsyncLookaheadTransformEngine`
+  - Checks whether a chunk ends part way through the first anchor only where that anchor's first character appears, so with small chunks and a long first anchor it is no longer slower than holding back a fixed tail. See [Why smart buffering](../src/search-strategies/looped-indexOf-anchored/README.md#why-smart-buffering)
+- `SerialTransformEngine`
+  - Enqueues all of a `write()` or `end()` call's synchronous output as one chunk, rather than one per text run, replacement and iterable piece. With a `stopReplacingSignal`, a sink that can react within the call, such as the Node adapter's, still receives output as it is produced. See [Engines](../README.md#-engines)
+- `LookaheadTransformEngine`
   - **BREAKING:** the constructor throws a `RangeError` unless `highWaterMark` is a whole number of at least 1, or `Infinity`, as for `maxBufferLength`. `NaN` was accepted and turned backpressure off, a fraction was accepted, and `null` selected the default
-  - `write()` awaits only while more than `highWaterMark` slots are queued, rather than once per queued slot. The text before a match is queued as one slot with it, so the queue holds at most two slots beyond `highWaterMark`, and adjacent text reaches the sink as one chunk. See [Backpressure](../src/engines/async-lookahead-transform-engine/README.md#backpressure-and-highwatermark)
+  - `write()` awaits only while more than `highWaterMark` slots are queued, rather than once per queued slot. The text before a match is queued as one slot with it, so the queue holds at most two slots beyond `highWaterMark`, and adjacent text reaches the sink as one chunk. See [Backpressure](../src/engines/lookahead-transform-engine/README.md#backpressure-and-highwatermark)
 - Once `stopReplacingSignal` aborts, engines stop searching instead of rendering every later match verbatim: straight after the output of the replacement that aborted it, or otherwise at the next match. What is left of the chunk and anything the search strategy holds are emitted as one chunk, unsettled, so the output text is unchanged but arrives in fewer, larger chunks
 - Updated `regex-partial-match` to `^2.2.1` (for `hitEnd()`, `features()` and `isPartialMatchRegExp()`), which also fixes incomplete `\x`, `\u` and `\c` escapes and `\k<name>` on duplicated names, speeds up backreference patterns about 20x, no longer overflows V8's stack on a long run of an atom repeated by `*`, `+` or `{n,}`, and no longer drops a match where top-level alternatives with backreferences share a prefix, as `/(ab)\1|(abc)\2/` did. A backreference now matches part way only within the first 64 characters of its capture; see [Backreferences](../src/search-strategies/regex/README.md#️-backreferences) to raise that limit
 - Updated the pinned `packageManager` npm version from 11.17.0 to 11.19.0
@@ -31,17 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `AsyncLookaheadTransformEngine`
-  - Fixed calling the replacement, after `stopReplacingSignal` aborts, for a match scheduled earlier whose replacement had not yet been called, such as one waiting for a concurrency slot. That match is now emitted verbatim without waiting for the slot. This also applies to a match scanned just before an abort in the same tick, which may now be emitted verbatim even when a slot was free, and to the matches in a `nested()` replacement's content. Replacements already called still run to completion. See [Stopping new replacements](../src/engines/async-lookahead-transform-engine/README.md#stopping-new-replacements-stopreplacingsignal)
+- `LookaheadTransformEngine`
+  - Fixed calling the replacement, after `stopReplacingSignal` aborts, for a match scheduled earlier whose replacement had not yet been called, such as one waiting for a concurrency slot. That match is now emitted verbatim without waiting for the slot. This also applies to a match scanned just before an abort in the same tick, which may now be emitted verbatim even when a slot was free, and to the matches in a `nested()` replacement's content. Replacements already called still run to completion. See [Stopping new replacements](../src/engines/lookahead-transform-engine/README.md#stopping-new-replacements-stopreplacingsignal)
   - Fixed `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away and an abandoned replacement is closed in the background, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
   - Fixed leaking concurrency slots after an error or `cancel()`, which could stall later replacements or hang `write()`
   - Fixed a child engine retaining its concurrency permit when reading a nested source fails
   - Fixed never closing the source of an abandoned `nested()` replacement, so a source such as a `fetch` body was left open when `cancel()` or `abandonPendingSignal` abandoned its slot. It is now closed in the background, like a plain replacement
-- Fixed `AsyncSerialReplacementTransformEngine` searching on after `cancel()` was called as text or a replacement was emitted, such as by a stream destroyed from a `data` listener, so a throwing `onGuardExceeded` could still reject `write()`
-- `ReplaceContentTransform` and `AsyncReplaceContentTransform`
+- Fixed `SerialTransformEngine` searching on after `cancel()`, such as from a stream destroyed by a `data` listener, as `AsyncSerialReplacementTransformEngine` did. It searches no further, calls no further replacement, reads no further from one, and enqueues nothing more, and with a `stopReplacingSignal` stops straight after the output the listener received, so a throwing `onGuardExceeded` can no longer reject `write()`
+- Fixed `SerialTransformEngine` leaving open an async iterable replacement, or one a `Promise` resolves to, that it had called but not read when cancelled, as `AsyncSerialReplacementTransformEngine` did. It is now closed in the background, as with `LookaheadTransformEngine`, so a `fetch` body is no longer left open
+- Fixed `SerialTransformEngine` cutting an async iterable replacement short when `stopReplacingSignal` aborts partway through it, as `AsyncSerialReplacementTransformEngine` did. A replacement already called now runs to completion, as with an iterable one and with `LookaheadTransformEngine`
+- `ReplaceContentTransform`
+  - Fixed an error the engine throws, rather than rejects with, escaping `write()` instead of destroying the stream with it
+  - Fixed an engine rejecting with a reason that is not an `Error`, such as `undefined`, ending the stream as if it had succeeded, rather than destroying it with an `Error`
   - Fixed corrupting a multi-byte UTF-8 character split across `Buffer` chunks: each half was decoded on its own as U+FFFD. See [Node Transform](../README.md#node-transform)
   - Fixed corrupting an astral character, such as an emoji, when an output chunk ends between the two halves of its surrogate pair (e.g. a match for `/a./` in `"a😀"`): each half was encoded on its own as U+FFFD. A trailing high surrogate is now held back until the next chunk, as `TextEncoderStream` does
-  - Fixed `AsyncReplaceContentTransform` not calling `engine.cancel()` when the stream is destroyed before it ends, so `AsyncLookaheadTransformEngine` kept consuming scheduled replacements after a client disconnected or a `pipeline()` failed
+  - Fixed not calling `engine.cancel()` when the stream is destroyed before it ends, so `LookaheadTransformEngine` kept consuming scheduled replacements after a client disconnected or a `pipeline()` failed
 - `RegexSearchStrategy`
   - Fixed chunk-dependent matches: premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
   - Fixed lookahead confirmation: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
@@ -49,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed the end-of-stream settle stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
   - Fixed a skipped zero-length match (e.g. from `/a*/`) splitting an astral character such as an emoji into two output chunks. The skip now advances by one code point. See [Zero-length matches](../src/search-strategies/regex/README.md#️-zero-length-matches)
 - Documented that engines should only be driven by an adapter. See [Engines](../README.md#-engines)
-- Corrected the minimum browser versions to what the published code needs: Chrome and Edge 85, Firefox 102 and Safari 15, not Chrome 52, Edge 79, Firefox 65 and Safari 14.1. Documented that `AsyncLookaheadTransformEngine` also needs `AbortSignal.any()`, from Chrome and Edge 116, Firefox 124, Safari 17.4, Deno 1.39 and Bun 1.1.4. See [Compatibility](../README.md#-compatibility)
+- Corrected the minimum browser versions to what the published code needs: Chrome and Edge 85, Firefox 102 and Safari 15, not Chrome 52, Edge 79, Firefox 65 and Safari 14.1. Documented that `LookaheadTransformEngine` also needs `AbortSignal.any()`, from Chrome and Edge 116, Firefox 124, Safari 17.4, Deno 1.39 and Bun 1.1.4. See [Compatibility](../README.md#-compatibility)
 - Documented that `TextEncoderStream` is slow on Node 22, Node 24 before 24.21.0 and Node 26 before 26.8.0, with a `TextEncoder` alternative that keeps surrogate pairs split across output chunks intact. See [WHATWG Transformers](../README.md#whatwg-transformers)
 - Fixed `BalancedPairSearchStrategy` dropping text after a nested match when a chunk ends inside the outer pair, e.g. `"(((a)b)"` followed by `" tail"` lost `" tail"`
 - Fixed benchmarking `AnchorSequenceSearchStrategy`: a sequence completing on the last chunk is yielded as a match at the end of the stream, state resets between streams, and a non-string `TMatch` is no longer rendered as `"[object Object]"`
@@ -63,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `EngineSink.deliveryDeferred`, optional, for a sink whose downstream can never observe output until the engine's current call returns. The web adapters set it
+- `EngineSink.deliveryDeferred`, optional, for a sink whose downstream can never observe output until the engine's current call returns. `ReplaceContentTransformer` sets it
 - `LeanRegexSearchStrategy`, which takes a `PartialMatchRegExp` built from `regex-partial-match/core` (or `withModules()`) so a bundle leaves out the full class, about 3.1 kB gzipped. `RegexSearchStrategy` is unchanged for callers. See [Lean Bundles](../src/search-strategies/regex/README.md#lean-bundles)
 - Regex strategy tests over every two-way, three-way and per-character split of each curated pattern, asserting chunk invariance and lossless output
 - Tests for engine cancellation, and for flushing rather than settling on abort
@@ -151,7 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Path in lookahead transformer [`README.md`](../src/engines/async-lookahead-transform-engine/README.md) back to [main `README.md`](../README.md)
+- Path in lookahead transformer [`README.md`](../src/engines/lookahead-transform-engine/README.md) back to [main `README.md`](../README.md)
 - Added `[!CAUTION]` to `README.md` re: `UTF-8`
 
 ## [2.0.0] - 2026-05-11

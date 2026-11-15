@@ -88,7 +88,7 @@ group("🧱 Match-Dense Output", () => {
   });
 });
 group("🔄 Async Replacement Performance", () => {
-  // First two are sync-engine baselines
+  // First two replace synchronously, as baselines
   benchmarkDefinitions.async
     .slice(0, 2)
     .forEach((definition: BenchmarkDefinition) => {
@@ -97,7 +97,7 @@ group("🔄 Async Replacement Performance", () => {
       });
     });
 
-  // Remaining six use the async engine
+  // Remaining six replace asynchronously
   benchmarkDefinitions.async
     .slice(2)
     .forEach((definition: BenchmarkDefinition) => {

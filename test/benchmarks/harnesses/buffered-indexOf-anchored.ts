@@ -1,4 +1,4 @@
-import { SyncReplacementTransformEngine } from "../../../src/engines/sync-transform-engine.ts";
+import { SerialTransformEngine } from "../../../src/engines/serial-transform-engine.ts";
 import { syncHarnessTransformer } from "./engine-harness.ts";
 import { BufferedIndexOfAnchoredSearchStrategy } from "../references/algorithms/index.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
@@ -22,7 +22,7 @@ export const BufferedIndexOfAnchoredHarness = {
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     syncHarnessTransformer(
-      new SyncReplacementTransformEngine({
+      new SerialTransformEngine({
         searchStrategy: strategy,
         replacement
       })

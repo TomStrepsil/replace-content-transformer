@@ -4,7 +4,7 @@ import type {
   StreamIndices
 } from "../../search-strategies/types.ts";
 import type {
-  AsyncTransformEngine,
+  TransformEngine,
   EngineSink,
   ReplacementContext
 } from "../types.ts";
@@ -15,6 +15,7 @@ import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
 import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
+import { closeAbandoned, ignore } from "../abandon.ts";
 
 /**
  * Extension of {@link ReplacementContext} specific to the lookahead engine.
@@ -34,7 +35,7 @@ export type LookaheadReplacementContext = ReplacementContext & {
  * Default backpressure limit on the internal slot queue. Scanning
  * suspends at the next match once more slots than this are buffered ahead
  * of the drain loop.
- * Override via {@link AsyncLookaheadTransformEngineOptions.highWaterMark}
+ * Override via {@link LookaheadTransformEngineOptions.highWaterMark}
  * if your platform's sub-request ceiling exceeds this.
  */
 export const DEFAULT_HIGH_WATER_MARK = 32;
@@ -46,7 +47,6 @@ function textSlot(siblingIndex: number, value: string): TextSlotNode {
 const isDefinedSignal = (s?: AbortSignal): s is AbortSignal => s !== undefined;
 
 const ABANDONED = Symbol("abandoned");
-const ignore = () => {};
 
 function untilAborted<T>(
   promise: Promise<T>,
@@ -74,13 +74,6 @@ function untilAborted<T>(
 
 async function* emptyAsyncIterable(): AsyncGenerator<string> {}
 
-async function closeAbandoned(result: AsyncIterable<string> | Nested): Promise<void> {
-  const replacement = result instanceof Nested ? result.source : result;
-  const iter = replacement[Symbol.asyncIterator]();
-  await iter.next();
-  await iter.return?.();
-}
-
 /**
  * Async function called for each match to produce its replacement content.
  *
@@ -89,16 +82,16 @@ async function closeAbandoned(result: AsyncIterable<string> | Nested): Promise<v
  * recursive re-scanning of the replacement content by a child engine
  * that shares this engine's configuration.
  */
-export type ReplacementFn<TMatch> = (
+export type LookaheadReplacementFn<TMatch> = (
   match: TMatch,
   context: LookaheadReplacementContext
 ) => Promise<AsyncIterable<string> | Nested>;
 
-export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
+export interface LookaheadTransformEngineOptions<TState, TMatch> {
   /** Search strategy used to locate matches in the input stream. */
   searchStrategy: SearchStrategy<TState, TMatch>;
   /** Function invoked for every match; result is streamed in place of the match. */
-  replacement: ReplacementFn<TMatch>;
+  replacement: LookaheadReplacementFn<TMatch>;
   /**
    * Pluggable strategy controlling when and in what order replacement
    * work is initiated. See {@link SemaphoreStrategy} (simple FIFO) and
@@ -153,8 +146,8 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * (started by {@link start}) dequeues slots in stream order and emits
  * chunks through the supplied {@link EngineSink}.
  *
- * Adapter classes (`AsyncReplaceContentTransformer` in web,
- * `AsyncReplaceContentTransform` in node) wrap this engine, mapping
+ * Adapter classes (`ReplaceContentTransformer` in web,
+ * `ReplaceContentTransform` in node) wrap this engine, mapping
  * their runtime's transform lifecycle onto `start`/`write`/`end`.
  *
  * Nested re-scanning (returned via the `nested()` sentinel) is handled
@@ -167,11 +160,11 @@ export interface AsyncLookaheadTransformEngineOptions<TState, TMatch> {
  * @typeParam TState - The search strategy's state type
  * @typeParam TMatch - The search strategy's match type
  */
-export class AsyncLookaheadTransformEngine<TState, TMatch>
+export class LookaheadTransformEngine<TState, TMatch>
   extends TransformEngineBase<TState, TMatch>
-  implements AsyncTransformEngine
+  implements TransformEngine
 {
-  readonly #options: AsyncLookaheadTransformEngineOptions<TState, TMatch>;
+  readonly #options: LookaheadTransformEngineOptions<TState, TMatch>;
   readonly #parent: IterableSlotNode | null;
   readonly #queue: AsyncChildQueue;
   readonly #depth: number;
@@ -199,7 +192,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
   };
 
   constructor(
-    options: AsyncLookaheadTransformEngineOptions<TState, TMatch>,
+    options: LookaheadTransformEngineOptions<TState, TMatch>,
     /**
      * @internal Set by the outer engine when spawning a child to re-scan
      * a {@link Nested} replacement. Not part of the public adapter API.
@@ -427,7 +420,9 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       result = await untilAborted(slot.iterable!, this.#abandonSignal);
     }
     if (result === ABANDONED || this.#abandonSignal.aborted) {
-      void slot.iterable!.then(closeAbandoned).catch(ignore);
+      void slot.iterable!
+        .then((result) => closeAbandoned(result instanceof Nested ? result.source : result))
+        .catch(ignore);
       if (slot.getOriginalContent !== undefined && !this.#cancelled) {
         this._sink.enqueue(slot.getOriginalContent());
       }
@@ -464,7 +459,7 @@ export class AsyncLookaheadTransformEngine<TState, TMatch>
       pendingNotify?.();
     };
 
-    const child = new AsyncLookaheadTransformEngine<TState, TMatch>(
+    const child = new LookaheadTransformEngine<TState, TMatch>(
       { ...this.#options, abandonPendingSignal: this.#abandonSignal },
       parent,
       this.#depth + 1

@@ -1,4 +1,4 @@
-import { AsyncSerialReplacementTransformEngine } from "../../../src/engines/async-serial-transform-engine.ts";
+import { SerialTransformEngine } from "../../../src/engines/serial-transform-engine.ts";
 import { asyncHarnessTransformer } from "./engine-harness.ts";
 import { LoopedIndexOfAnchoredSearchStrategy } from "../../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
@@ -22,7 +22,7 @@ export const LoopedIndexOfAnchoredAsyncHarness = {
     replacement: (match: string, context: ReplacementContext) => Promise<string>;
   }) =>
     asyncHarnessTransformer(
-      new AsyncSerialReplacementTransformEngine({
+      new SerialTransformEngine({
         searchStrategy: strategy,
         replacement
       })

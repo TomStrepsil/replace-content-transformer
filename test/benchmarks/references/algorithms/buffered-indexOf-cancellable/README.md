@@ -134,7 +134,7 @@ processChunk(haystack: string, state: BufferedIndexOfCancellableSearchState, sin
 
 When `sink.reportMatch()` returns `false`, the strategy returns at once and keeps everything after that match in `state`. From there:
 
-1. **Carry on** - `processChunk("", state, sink)` scans the rest, as the async engines do after pausing at a match
+1. **Carry on** - `processChunk("", state, sink)` scans the rest, as an engine does after pausing at a match
 2. **Or flush** - `flush(state)` returns the rest as raw text, as engines do once `stopReplacingSignal` aborts
 
 That is what lets [anchor-sequence](../anchor-sequence) compose it: it stops this strategy at its needle and hands the rest to the next sub-strategy.

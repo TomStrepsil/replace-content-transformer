@@ -36,12 +36,12 @@ import type { RegexSearchStrategyOptions } from "./types.js";
  *
  * @example Basic regex search
  * ```typescript
- * import { searchStrategyFactory, SyncReplacementTransformEngine } from 'replace-content-transformer';
+ * import { searchStrategyFactory, SerialTransformEngine } from 'replace-content-transformer';
  *
  * // Factory automatically creates RegexSearchStrategy for RegExp input
  * const strategy = searchStrategyFactory(/\{\{(\w+)\}\}/);
  *
- * const engine = new SyncReplacementTransformEngine({
+ * const engine = new SerialTransformEngine({
  *   searchStrategy: strategy,
  *   replacement: (match) => `Value: ${match[1]}`
  * });

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { text } from "node:stream/consumers";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
-import { AsyncReplaceContentTransformer } from "../../adapters/web/async-transformer.js";
-import { AsyncLookaheadTransformEngine } from "./engine.js";
+import { ReplaceContentTransformer } from "../../adapters/web/transformer.js";
+import { LookaheadTransformEngine } from "./engine.js";
 import { nested } from "./nested.js";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.js";
 import { PriorityQueueStrategy } from "./concurrency-strategy/priority-queue-strategy.js";
@@ -19,14 +19,14 @@ function streamFromChunks(chunks: string[]): ReadableStream<string> {
 }
 
 function makeTransformer<TState>(
-  options: ConstructorParameters<typeof AsyncLookaheadTransformEngine<TState, string>>[0]
-): AsyncReplaceContentTransformer {
-  return new AsyncReplaceContentTransformer(
-    new AsyncLookaheadTransformEngine(options)
+  options: ConstructorParameters<typeof LookaheadTransformEngine<TState, string>>[0]
+): ReplaceContentTransformer {
+  return new ReplaceContentTransformer(
+    new LookaheadTransformEngine(options)
   );
 }
 
-describe("AsyncLookaheadTransformEngine — end-to-end integration", () => {
+describe("LookaheadTransformEngine — end-to-end integration", () => {
   it("replaces matches found by StringAnchorSearchStrategy across chunk boundaries", async () => {
     const transformer = makeTransformer({
       searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),

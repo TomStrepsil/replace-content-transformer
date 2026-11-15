@@ -10,7 +10,7 @@ import settleOrFlush from "../search-strategies/settle-or-flush.ts";
  *
  * Holds the shared state (`searchStrategy`, `state`, `sink`, `matchIndex`) and
  * provides `start` plus the helpers for settling at the end of the stream and
- * for emitting what a strategy holds once `stopReplacingSignal` has aborted.
+ * for resuming a search stopped at a match.
  *
  * `end()` is abstract: each engine routes settled results through its own
  * replacement path.
@@ -47,10 +47,5 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _resume(settling: boolean, sink: MatchSink<TMatch>): void {
     if (settling) this._settle(sink);
     else this._searchStrategy.processChunk("", this._state, sink);
-  }
-
-  protected _enqueueHeld(before = ""): void {
-    const held = before + this._searchStrategy.flush(this._state);
-    if (held) this._sink.enqueue(held);
   }
 }

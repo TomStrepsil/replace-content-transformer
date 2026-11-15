@@ -20,7 +20,7 @@ See also:
 | `mockTransformStreamDefaultControllerFactory(outputs)` | A WHATWG controller that pushes enqueued chunks into `outputs`                     |
 | `collectEngineSink()` / `collectWritable()`            | Capture what an engine or Node stream emits                                        |
 | `asyncIterable(...chunks)`, `streamToString(stream)`   | Build and drain async sources                                                      |
-| `deferred()`                                           | Control promise timing in async engine tests                                       |
+| `deferred()`                                           | Control promise timing in tests with asynchronous replacements                     |
 | `createIterableSlotNode(...)`                          | Slot-tree node skeletons for concurrency strategy tests                            |
 | `startTestHttpServer(handlers)`                        | A local HTTP server that works on Node, Bun and Deno                               |
 
@@ -31,7 +31,7 @@ See also:
 - `collectSearchStrategyResults(strategy, chunks)` runs every chunk, then settles what the strategy still holds (`settle`, or `flush` when it has none). Its `output` must always reproduce the input exactly. It throws if a scan stops advancing, so a runaway loop fails the test instead of exhausting memory.
 - `collectCanonicalSearchStrategyResults(strategy, chunks)` merges adjacent non-match text into single segments. Two runs over the same input split differently must produce identical segments.
 - `collectStoppedSearchStrategyResults(strategy, chunks, limit)` stops at the `limit`th match, as an engine does once `stopReplacingSignal` aborts, then emits `flush()` and the unwritten chunks. Its `output` must reproduce the input exactly.
-- `collectPausedSearchStrategyResults(strategy, chunks)` stops at every match and carries on with `processChunk("")` (or `settle` again), as the async engines do. Its results must equal an uninterrupted run's.
+- `collectPausedSearchStrategyResults(strategy, chunks)` stops at every match and carries on with `processChunk("")` (or `settle` again), as an engine does when every replacement is asynchronous. Its results must equal an uninterrupted run's.
 - `processChunkResults(strategy, haystack, state)` and `settleResults(strategy, state)` collect what one call reports, and `sinkInto(results)` is the `MatchSink` behind them.
 - `regexMatchDetailsOf(collected)` reduces the matches in a regex strategy's collected results to plain data (captures, `index`, groups, `indices`, `streamIndices`), so two runs can be compared with `toEqual`.
 

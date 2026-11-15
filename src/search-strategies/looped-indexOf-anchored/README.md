@@ -39,7 +39,7 @@ Smart check: Is there a "{" in the last 1 character?
   - Output: "Hello x" immediately
 ```
 
-Only the positions holding the first needle's first character are compared, which is rare, so the check is cheap even for a long needle. See [Performance Characteristics](#performance-characteristics).
+Only the positions holding the first needle's first character are compared, which is rare, so the check is cheap even for a long needle. See [Why smart buffering](#why-smart-buffering).
 
 ## Implementation Details
 
@@ -179,18 +179,18 @@ const strategy = new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength:
 
 So a stray first anchor holds back no more than the limit, and a real match starting after the limit still matches. A match that straddles the cut passes through as text. A limit shorter than the anchors together, under which nothing could match, throws a `RangeError`. See [Buffer limit](../../../README.md#buffer-limit).
 
-## Performance Characteristics
+## Why smart buffering
 
-**Compared to BufferedIndexOfAnchoredSearchStrategy:**
+`StringAnchorSearchStrategy` uses smart buffering rather than blind buffering, which always holds back the last `needles[0].length - 1` characters of a chunk, as the reference [buffered-indexOf-anchored](../../../test/benchmarks/references/algorithms/buffered-indexOf-anchored/README.md) does. Text that can't start a match is emitted with its own chunk rather than held until the next, and nothing is held between chunks unless a match may be starting. Compared with blind buffering:
 
 | Scenario                               | Performance                              | Reason                                                                                                         |
 | -------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| No or sparse matches, 1 KB chunks & up | **1.3x faster at 1 KB, 4–5x at 16 KB**   | Holds nothing, so each chunk is searched as it arrived; blind buffering copies it to join the tail it held back |
+| No or sparse matches, 1 KB chunks & up | **1.1x faster at 1 KB, 1.8x at 16 KB**   | Holds nothing, so each chunk is searched as it arrived; blind buffering copies it to join the tail it held back |
 | No or sparse matches, small chunks     | **Similar**                              | Checking the end of each chunk costs about what holding back nothing saves                                     |
 | Dense matches                          | **Similar**                              | Both strategies buffer during actual matches                                                                   |
 | Partial matches at boundaries          | **Similar**                              | Both correctly handle cross-chunk matches                                                                      |
 
-Figures are from the "Long first anchor, 1 KB chunks" and "16 KB chunks" scenarios of `npm run bench:algorithms`, on Node 24.20.0 and an Apple M4. How much faster depends on how much of each chunk blind buffering copies, so it varies with chunk size and stream length.
+Figures are from the "Long first anchor, 1 KB chunks" and "16 KB chunks" scenarios of `npm run bench:algorithms`, on Node 24.20.0 and an Apple M4, each run with only that strategy in the process. The full `npm run bench:algorithms` run shows a larger lead, because what runs earlier in its process slows blind buffering more. How much faster depends on how much of each chunk blind buffering copies, so it varies with chunk size and stream length.
 
 ## Usage Examples
 

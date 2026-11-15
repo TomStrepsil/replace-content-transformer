@@ -11,6 +11,6 @@ export { BufferedIndexOfCallbackSearchStrategy } from "./fused-callback/buffered
 export { LoopedIndexOfCallbackSearchStrategy } from "./fused-callback/looped-indexOf/search-strategy.ts";
 export { RegexReplaceContentTransformer } from "./fused-transformer/regex/search-strategy.ts";
 export { RegexCallbackSearchStrategy } from "./fused-callback/regex/search-strategy.ts";
-export { GeneratorSyncTransformEngine } from "./generator-engine/engine.ts";
+export { GeneratorTransformEngine } from "./generator-engine/engine.ts";
 export { LoopedIndexOfAnchoredGeneratorSearchStrategy } from "./generator-engine/looped-indexOf-anchored/search-strategy.ts";
 export type { GeneratorSearchStrategy } from "./generator-engine/types.ts";

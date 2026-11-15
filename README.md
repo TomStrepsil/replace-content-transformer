@@ -35,11 +35,10 @@ Perfect for server-side rendering, edge composition, log processing, template en
 - 🪶 **Low dependency** - Lightweight and minimal [^1]
 - 🚀 **Streaming-first** - Processes data as it arrives, yielding as early as possible
 - 🎯 **Boundary-aware** - Correctly handles tokens split across chunk boundaries
-- 🔄 **Multiple replacements** - Supports replacing multiple occurrences
 - 🔮 **Eager discovery** - Supporting lookahead replacement, with configurable concurrency
 - 🎨 **Dynamic content** - Replace with strings, functions, or iterables, sync or async
 - ⏹️ **Cancellable** - Replacement can be halted mid-chunk
-- ⏯️ **Pausable search** - Engines stop or pause the search at any match, so the consuming stream has control
+- ⏯️ **Pausable search** - Engines stop or pause the search at any match; the consuming stream has control
 - ⚡ **Minimal setup overhead** - Stateless & re-usable search strategies
 - 🔌 **Composable** - Pluggable search strategies & engines
 - 📦 **TypeScript** - Full type definitions included
@@ -64,20 +63,16 @@ See [Design](#-design) on composable parts to import and combine.
 
 ### WHATWG Transformers
 
-Constructors are available from the `/web` import path, for both synchronous and asynchronous replacement use-cases:
+The constructor is available from the `/web` import path:
 
 ```js
-import {
-  ReplaceContentTransformer,
-  AsyncReplaceContentTransformer
-} from "replace-content-transformer/web";
+import { ReplaceContentTransformer } from "replace-content-transformer/web";
 ```
 
-The constructors each accept an engine (see [Engines](#-engines)):
+It accepts an engine (see [Engines](#-engines)):
 
 ```ts
-const syncTransformer = new ReplaceContentTransformer(engine: SyncTransformEngine);
-const asyncTransformer = new AsyncReplaceContentTransformer(engine: AsyncTransformEngine);
+const transformer = new ReplaceContentTransformer(engine: TransformEngine);
 ```
 
 The transformer acts on decoded text streams, and should be plugged into a stream pipeline appropriately. e.g.
@@ -127,14 +122,14 @@ const replacedStream = readableStream
 
 ```typescript
 import {
-  SyncReplacementTransformEngine,
+  SerialTransformEngine,
   searchStrategyFactory
 } from "replace-content-transformer";
 import { ReplaceContentTransformer } from "replace-content-transformer/web";
 
 // {{needle}} replaced by "12345"
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory("{{needle}}"),
     replacement: "12345"
   })
@@ -146,7 +141,7 @@ const transformer = new ReplaceContentTransformer(
 ```typescript
 // {{anything between braces}} replaced by "54321"
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: "54321"
   })
@@ -158,11 +153,11 @@ const transformer = new ReplaceContentTransformer(
 Use a function for dynamic replacement, perhaps based on the original content:
 
 ```typescript
-import { SyncReplacementTransformEngine } from "replace-content-transformer";
+import { SerialTransformEngine } from "replace-content-transformer";
 
 // "{{this}} and {{that}}" becomes "this was match 0 and that was match 1"
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: (
       match: string,
@@ -177,7 +172,7 @@ Access the character indices of the match, relative to the start of the stream:
 ```typescript
 // "here's {{this}}" becomes "here's this, found from 7 to 15"
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
     replacement: (
       match: string,
@@ -204,7 +199,7 @@ const transformer = new ReplaceContentTransformer(
 // `class="old-button something else"` becomes `class="new-button something else"`
 // `class="cold-button"` remains `class="cold-button"`
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(
       /class="(?<before>(?:[^"]*? )?)old-button(?<after>(?: [^"]*?)?)"/
     ),
@@ -224,7 +219,7 @@ A backreference lets a pattern tie a later part of the match back to something i
 // `code = `raw`` becomes `code = `REDACTED``
 // `text = "it's fine"` becomes `text = "REDACTED"` — the apostrophe inside is just content; the backreference, not a fixed quote character, is what decides where the string actually ends
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(/(['"`])(?:\\.|[^\\])*?\1/),
     replacement: (match) => {
       const quote = match[1];
@@ -247,7 +242,7 @@ import { BalancedPairSearchStrategy } from "replace-content-transformer";
 // "(a (b) c)" becomes "[a (b) c]"
 // "(d)" becomes "[d]"
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: new BalancedPairSearchStrategy("(", ")"),
     replacement: (match: string) => `[${match.slice(1, -1)}]`
   })
@@ -256,18 +251,18 @@ const transformer = new ReplaceContentTransformer(
 
 #### Async Replacement
 
-Replace with asynchronous content. Ensures each async replacement completes before the next starts.
+Replace with asynchronous content. Ensures each async replacement completes before the next search starts.
 
 ```typescript
-import { AsyncSerialReplacementTransformEngine } from "replace-content-transformer";
-import { AsyncReplaceContentTransformer } from "replace-content-transformer/web";
+import { SerialTransformEngine } from "replace-content-transformer";
+import { ReplaceContentTransformer } from "replace-content-transformer/web";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // `<img src="file://image.png">` becomes "<img src="data:image/png;base64,...>"
-const transformer = new AsyncReplaceContentTransformer(
-  new AsyncSerialReplacementTransformEngine({
+const transformer = new ReplaceContentTransformer(
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["<img", 'src="file://', '.png">']),
     replacement: async (imgTag: string) =>
       `<img src="data:image/png;base64,${(
@@ -282,8 +277,29 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
+A function may return synchronously for some matches and asynchronously for others, as with a cache. A synchronous result is replaced straight away; only an asynchronous one pauses the search:
+
+```typescript
+// "{{a}} {{b}} {{a}}" becomes the values of a and b, looking each up once
+declare const remoteKeyValueStore: { get(key: string): Promise<string> };
+
+const cache = new Map<string, string | Promise<string>>();
+const transformer = new ReplaceContentTransformer(
+  new SerialTransformEngine({
+    searchStrategy: searchStrategyFactory(["{{", "}}"]),
+    replacement: (match: string): string | Promise<string> =>
+      // a Promise the first time, which pauses the search
+      cache.getOrInsertComputed(match, async (key) => {
+        const value = await remoteKeyValueStore.get(key);
+        cache.set(key, value); // later hits get the string, replaced straight away
+        return value;
+      })
+  })
+);
+```
+
 > [!TIP] 
-> For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`AsyncLookaheadTransformEngine`](#pipelined-async-replacement-with-asynclookaheadtransformengine) (see below).
+> For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`LookaheadTransformEngine`](#pipelined-async-replacement-with-lookaheadtransformengine) (see below).
 
 #### Iterable Replacement
 
@@ -292,7 +308,7 @@ Interpolate a sequence into the stream:
 ```typescript
 // "1 2 3 4 5" becomes "1 2 3.1 3.2 3.3 4 5"
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory("3 "),
     replacement: () => [...Array(3)].map((_, i) => `3.${i + 1} `)
   })
@@ -310,8 +326,8 @@ You can return either form:
 
 ```typescript
 // `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
-const transformer = new AsyncReplaceContentTransformer(
-  new AsyncSerialReplacementTransformEngine({
+const transformer = new ReplaceContentTransformer(
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     replacement: async (match: string) => {
       const {
@@ -324,8 +340,8 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 
 // direct async iterable form
-const transformerWithGenerator = new AsyncReplaceContentTransformer(
-  new AsyncSerialReplacementTransformEngine({
+const transformerWithGenerator = new ReplaceContentTransformer(
+  new SerialTransformEngine({
     searchStrategy: searchStrategyFactory("{{needle}}"),
     replacement: async function* () {
       yield "first chunk";
@@ -335,21 +351,21 @@ const transformerWithGenerator = new AsyncReplaceContentTransformer(
 );
 ```
 
-#### Pipelined Async Replacement with `AsyncLookaheadTransformEngine`
+#### Pipelined Async Replacement with `LookaheadTransformEngine`
 
-For I/O-bound replacements (fragment fetches, KV lookups, etc.) the `AsyncSerialReplacementTransformEngine` above processes matches **serially** — the next match isn't even looked for until the current replacement has fully streamed to the output. That means later matches wait idle while earlier replacements are still in flight, even if they could be running concurrently.
+For I/O-bound replacements (fragment fetches, [KV](https://en.wikipedia.org/wiki/Key%E2%80%93value_database) lookups, etc.) the `SerialTransformEngine` above processes matches **serially** — the next match isn't even looked for until the current replacement has fully streamed to the output. That means later matches wait idle while earlier replacements are still in flight, even if they could be running concurrently.
 
-`AsyncLookaheadTransformEngine` scans ahead and initiates later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
+`LookaheadTransformEngine` scans ahead and initiates later matches' replacement work while earlier ones are still in flight, preserving in-order output. A pluggable `ConcurrencyStrategy` controls when and in what order work is dispatched (including explicit unfettered dispatch via `new SemaphoreStrategy(Infinity)`), and replacements can opt in to recursive re-scanning via the `nested()` sentinel.
 
 ```typescript
 import {
-  AsyncLookaheadTransformEngine,
+  LookaheadTransformEngine,
   SemaphoreStrategy,
   searchStrategyFactory
 } from "replace-content-transformer";
 
-const transformer = new AsyncReplaceContentTransformer(
-  new AsyncLookaheadTransformEngine({
+const transformer = new ReplaceContentTransformer(
+  new LookaheadTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     concurrencyStrategy: new SemaphoreStrategy(8),
     replacement: async (match) => {
@@ -361,7 +377,7 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-See the [full documentation](./src/engines/async-lookahead-transform-engine/README.md) for usage examples, concurrency strategies, backpressure/`highWaterMark`, cancellation, and recursive composition.
+See the [full documentation](./src/engines/lookahead-transform-engine/README.md) for usage examples, concurrency strategies, backpressure/`highWaterMark`, cancellation, and recursive composition.
 
 #### Manage Recursion
 
@@ -371,8 +387,8 @@ Recursive replacement, with controlled depth:
 const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformerFactory(currentDepth: number) {
-  return new AsyncReplaceContentTransformer(
-    new AsyncSerialReplacementTransformEngine({
+  return new ReplaceContentTransformer(
+    new SerialTransformEngine({
       searchStrategy,
       replacement: async (match: string) => {
         const {
@@ -402,8 +418,8 @@ To abort replacement after a certain number of replacements (or, for any other r
 
 ```ts
 const abortController = new AbortController();
-const transformer = new AsyncReplaceContentTransformer(
-  new AsyncSerialReplacementTransformEngine({
+const transformer = new ReplaceContentTransformer(
+  new SerialTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match, { matchIndex }) => {
       const {
@@ -424,16 +440,14 @@ const transformer = new AsyncReplaceContentTransformer(
 
 This will ensure the transform is ["pass through"](https://en.wikipedia.org/wiki/Identity_transform) once the abort is signalled.
 
-No replacement is called once the signal has aborted. If a downstream consumer aborts it on seeing output, how soon that takes effect depends on when the output reaches the consumer [^3]
-
-[^3]: With `SyncReplacementTransformEngine`, a Node `pipe()` destination or `data` listener receives output as it is produced. So an abort there takes effect straight after the output it saw, even within a chunk, and a generator that checks the signal between pieces sees it. WHATWG readers, `pipeTo()` and `for await` only receive a chunk's output once it has been processed, so an abort from them takes effect from the next chunk.
+With either engine, no replacement is called once the signal has aborted, and one already called runs to completion. To end an iterable replacement early, have it check the signal between pieces. A consumer can abort it, or cancel the stream, on seeing some output: WHATWG readers, `pipeTo()` and `for await` receive output once the engine has finished with a chunk or is awaiting a replacement, so that takes effect from the next chunk, or straight after an awaited replacement that settles after the abort. For a Node consumer, see [Stopping on output](#stopping-on-output).
 
 For `fetch` uses cases, with cancellation external to the replacement function, consider sharing the abort signal:
 
 ```ts
 const abortController = new AbortController();
-const transformer = new AsyncReplaceContentTransformer(
-  new AsyncSerialReplacementTransformEngine({
+const transformer = new ReplaceContentTransformer(
+  new SerialTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match) => {
       const {
@@ -446,10 +460,7 @@ const transformer = new AsyncReplaceContentTransformer(
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          // needs to be an async iterable to satisfy AsyncSerialReplacementTransformEngine. (Awaiting AsyncIterator.from(["<!-- cancelled -->"]) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
-          return (async function* () {
-            yield "<!-- cancelled -->";
-          })();
+          return "<!-- cancelled -->";
         }
         throw error;
       }
@@ -464,19 +475,19 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 
 ### Node Transform
 
-Use the Node adapters (`ReplaceContentTransform`, `AsyncReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
+Use the Node adapter (`ReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
 
 > [!CAUTION]
-> **Encoding**: these adapters decode `Buffer` input as UTF-8, keeping a multi-byte character intact across chunk boundaries. Non-UTF-8 byte streams will be mis-decoded silently: decode upstream with a [`TextDecoder`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder) for the source charset (calling `decode(chunk, { stream: true })` per chunk) and write strings with `decodeStrings: false`. Output is always UTF-8, with a surrogate pair split across output chunks encoded as one character; to re-encode it to a legacy charset, use a library such as [`iconv-lite`](https://www.npmjs.com/package/iconv-lite), since `TextEncoder` only produces UTF-8. A string written with Node's default `decodeStrings: true` is converted to a `Buffer` using the encoding passed to `write()` (or `defaultEncoding`) and then decoded as UTF-8; with `decodeStrings: false`, string chunks reach the engine unchanged.
+> **Encoding**: this adapter decodes `Buffer` input as UTF-8, keeping a multi-byte character intact across chunk boundaries. Non-UTF-8 byte streams will be mis-decoded silently: decode upstream with a [`TextDecoder`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder) for the source charset (calling `decode(chunk, { stream: true })` per chunk) and write strings with `decodeStrings: false`. Output is always UTF-8, with a surrogate pair split across output chunks encoded as one character; to re-encode it to a legacy charset, use a library such as [`iconv-lite`](https://www.npmjs.com/package/iconv-lite), since `TextEncoder` only produces UTF-8. A string written with Node's default `decodeStrings: true` is converted to a `Buffer` using the encoding passed to `write()` (or `defaultEncoding`) and then decoded as UTF-8; with `decodeStrings: false`, string chunks reach the engine unchanged.
 
-`AsyncReplaceContentTransform` accepts any `AsyncTransformEngine`, including `AsyncLookaheadTransformEngine`. It shares the same engine and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
+`ReplaceContentTransform` shares the same engines and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
 
 ```typescript
 // streaming esi middleware for express.js, using native Node.js stream.Transform
 import { responseHandler } from "express-intercept";
-import { AsyncReplaceContentTransform } from "replace-content-transformer/node";
+import { ReplaceContentTransform } from "replace-content-transformer/node";
 import {
-  AsyncLookaheadTransformEngine,
+  LookaheadTransformEngine,
   SemaphoreStrategy,
   searchStrategyFactory,
   nested
@@ -487,8 +498,8 @@ import { get } from "node:https";
 const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
 function transformFactory() {
-  return new AsyncReplaceContentTransform(
-    new AsyncLookaheadTransformEngine({
+  return new ReplaceContentTransform(
+    new LookaheadTransformEngine({
       searchStrategy,
       concurrencyStrategy: new SemaphoreStrategy(8),
       replacement: async (match, { depth }) => {
@@ -513,6 +524,12 @@ const expressMiddleware = responseHandler()
     return upstream.pipe(transformFactory());
   });
 ```
+
+#### Stopping on output
+
+With `SerialTransformEngine` and a `stopReplacingSignal`, output is pushed as it is produced. So a `data` listener or `pipe()` destination that aborts the signal, or destroys the stream, on seeing some output prevents every replacement after it, even within a chunk. Each piece of an iterable replacement is pushed as it is produced too, so a generator that checks the signal before yielding the next piece sees such an abort. This holds only while the consumer keeps up, as Node passes output on straight away only while the stream is flowing with nothing buffered. When a consumer isn't reading yet, reads with `for await`, or is a `pipe()` destination still writing earlier output, later replacements may already have been called by the time it sees the output.
+
+Where a replacement must never run, decide from the input instead: search for the deciding text too, so the replacement function sees it first, or inspect the input upstream.
 
 ## 🧬 Design
 
@@ -544,6 +561,8 @@ interface SearchStrategy<TState, TMatch = string> {
 }
 ```
 
+Strategies report to a sink rather than returning or yielding results. Each result is handled as it is found, with no iterator step per result, and the engine can stop or pause the scan at any match (see `reportMatch` below). A strategy can also wrap another's sink, as `BalancedPairSearchStrategy` does to count nesting around an anchor strategy. Against a generator, the sink is typically 1.05–1.3x faster across the streaming scenarios of the algorithm benchmarks (see [Engine shapes](./test/benchmarks/references/README.md#-engine-shapes)).
+
 The `processChunk` reports the chunk to the sink in stream order: literal content through `reportText`, and each match through `reportMatch`. `processChunk` and `settle` return `undefined` rather than `void`, so a strategy still written as a generator is a type error rather than one that silently reports nothing.
 
 The `TState` type is specific to the strategy, managed by the consuming engine / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
@@ -554,7 +573,7 @@ The `flush` returns anything the strategy is still holding as raw text, without 
 
 The optional `settle` is called by the engine in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide anything the strategy is still holding. It reports to the sink as `processChunk` does, so a strategy that deferred a decision at the final chunk boundary can still report a real match — `RegexSearchStrategy` re-scans its buffer with the original pattern and emits whatever it finds. It also re-sets the state.
 
-`reportMatch` returns whether to carry on. When it returns `false`, the strategy returns at once, leaving everything after that match in the state. From there, the engine either calls `flush` to emit it verbatim, as it does once `stopReplacingSignal` aborts, or carries on where the search stopped by calling `processChunk` with `""` (or `settle` again). Either call has to wait until `processChunk` (or `settle`) has returned: the state is only complete once it has. `AsyncSerialReplacementTransformEngine` pauses like this at every match while its replacement is awaited, and `AsyncLookaheadTransformEngine` at a match that fills its queue. The built-in strategies leave the rest in the state from a `finally` block, which also keeps the state intact if a sink call throws.
+`reportMatch` returns whether to carry on. When it returns `false`, the strategy returns at once, leaving everything after that match in the state. From there, the engine either calls `flush` to emit it verbatim, as it does once `stopReplacingSignal` aborts, or carries on where the search stopped by calling `processChunk` with `""` (or `settle` again). Either call has to wait until `processChunk` (or `settle`) has returned: the state is only complete once it has. `SerialTransformEngine` pauses like this at a match whose replacement it awaits, and `LookaheadTransformEngine` at a match that fills its queue. The built-in strategies leave the rest in the state from a `finally` block, which also keeps the state intact if a sink call throws.
 
 The `matchToString` converts a match back to the raw matched text, for a match emitted verbatim.
 
@@ -638,36 +657,34 @@ const searchStrategy = new LeanRegexSearchStrategy(
 
 ### 🦾 Engines
 
-Engines process chunks from the `Transformer` (web) / `stream.Transform` (node), orchestrating replacement using a search strategy. They implement one of two interfaces:
+Engines process chunks from the `Transformer` (web) / `stream.Transform` (node), orchestrating replacement using a search strategy. They implement one interface:
 
 ```typescript
-interface SyncTransformEngine {
+interface TransformEngine {
   start(sink: EngineSink): void;
-  write(chunk: string): void;
-  end(): void;
-}
-
-interface AsyncTransformEngine {
-  start(sink: EngineSink): void;
-  write(chunk: string): Promise<void>;
+  write(chunk: string): void | Promise<void>;
   end(): void | Promise<void>;
   cancel?(): void;
 }
 ```
 
+`write()` and `end()` return `undefined` when the call completed synchronously, or a `Promise` the adapter waits for before its next call.
+
 > [!CAUTION]
 > Engines should only be driven by an adapter. Adapters call `write()` and `end()` one at a time, which keeps output in order and buffered text intact.
 
-There are three concrete engines:
+There are two concrete engines:
 
-- **`SyncReplacementTransformEngine`** — synchronous replacement. `replacement` can be a plain `string` for static replacement, or a function returning `string | Iterable<string>` for functional and iterable use-cases
-  - Each `write()` and `end()` sends its output to the sink as one chunk, including every piece of an iterable replacement. With a `stopReplacingSignal`, a Node adapter gets its output as it is produced instead: each run of text, replacement and iterable piece (see [Limit replacements](#limit-replacements))
+- **`SerialTransformEngine`** — serial replacement, synchronous or asynchronous. Each match is fully replaced before the engine searches for the next. `replacement` can be a plain `string` for static replacement, or a function returning a `string`, an `Iterable<string>`, an `AsyncIterable<string>` (e.g. a `ReadableStream`), or a `Promise` of any of these
+  - A function can return synchronously for some matches and asynchronously for others (see [Async Replacement](#async-replacement)):
+    - a `string` or `Iterable<string>` goes straight into the output, and the search carries on
+    - a `Promise` or `AsyncIterable<string>` pauses the search until it has been fully read
+  - An iterable must yield strings, not Promises. To yield Promises, return an async generator instead, e.g. `async function* () { yield* promises; }`, which awaits each in turn
+  - Output arrives in as few chunks as possible. With a `stopReplacingSignal`, a Node consumer gets it piece by piece instead, so it can stop replacements as soon as it sees something (see [Stopping on output](#stopping-on-output))
 
-- **`AsyncSerialReplacementTransformEngine`** — asynchronous serial replacement. Each match is fully consumed before the engine scans for the next. `replacement` returns `string | AsyncIterable<string> | Promise<string | AsyncIterable<string>>`
+- **`LookaheadTransformEngine`** — concurrent pipelined replacement. Scans ahead and initiates replacement work for later matches while earlier ones are still in flight, preserving in-order output. Uses a pluggable `ConcurrencyStrategy` and supports recursive re-scanning via the `nested()` sentinel. See the [full documentation](./src/engines/lookahead-transform-engine/README.md)
 
-- **`AsyncLookaheadTransformEngine`** — concurrent pipelined replacement. Scans ahead and initiates replacement work for later matches while earlier ones are still in flight, preserving in-order output. Uses a pluggable `ConcurrencyStrategy` and supports recursive re-scanning via the `nested()` sentinel. See the [full documentation](./src/engines/async-lookahead-transform-engine/README.md)
-
-The sync/async distinction determines which adapter accepts the engine (`ReplaceContentTransformer` / `AsyncReplaceContentTransformer`).
+An engine drives its search strategy through a `MatchSink`, along these lines:
 
 ```typescript
 let stoppedAt: string | undefined;
@@ -699,14 +716,6 @@ end() {
   }
 }
 ```
-
-**Why a sink?**
-
-- **Nothing accumulated** - Each result goes straight to the engine, as it is found
-- **Stops at any match** - `reportMatch` returning `false` ends the search, e.g. once `stopReplacingSignal` aborts, with no work done past that match
-- **Pauses and resumes** - The rest stays in the state, so an engine can wait at a match and carry on with `processChunk("")`. 
-  - This is how the [async serial engine](./src/engines/async-serial-transform-engine.ts) waits for each replacement, and how the lookahead queue's [backpressure](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts#backpressure) reaches the search
-- **Composable** - A strategy can wrap another's sink; replacements can still be iterables, async iterables or streams
 
 ## 🔧 Development
 
@@ -744,7 +753,7 @@ npm run build
 ### Unit Tests
 
 - **Search Strategies** - Pattern matching algorithms for single tokens, anchor sequences, and regular expressions
-- **Engines** - Sync, async serial, and lookahead replacement logic
+- **Engines** - Serial (sync or async) and lookahead replacement logic
 - **Adapters** - WHATWG Transformer and Node.js stream.Transform implementations
 - **Factory Functions** - Strategy factory and helper utilities
 
@@ -796,7 +805,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
   - Akamai EdgeWorkers
   - Fastly Compute
 
-`AsyncLookaheadTransformEngine` also needs [`AbortSignal.any()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static): Chrome and Edge 116+, Firefox 124+, Safari 17.4+, Deno 1.39+ and Bun 1.1.4+.
+`LookaheadTransformEngine` also needs [`AbortSignal.any()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static): Chrome and Edge 116+, Firefox 124+, Safari 17.4+, Deno 1.39+ and Bun 1.1.4+.
 
 A regex search strategy also needs whatever its pattern's own syntax needs, such as the `v` flag. See `regex-partial-match`'s [Compatibility](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/compatibility.md).
 

@@ -1,6 +1,6 @@
 import { syncHarnessTransformer } from "./engine-harness.ts";
 import {
-  GeneratorSyncTransformEngine,
+  GeneratorTransformEngine,
   LoopedIndexOfAnchoredGeneratorSearchStrategy
 } from "../references/engine-shapes/index.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
@@ -16,5 +16,5 @@ export const LoopedIndexOfAnchoredGeneratorHarness = {
   }: {
     strategy: LoopedIndexOfAnchoredGeneratorSearchStrategy;
     replacement: (match: string, context: ReplacementContext) => string;
-  }) => syncHarnessTransformer(new GeneratorSyncTransformEngine(strategy, replacement))
+  }) => syncHarnessTransformer(new GeneratorTransformEngine(strategy, replacement))
 };

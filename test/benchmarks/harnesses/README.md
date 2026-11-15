@@ -7,7 +7,7 @@ Each harness wraps one implementation, shipped or a [reference](../references/RE
 - `createTransformer({ strategy, replacement })` returns a `{ transform, flush }` pair
 - `skipScenario?(meta)` returns `true` for scenarios the algorithm can't support
 
-[`engine-harness.ts`](./engine-harness.ts) adapts the different engine shapes (sync engine, async engine, callback, generator, legacy transformer) to that `{ transform, flush }` pair.
+[`engine-harness.ts`](./engine-harness.ts) adapts the different engine shapes (the serial engine with a sync or async replacement, callback, generator, legacy transformer) to that `{ transform, flush }` pair.
 
 Every harness exported from [`index.ts`](./index.ts) runs through the scenarios in [`validate-functionality.test.ts`](../algorithm/validate-functionality.test.ts) as part of `npm test`, and is then benchmarked by [`comparison.bench.ts`](../algorithm/comparison.bench.ts). Each harness also belongs to at least one comparison in [`comparisons.ts`](../algorithm/comparisons.ts), which `comparisons.test.ts` checks.
 

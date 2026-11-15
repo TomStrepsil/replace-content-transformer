@@ -1,4 +1,4 @@
-import { SyncReplacementTransformEngine } from "../../../src/engines/sync-transform-engine.ts";
+import { SerialTransformEngine } from "../../../src/engines/serial-transform-engine.ts";
 import { syncHarnessTransformer } from "./engine-harness.ts";
 import { BalancedPairRegexCountSearchStrategy } from "../references/algorithms/balanced-pair-regex-count/search-strategy.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
@@ -22,7 +22,7 @@ export const BalancedPairRegexCountHarness = {
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     syncHarnessTransformer(
-      new SyncReplacementTransformEngine({
+      new SerialTransformEngine({
         searchStrategy: strategy,
         replacement
       })

@@ -1,4 +1,4 @@
-import { RegexSearchStrategy, SyncReplacementTransformEngine } from "../../../src/index.ts";
+import { RegexSearchStrategy, SerialTransformEngine } from "../../../src/index.ts";
 import { syncHarnessTransformer } from "./engine-harness.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
 
@@ -22,7 +22,7 @@ export const RegexHarness = {
     replacement: (match: string, context: ReplacementContext) => string;
   }) =>
     syncHarnessTransformer(
-      new SyncReplacementTransformEngine({
+      new SerialTransformEngine({
         searchStrategy: strategy,
         replacement: (match, context) => replacement(match[0], context)
       })
