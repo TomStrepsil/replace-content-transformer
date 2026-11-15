@@ -1,6 +1,7 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { constants } from "node:buffer";
 import { setImmediate } from "node:timers/promises";
+import { Readable } from "node:stream";
 import { SerialTransformEngine } from "./serial-transform-engine.ts";
 import type { TransformEngine } from "./types.ts";
 import type { MatchResult } from "../../test/utilities.ts";
@@ -1801,6 +1802,45 @@ describe("SerialTransformEngine", () => {
       await setImmediate();
 
       expect(close).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      { how: "returned", returning: (stream: ReadableStream<string>) => stream },
+      { how: "a Promise resolves to", returning: (stream: ReadableStream<string>) => Promise.resolve(stream) }
+    ])("cancels a ReadableStream $how that never yields once the sink cancels on receiving the text before its match", async ({ returning }) => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const cancel = vi.fn();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => returning(new ReadableStream<string>({ cancel }))
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+
+      await engine.write("input");
+      await setImmediate();
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it("destroys a Node Readable it no longer reads once the sink cancels on receiving the text before its match", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const readable = Readable.from(["R"]);
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => readable
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+
+      await engine.write("input");
+      await setImmediate();
+
+      expect(readable.destroyed).toBe(true);
     });
 
     it("closes an async iterable returned for a later match once the sink cancels on receiving the text before it", async () => {
