@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RegexSearchStrategy`
   - **BREAKING:** matches no longer depend on chunk boundaries, except where a chunk ends more than 64 characters into the text a backreference repeats, or inside a `v`-flag string of several code points, such as an emoji flag matched by `\p{RGI_Emoji}` (see [Strings of several code points](../src/search-strategies/regex/README.md#️-strings-of-several-code-points-v-flag)). A match that could still grow is deferred until the next chunk or the end of the stream, so tests asserting over chunked output may change.
   - Unbounded quantifiers (`/\S+/`) are now a buffering cost rather than a correctness caveat, and a long pending candidate is re-scanned only once the buffer has grown by a factor, so the cost is amortised linear in stream length rather than quadratic. See [Unbounded Quantifiers](../src/search-strategies/regex/README.md#️-unbounded-quantifiers)
+- `StringAnchorSearchStrategy`
+  - Checks whether a chunk ends part way through the first anchor only where that anchor's first character appears, so with small chunks and a long first anchor it is no longer slower than holding back a fixed tail. See [Performance Characteristics](../src/search-strategies/looped-indexOf-anchored/README.md#performance-characteristics)
 - `SyncReplacementTransformEngine`
   - Enqueues all of a `write()` or `end()` call's output as one chunk, rather than one per text run, replacement and iterable piece. With a `stopReplacingSignal`, a sink that can react within the call, such as a Node adapter's, still receives output as it is produced. See [Engines](../README.md#-engines)
 - `AsyncLookaheadTransformEngine`

@@ -10,6 +10,7 @@
     "runtime/**/*.ts",
     "algorithm/**/*.ts",
     "regex-shapes/**/*.ts",
+    "partial-match-length/**/*.ts",
     "harnesses/**/*.ts",
     "references/**/*.ts",
     "../search-strategy-results.ts",

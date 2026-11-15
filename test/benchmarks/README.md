@@ -102,6 +102,18 @@ The [algorithm benchmarks](#algorithm-benchmarks) above use anchor-shaped conten
 
 A deterministic report (`npm run bench:regex-shapes:report`) accompanies the timing run: peak buffer per shape, matches settled at a boundary versus at `settle`, and agreement with a non-streaming reference over the same input.
 
+### Partial Match Length Benchmarks
+
+What [`partialMatchLength`](../../src/search-strategies/looped-indexOf-anchored/partial-match-length.ts), the check `StringAnchorSearchStrategy` makes at the end of each chunk for a partial first anchor, costs at each window size, the last `anchor.length - 1` characters:
+
+```bash
+npm run bench:partial-match-length
+```
+
+#### What's Measured
+
+The shipped check finds the anchor's first character in the window in one of two ways: by reading each character of a short window, and with `indexOf` in a longer one. Each way runs on its own at every window size, next to the shipped check, so the size where `indexOf` starts to pay shows, and the shipped check should keep pace with the faster at each size.
+
 ### Runtime Benchmarks
 
 Compare performance across different JavaScript runtimes (Node.js, Bun, Deno):
