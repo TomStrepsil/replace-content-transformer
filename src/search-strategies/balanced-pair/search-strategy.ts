@@ -76,9 +76,9 @@ class NestingSink implements MatchSink {
  *
  * @example
  * ```typescript
- * import { BalancedPairSearchStrategy, SyncReplacementTransformEngine } from 'replace-content-transformer';
+ * import { BalancedPairSearchStrategy, SerialTransformEngine } from 'replace-content-transformer';
  *
- * const engine = new SyncReplacementTransformEngine({
+ * const engine = new SerialTransformEngine({
  *   searchStrategy: new BalancedPairSearchStrategy('{{', '}}'),
  *   replacement: (match) => match.toUpperCase()
  * });

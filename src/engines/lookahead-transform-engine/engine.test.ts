@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { setImmediate } from "node:timers/promises";
-import { AsyncLookaheadTransformEngine } from "./engine.ts";
+import { LookaheadTransformEngine } from "./engine.ts";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { SlotTreeNode, IterableSlotNode } from "./slot-tree/types.ts";
@@ -84,7 +84,7 @@ async function* stalledAfterFirstItem(): AsyncGenerator<string> {
 }
 
 async function runEngine(
-  engine: AsyncLookaheadTransformEngine<object, string>,
+  engine: LookaheadTransformEngine<object, string>,
   sink: EngineSink,
   inputs: string[]
 ): Promise<void> {
@@ -93,7 +93,7 @@ async function runEngine(
   await engine.end();
 }
 
-describe("AsyncLookaheadTransformEngine", () => {
+describe("LookaheadTransformEngine", () => {
   describe("text slots", () => {
     it("emits non-match text directly to the sink", async () => {
       const strategy = mockSearchStrategyFactory(
@@ -101,7 +101,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: false, content: "world" }
       );
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("unused"),
         concurrencyStrategy: new SemaphoreStrategy(2)
@@ -117,7 +117,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       strategy.flush.mockReturnValue("tail");
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable(""),
         concurrencyStrategy: new SemaphoreStrategy(1)
@@ -133,7 +133,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         content: "only"
       });
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable(""),
         concurrencyStrategy: new SemaphoreStrategy(1)
@@ -155,7 +155,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -179,7 +179,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: false, content: " post" }
       );
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("A1", "A2"),
         concurrencyStrategy: new SemaphoreStrategy(2)
@@ -199,7 +199,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let callCount = 0;
 
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () =>
           callCount++ === 0 ? gateA.promise : gateB.promise,
@@ -228,7 +228,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let callCount = 0;
 
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
           const callIndex = callCount++;
@@ -252,7 +252,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const replacement = vi.fn(async () => asyncIterable(""));
 
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(2)
@@ -276,7 +276,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "B", streamIndices: [1, 2] }
       );
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("x"),
         concurrencyStrategy: spy
@@ -303,7 +303,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => ({
           [Symbol.asyncIterator]: () => replacementIterator
@@ -349,7 +349,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let callCount = 0;
 
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gates[callCount++].promise,
         concurrencyStrategy: new SemaphoreStrategy(8),
@@ -374,7 +374,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     const engineWith = (highWaterMark: unknown) => () =>
-      new AsyncLookaheadTransformEngine({
+      new LookaheadTransformEngine({
         searchStrategy: mockSearchStrategyFactory(),
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -400,7 +400,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("suspends a write() with no match while more than highWaterMark slots are queued", async () => {
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: braceStrategy(),
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(8),
@@ -428,7 +428,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gateB = Promise.withResolvers<AsyncIterable<string>>();
       const gated = new Map([["a", gateA.promise], ["b", gateB.promise]]);
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: braceStrategy(),
         replacement: async (match: string) => gated.get(match) ?? asyncIterable(match.toUpperCase()),
         concurrencyStrategy: new SemaphoreStrategy(8),
@@ -465,7 +465,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         settled: paused === "settled" ? steps : []
       });
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(8),
@@ -492,7 +492,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -517,7 +517,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         streamIndices: [0, 1]
       });
       const { sink, errors } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
           throw new Error("boom");
@@ -592,7 +592,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         .mockImplementation(async () => asyncIterable("R"));
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink, errors } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy
@@ -623,7 +623,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => (async function* () {
           try {
@@ -660,7 +660,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         .mockImplementation(async () => asyncIterable("R"));
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink, errors } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy
@@ -683,7 +683,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let callCount = 0;
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(4);
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => (callCount++ === 0 ? gate.promise : asyncIterable("R")),
         concurrencyStrategy,
@@ -704,7 +704,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let innerCalls = 0;
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink, errors } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy,
         replacement: async (_match, { depth }) => {
@@ -730,7 +730,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       ac.abort();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: fn,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -747,7 +747,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       ac.abort();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -766,7 +766,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const ac = new AbortController();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -790,7 +790,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       ac.abort();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -814,7 +814,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       const fn = vi.fn(async () => asyncIterable("R"));
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: fn,
         concurrencyStrategy: grantingOnly(0),
@@ -835,7 +835,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       const replacement = abortingOnFirstCall(ac, async () => asyncIterable("R"));
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(2),
@@ -853,7 +853,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       strategy.matchToString.mockReturnValue("raw-M");
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -880,7 +880,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy,
@@ -904,7 +904,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const replacement = vi.fn(async (match: string) => asyncIterable(`<${match}>`));
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy: grantingOnly(1),
@@ -934,7 +934,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         return asyncIterable(`${match.toUpperCase()}!`);
       });
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: braceStrategy(),
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -961,7 +961,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         })()
       );
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -989,7 +989,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       const replacement = abortingOnFirstCall(ac, async () => asyncIterable("R"));
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1013,7 +1013,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       strategy.settle = vi.fn();
       strategy.flush.mockReturnValueOnce("HELD").mockReturnValue("");
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1042,7 +1042,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       });
       const replacement = abortingOnFirstCall(ac, async () => asyncIterable("R"));
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1066,7 +1066,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1086,7 +1086,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       const ac = new AbortController();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => (async function* () {
           yield "first";
@@ -1110,7 +1110,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const gate = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => {
           await gate.promise;
@@ -1139,7 +1139,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: true, content: "M", streamIndices: [0, 1] }
       );
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => asyncIterable("R"),
         concurrencyStrategy: spy
@@ -1156,7 +1156,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1179,7 +1179,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       ac.abort();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: fn,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1198,7 +1198,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(2);
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async (match) => (match === "A" ? never() : stalledBeforeFirstItem()),
         concurrencyStrategy,
@@ -1223,7 +1223,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       let finallyRan = false;
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1255,7 +1255,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks, errors } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1299,7 +1299,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         } });
 
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(4),
         replacement: async (match) => {
@@ -1331,7 +1331,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       ] });
 
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: spy,
         replacement: async (match) => {
@@ -1361,7 +1361,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           : [{ isMatch: false, content: chunk }] });
 
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(2),
         replacement: async () => nested(nestedSource())
@@ -1376,7 +1376,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("first second");
     });
 
-    it.each<[string, (engine: AsyncLookaheadTransformEngine<object, string>, abandon: AbortController) => void]>([
+    it.each<[string, (engine: LookaheadTransformEngine<object, string>, abandon: AbortController) => void]>([
       ["cancel()", (engine) => engine.cancel()],
       ["abandonPendingSignal", (_engine, abandon) => abandon.abort()]
     ])("closes the source of a nested() replacement abandoned by %s", async (_, abandonSlot) => {
@@ -1394,7 +1394,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           sourceCancelled = true;
         }
       });
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1423,7 +1423,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           : [{ isMatch: false, content: chunk }] });
 
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(2),
         replacement: async () => nested(failingSource())
@@ -1444,7 +1444,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       ] });
 
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(2),
         replacement: async (match) => {
@@ -1463,7 +1463,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         ] });
 
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         concurrencyStrategy: new SemaphoreStrategy(4),
         replacement: async (match) => {
@@ -1485,7 +1485,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       const fn = vi.fn(async () => asyncIterable("R"));
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: fn,
         concurrencyStrategy: new SemaphoreStrategy(1)
@@ -1503,7 +1503,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: false, content: "hello" }
       );
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => asyncIterable(""),
         concurrencyStrategy: new SemaphoreStrategy(1)
@@ -1515,7 +1515,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("handles a replacement rejection when next() cancels synchronously", async () => {
-      let engine!: AsyncLookaheadTransformEngine<object, string>;
+      let engine!: LookaheadTransformEngine<object, string>;
       const unhandledRejections: unknown[] = [];
       const onUnhandledRejection = (reason: unknown) => {
         unhandledRejections.push(reason);
@@ -1539,7 +1539,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         streamIndices: [0, 1]
       });
       const { sink } = collectEngineSink();
-      engine = new AsyncLookaheadTransformEngine({
+      engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => replacement,
         concurrencyStrategy: new SemaphoreStrategy(1)
@@ -1567,7 +1567,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       let callCount = 0;
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => (callCount++ === 0 ? gate.promise : asyncIterable("")),
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -1597,7 +1597,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const fn = vi.fn(async () => (fn.mock.calls.length === 1 ? gate.promise : asyncIterable("")));
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: fn,
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -1624,7 +1624,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1655,7 +1655,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let callCount = 0;
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(4);
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => (callCount++ === 0 ? gate.promise : asyncIterable("")),
         concurrencyStrategy,
@@ -1682,7 +1682,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         { isMatch: false, content: "after" }
       );
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
           await gate.promise;
@@ -1707,7 +1707,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let returnCalled = false;
       const gate = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
           await gate.promise;
@@ -1742,7 +1742,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       );
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement,
         concurrencyStrategy
@@ -1763,7 +1763,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const secondItem = Promise.withResolvers<void>();
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () =>
           (async function* () {
@@ -1794,7 +1794,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
       let replacementCalls = 0;
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: () => {
           replacementCalls++;
@@ -1832,7 +1832,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       let replacementCalls = 0;
       let firstStarted = false;
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => {
           replacementCalls++;
@@ -1876,7 +1876,7 @@ describe("AsyncLookaheadTransformEngine", () => {
       const ac = new AbortController();
       const gate = Promise.withResolvers<AsyncIterable<string>>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async () => gate.promise,
         concurrencyStrategy: new SemaphoreStrategy(1),
@@ -1901,7 +1901,7 @@ describe("AsyncLookaheadTransformEngine", () => {
             : [{ isMatch: false, content: chunk }] });
       const gate = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine<object, string>({
+      const engine = new LookaheadTransformEngine<object, string>({
         searchStrategy: strategy,
         replacement: async () => {
           await gate.promise;
@@ -1934,7 +1934,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         }
       })();
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async (_match, { depth }) =>
           depth === 0 ? nested(endless) : asyncIterable(""),
@@ -1955,7 +1955,7 @@ describe("AsyncLookaheadTransformEngine", () => {
 
     it("cancel() frees the permit of a nested child replacement stalled mid-stream", async () => {
       const { strategy: concurrencyStrategy, held } = heldSlotCounter(2);
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchEveryChunk(),
         replacement: async (_match, { depth }) =>
           depth === 0
@@ -1985,7 +1985,7 @@ describe("AsyncLookaheadTransformEngine", () => {
           yield "x";
         }
       })();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchEveryChunk(),
         replacement: async (_match, { depth }) => (depth === 0 ? nested(source) : never()),
         concurrencyStrategy: new SemaphoreStrategy(4),
@@ -2012,7 +2012,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         }
       })();
       const childReplacement = Promise.withResolvers<AsyncIterable<string>>();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchEveryChunk(),
         replacement: async (_match, { depth }) =>
           depth === 0 ? nested(source) : childReplacement.promise,
@@ -2042,7 +2042,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         throw new Error("nested source failed");
       }
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async (_match, { depth }) =>
           depth === 0 ? nested(source()) : stalledBeforeFirstItem(),
@@ -2057,7 +2057,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     });
 
     it("rejects end() with a child engine failure while its nested source is still being read", async () => {
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchEveryChunk(),
         replacement: async (_match, { depth }) => {
           if (depth > 0) throw new Error("child failed");
@@ -2091,7 +2091,7 @@ describe("AsyncLookaheadTransformEngine", () => {
         }
       }
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: strategy,
         replacement: async (_match, context) =>
           context.depth === 0 ? nested(source()) : asyncIterable("child"),
@@ -2116,7 +2116,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("passes depth 0 for top-level matches", async () => {
       const depths: number[] = [];
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchAllStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(4),
         replacement: async (_match, ctx) => {
@@ -2131,7 +2131,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("passes depth 1 for matches inside a nested() replacement", async () => {
       const depths: number[] = [];
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchAllStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(4),
         replacement: async (_match, ctx) => {
@@ -2147,7 +2147,7 @@ describe("AsyncLookaheadTransformEngine", () => {
     it("increments depth by 1 per nesting level", async () => {
       const depths: number[] = [];
       const { sink } = collectEngineSink();
-      const engine = new AsyncLookaheadTransformEngine({
+      const engine = new LookaheadTransformEngine({
         searchStrategy: matchAllStrategy(),
         concurrencyStrategy: new SemaphoreStrategy(4),
         replacement: async (_match, ctx) => {

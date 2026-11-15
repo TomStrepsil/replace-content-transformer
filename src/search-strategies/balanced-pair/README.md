@@ -206,13 +206,13 @@ const strategy = new BalancedPairSearchStrategy("{{", "}}");
 ```typescript
 import {
   BalancedPairSearchStrategy,
-  SyncReplacementTransformEngine
+  SerialTransformEngine
 } from "replace-content-transformer";
 import { ReplaceContentTransformer } from "replace-content-transformer/web";
 
 // Replace every top-level balanced `(...)` expression, including nested ones
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: new BalancedPairSearchStrategy("(", ")"),
     replacement: (match: string) => `[${match.slice(1, -1)}]`
   })
@@ -227,7 +227,7 @@ Since the full matched content is available in the replacement function, nesting
 const strategy = new BalancedPairSearchStrategy("(", ")");
 
 const transformer = new ReplaceContentTransformer(
-  new SyncReplacementTransformEngine({
+  new SerialTransformEngine({
     searchStrategy: strategy,
     replacement: (match: string) => {
       const depth = (match.match(/\(/g) ?? []).length;

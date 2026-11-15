@@ -18,7 +18,7 @@ export interface Comparison {
 export const comparisons: Comparison[] = [
   {
     name: "Search algorithms",
-    question: "Which algorithm finds anchors fastest, in the production shape and the sync engine?",
+    question: "Which algorithm finds anchors fastest, in the production shape with a synchronous replacement?",
     baseline: harnesses.LoopedIndexOfAnchoredHarness,
     compared: [
       harnesses.BufferedIndexOfAnchoredHarness,
@@ -36,8 +36,8 @@ export const comparisons: Comparison[] = [
     compared: [harnesses.BalancedPairRegexCountHarness]
   },
   {
-    name: "Sync vs async engine",
-    question: "What does the async serial engine cost over the sync one?",
+    name: "Sync vs async replacement",
+    question: "What does an asynchronous replacement cost over a synchronous one, through the serial engine?",
     baseline: harnesses.LoopedIndexOfAnchoredHarness,
     compared: [harnesses.LoopedIndexOfAnchoredAsyncHarness]
   },

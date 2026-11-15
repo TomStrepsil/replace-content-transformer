@@ -1,7 +1,7 @@
 
 # Lookahead Engine Benchmarks
 
-Compare concurrency strategies for `AsyncLookaheadTransformEngine` against the serial `AsyncReplaceContentTransformer` baseline:
+Compare concurrency strategies for `LookaheadTransformEngine` against the `SerialTransformEngine` baseline:
 
 ```bash
 # Run all scenarios (30 RCBD blocks — completes in ~3 s with fake timers)
@@ -22,11 +22,11 @@ npm run bench:lookahead-engine:scenario -- Nested-wide
 
 | ID | Label | Description |
 |----|-------|-------------|
-| A  | Serial (A) | `AsyncReplaceContentTransformer` — sequential, manual nesting via recursive child transformers |
-| A' | Lookahead serial c=1 (A') | `AsyncLookaheadTransformEngine` with `SemaphoreStrategy(1)` — lookahead scanner, serial dispatch |
-| B  | Lookahead semaphore c=N (B) | `AsyncLookaheadTransformEngine` with `SemaphoreStrategy(N)` — FIFO concurrent dispatch |
-| C  | Lookahead streamOrder c=N (C) | `AsyncLookaheadTransformEngine` with `PriorityQueueStrategy(N, streamOrder)` — prioritises slots that are earlier in the output stream |
-| D  | Lookahead breadthFirst c=N (D) | `AsyncLookaheadTransformEngine` with `PriorityQueueStrategy(N, breadthFirst)` — dispatches shallower tree nodes before deeper ones |
+| A  | Serial (A) | `SerialTransformEngine` — sequential, manual nesting via recursive child transformers |
+| A' | Lookahead serial c=1 (A') | `LookaheadTransformEngine` with `SemaphoreStrategy(1)` — lookahead scanner, serial dispatch |
+| B  | Lookahead semaphore c=N (B) | `LookaheadTransformEngine` with `SemaphoreStrategy(N)` — FIFO concurrent dispatch |
+| C  | Lookahead streamOrder c=N (C) | `LookaheadTransformEngine` with `PriorityQueueStrategy(N, streamOrder)` — prioritises slots that are earlier in the output stream |
+| D  | Lookahead breadthFirst c=N (D) | `LookaheadTransformEngine` with `PriorityQueueStrategy(N, breadthFirst)` — dispatches shallower tree nodes before deeper ones |
 
 A' vs A isolates the lookahead scanner's effect at serial concurrency: both produce identical output order, but A' pre-scans ahead while a replacement is in flight. On flat scenarios they are equivalent; the advantage of serial subject A is simpler nesting (no engine overhead), while A' reveals the cost of the lookahead scanner itself.
 
@@ -51,7 +51,7 @@ Counter-intuitively, totalMs typically *increases* under streaming bodies becaus
 
 On **flat** scenarios all three strategies are equivalent — there is no slot tree to order, so the priority queue degenerates to arrival order.
 
-Differences surface on **nested** scenarios where the replacement returns a [`Nested`](../../../src/engines/async-lookahead-transform-engine/nested.ts) sentinel, creating a tree of child slots:
+Differences surface on **nested** scenarios where the replacement returns a [`Nested`](../../../src/engines/lookahead-transform-engine/nested.ts) sentinel, creating a tree of child slots:
 
 - **B (FIFO)** dispatches in scan-arrival order — inner slots from early outer matches compete with later outer slots in the order they were scheduled.
 - **C (streamOrder)** prioritises the slot whose output appears earliest in the stream. In a nested tree this means a child slot of outer-0 outranks outer-1, so earlier sections' content completes sooner — lower `maxGap` for the first sections, at the cost of stalling later outer slots.

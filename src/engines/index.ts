@@ -1,11 +1,13 @@
-export { SyncReplacementTransformEngine } from "./sync-transform-engine.js";
-export type { SyncReplacementTransformEngineOptions, SyncReplacementFn } from "./sync-transform-engine.js";
-export { AsyncSerialReplacementTransformEngine } from "./async-serial-transform-engine.js";
-export type { AsyncSerialReplacementTransformEngineOptions, AsyncSerialReplacementFn } from "./async-serial-transform-engine.js";
-export * from "./async-lookahead-transform-engine/index.js";
+export { SerialTransformEngine } from "./serial-transform-engine.js";
+export type {
+  SerialTransformEngineOptions,
+  SerialReplacementFn,
+  SerialReplacement,
+  SerialEngineCallResult
+} from "./serial-transform-engine.js";
+export * from "./lookahead-transform-engine/index.js";
 export type {
   EngineSink,
   ReplacementContext,
-  SyncTransformEngine,
-  AsyncTransformEngine
+  TransformEngine
 } from "./types.js";

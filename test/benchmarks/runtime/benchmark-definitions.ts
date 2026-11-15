@@ -1,6 +1,5 @@
 import {
-  SyncReplacementTransformEngine,
-  AsyncSerialReplacementTransformEngine,
+  SerialTransformEngine,
   type ReplacementContext
 } from "../../../src/engines/index.ts";
 import {
@@ -21,9 +20,7 @@ export interface BenchmarkDefinition {
   name: string;
   description: string;
   setup: () => {
-    engine:
-      | SyncReplacementTransformEngine<SearchState>
-      | AsyncSerialReplacementTransformEngine<SearchState>;
+    engine: SerialTransformEngine<SearchState>;
     input: string[];
   };
   validate: (result: string) => void;
@@ -46,7 +43,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Hello OLD world OLD test OLD content"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -63,7 +60,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["NOTFOUND"]);
         const input = ["Hello world test content no matches here"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -81,7 +78,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["OLD".repeat(10) + "content" + "OLD".repeat(10)];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -101,7 +98,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Hello OLD world OLD test OLD content"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
           }),
@@ -129,7 +126,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["BOUNDARY"]);
         const input = ["Hello BOUN", "DARY world test"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "REPLACED" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "REPLACED" }),
           input
         });
       })(),
@@ -149,7 +146,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["NOTFOUND"]);
         const input = ["Hello NOT", "THERE world test"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "REPLACED" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "REPLACED" }),
           input
         });
       })(),
@@ -176,7 +173,7 @@ export const benchmarkDefinitions: {
         ).join("");
         const input = [singleLong];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -199,7 +196,7 @@ export const benchmarkDefinitions: {
           (_, i) => `chunk ${i + 1} content with OLD pattern here`
         );
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -228,7 +225,7 @@ export const benchmarkDefinitions: {
           (_, i) => `chunk ${i + 1} content no matches here`
         );
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -260,7 +257,7 @@ export const benchmarkDefinitions: {
           input.push(`${secondPart} and more content chunk ${chunkIndex + 2}`);
         }
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "REPLACED" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "REPLACED" }),
           input
         });
       })(),
@@ -297,7 +294,7 @@ export const benchmarkDefinitions: {
         (_, i) => document.slice(i * chunkLength, (i + 1) * chunkLength)
       );
       return () => ({
-        engine: new SyncReplacementTransformEngine({
+        engine: new SerialTransformEngine({
           searchStrategy,
           replacement: iterable ? () => ["R", "S"] : "R",
           stopReplacingSignal: withSignal ? new AbortController().signal : undefined
@@ -312,7 +309,7 @@ export const benchmarkDefinitions: {
     }
   })),
   async: [
-    // First two are sync-engine baselines (run via executeBenchmark)
+    // First two replace synchronously, as baselines (run via executeBenchmark)
     {
       name: "processChunkSync with string replacement",
       description: "Sync baseline - verify no performance regression from async feature",
@@ -320,7 +317,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({ searchStrategy, replacement: "NEW" }),
+          engine: new SerialTransformEngine({ searchStrategy, replacement: "NEW" }),
           input
         });
       })(),
@@ -338,7 +335,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new SyncReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
           }),
@@ -355,7 +352,7 @@ export const benchmarkDefinitions: {
         }
       }
     },
-    // Remaining six are async-engine benchmarks (run via executeBenchmarkAsync)
+    // Remaining six replace asynchronously (run via executeBenchmarkAsync)
     {
       name: "processChunk with string replacement (async generator overhead)",
       description: "Measure overhead of async generator with string replacement",
@@ -363,7 +360,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new AsyncSerialReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: async () => "NEW"
           }),
@@ -384,7 +381,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new AsyncSerialReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: async (_: string, { matchIndex }: ReplacementContext) => `NEW-${matchIndex}`
           }),
@@ -408,7 +405,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new AsyncSerialReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: async (_: string, { matchIndex }: ReplacementContext) => {
               await Promise.resolve();
@@ -435,7 +432,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new AsyncSerialReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: (_: string, { matchIndex }: ReplacementContext) =>
               Promise.resolve(`NEW-${matchIndex}`)
@@ -460,7 +457,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new AsyncSerialReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: async () =>
               new ReadableStream<string>({
@@ -486,7 +483,7 @@ export const benchmarkDefinitions: {
         const searchStrategy = new StringAnchorSearchStrategy(["OLD"]);
         const input = ["Replace OLD and OLD and OLD content"];
         return () => ({
-          engine: new AsyncSerialReplacementTransformEngine({
+          engine: new SerialTransformEngine({
             searchStrategy,
             replacement: async (_: string, { matchIndex }: ReplacementContext) =>
               new ReadableStream<string>({
@@ -530,12 +527,6 @@ const _asyncSink = {
 export function executeBenchmark(definition: BenchmarkDefinition) {
   const { engine, input } = definition.setup();
 
-  if (!(engine instanceof SyncReplacementTransformEngine)) {
-    throw new Error(
-      "executeBenchmark requires a SyncReplacementTransformEngine"
-    );
-  }
-
   _syncOutput.length = 0;
   engine.start(_syncSink);
 
@@ -552,12 +543,6 @@ export function executeBenchmark(definition: BenchmarkDefinition) {
 
 export async function executeBenchmarkAsync(definition: BenchmarkDefinition) {
   const { engine, input } = definition.setup();
-
-  if (!(engine instanceof AsyncSerialReplacementTransformEngine)) {
-    throw new Error(
-      "executeBenchmarkAsync requires an AsyncSerialReplacementTransformEngine"
-    );
-  }
 
   _asyncOutput.length = 0;
   engine.start(_asyncSink);

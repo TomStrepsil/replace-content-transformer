@@ -1,0 +1,1906 @@
+import { describe, it, expect, expectTypeOf, vi } from "vitest";
+import { constants } from "node:buffer";
+import { setImmediate } from "node:timers/promises";
+import { Readable } from "node:stream";
+import { SerialTransformEngine } from "./serial-transform-engine.ts";
+import type { TransformEngine } from "./types.ts";
+import type { MatchResult } from "../../test/utilities.ts";
+import {
+  abortingOnFirstCall,
+  collectEngineSink,
+  mockSearchStrategy,
+  mockSearchStrategyFactory
+} from "../../test/utilities.ts";
+
+function runEngine(engine: TransformEngine, inputs: string[]): string[] {
+  const { sink, chunks } = collectEngineSink();
+  engine.start(sink);
+  for (const input of inputs) engine.write(input);
+  engine.end();
+  return chunks;
+}
+
+function outputOf(engine: TransformEngine, inputs: string[]): string {
+  return runEngine(engine, inputs).join("");
+}
+
+function closableAsyncIterable(...pieces: string[]) {
+  const close = vi.fn(async () => ({ done: true as const, value: undefined }));
+  let index = 0;
+  const iterable: AsyncIterable<string> = {
+    [Symbol.asyncIterator]: () => ({
+      next: async (): Promise<IteratorResult<string>> =>
+        index < pieces.length ? { done: false, value: pieces[index++] } : { done: true, value: undefined },
+      return: close
+    })
+  };
+  return { iterable, close };
+}
+
+async function runEngineAsync(
+  engine: TransformEngine,
+  inputs: string[]
+): Promise<string[]> {
+  const { sink, chunks } = collectEngineSink();
+  engine.start(sink);
+  for (const input of inputs) await engine.write(input);
+  await engine.end();
+  return chunks;
+}
+
+describe("SerialTransformEngine", () => {
+  describe("non-match passthrough", () => {
+    it("passes non-match content to the sink", () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "hello " },
+        { isMatch: false, content: "world" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => "UNUSED"
+      });
+      expect(outputOf(engine, ["hello world"])).toBe("hello world");
+    });
+  });
+
+  describe("string replacement", () => {
+    it("replaces a match with a static string", () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "OLD", streamIndices: [4, 7] },
+        { isMatch: false, content: " post" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "NEW"
+      });
+      expect(outputOf(engine, ["pre OLD post"])).toBe("pre NEW post");
+    });
+
+    it("replaces with the function return value", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const fn = vi.fn().mockReturnValue("Y");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn
+      });
+      runEngine(engine, ["X"]);
+      expect(fn).toHaveBeenCalledWith("X", {
+        matchIndex: 0,
+        streamIndices: [0, 1]
+      });
+    });
+
+    it("increments matchIndex across chunks", () => {
+      let call = 0;
+      const { strategy } = mockSearchStrategy({
+        chunk: () => {
+          const start = call++ * 10;
+          return [{ isMatch: true, content: "M", streamIndices: [start, start + 1] }];
+        }
+      });
+      const fn = vi.fn().mockReturnValue("R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn
+      });
+      runEngine(engine, ["M", "M", "M"]);
+      expect(fn).toHaveBeenNthCalledWith(
+        1,
+        "M",
+        expect.objectContaining({ matchIndex: 0 })
+      );
+      expect(fn).toHaveBeenNthCalledWith(
+        2,
+        "M",
+        expect.objectContaining({ matchIndex: 1 })
+      );
+      expect(fn).toHaveBeenNthCalledWith(
+        3,
+        "M",
+        expect.objectContaining({ matchIndex: 2 })
+      );
+    });
+  });
+
+  describe("iterable replacement", () => {
+    it("emits all items from an iterable return value", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => ["A", "B", "C"]
+      });
+      expect(outputOf(engine, ["X"])).toBe("ABC");
+    });
+
+    it("emits items from a generator return value", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: function* () {
+          yield "P";
+          yield "Q";
+        }
+      });
+      expect(outputOf(engine, ["X"])).toBe("PQ");
+    });
+  });
+
+  describe("multi-chunk state", () => {
+    it("preserves strategy state across write() calls — partial match completes in later chunk", () => {
+      let call = 0;
+      const { strategy } = mockSearchStrategy({
+        chunk: () =>
+          ++call === 1
+            ? [{ isMatch: false, content: "text " }]
+            : [
+                { isMatch: true, content: "OLD", streamIndices: [5, 8] },
+                { isMatch: false, content: " end" }
+              ]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "NEW"
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("text OL");
+      engine.write("D end");
+      engine.end();
+      expect(chunks.join("")).toBe("text NEW end");
+    });
+
+    it("handles a match at the very start of a chunk", () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "HELLO", streamIndices: [0, 5] },
+        { isMatch: false, content: " world" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "HI"
+      });
+      expect(outputOf(engine, ["HELLO world"])).toBe("HI world");
+    });
+  });
+
+  describe("multiple matches per chunk", () => {
+    it("replaces all matches in a single chunk", () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: "-" },
+        { isMatch: true, content: "B", streamIndices: [2, 3] }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "X"
+      });
+      expect(outputOf(engine, ["A-B"])).toBe("X-X");
+    });
+
+    it("replaces with different iterable per match index", () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: false, content: "-" },
+        { isMatch: true, content: "M", streamIndices: [2, 3] }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (_match, ctx) => [
+          `${ctx.matchIndex}a`,
+          `${ctx.matchIndex}b`
+        ]
+      });
+      expect(outputOf(engine, ["M-M"])).toBe("0a0b-1a1b");
+    });
+
+    it("emits nothing for a match when replacement returns an empty iterable", () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "X", streamIndices: [4, 5] },
+        { isMatch: false, content: " post" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => []
+      });
+      expect(outputOf(engine, ["pre X post"])).toBe("pre  post");
+    });
+  });
+
+  describe("end / flush", () => {
+    it("emits strategy tail on end()", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      strategy.flush.mockReturnValue("TAIL");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R"
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("a");
+      const written = chunks.join("");
+      engine.end();
+      expect(chunks.join("")).toBe(`${written}TAIL`);
+    });
+
+    it("emits nothing on end() when flush returns empty string", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      strategy.flush.mockReturnValue("");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R"
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("a");
+      const enqueuedBeforeEnd = chunks.length;
+      engine.end();
+      expect(chunks).toHaveLength(enqueuedBeforeEnd);
+    });
+  });
+
+  describe("settle and flush around an abort", () => {
+    it("flushes the held text, without settling it, on the first aborted chunk", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "unused"
+      });
+      strategy.settle = vi.fn();
+      strategy.flush.mockReturnValueOnce("before MATCH").mockReturnValue("");
+
+      const replacement = vi.fn().mockReturnValue("R");
+      const ac = new AbortController();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      ac.abort();
+      engine.write("passthrough");
+      engine.end();
+
+      expect(chunks.join("")).toBe("before MATCHpassthrough");
+      expect(strategy.settle).not.toHaveBeenCalled();
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("flushes rather than settles at end() when the signal aborted after the last chunk", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      strategy.settle = vi.fn();
+      strategy.flush.mockReturnValue("xMATCH");
+
+      const replacement = vi.fn().mockReturnValue("R");
+      const ac = new AbortController();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("a");
+      ac.abort();
+      engine.end();
+
+      expect(chunks.join("")).toBe("axMATCH");
+      expect(strategy.settle).not.toHaveBeenCalled();
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("applies the replacement to a match settled by end() when nothing aborted", () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: false, content: "a" }],
+        settled: [{ isMatch: true, content: "MATCH", streamIndices: [1, 6] }]
+      });
+
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R"
+      });
+
+      expect(outputOf(engine, ["a"])).toBe("aR");
+    });
+
+    it("drops an empty flush rather than enqueuing an empty chunk", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+
+      const ac = new AbortController();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R",
+        stopReplacingSignal: ac.signal
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      ac.abort();
+      engine.write("passthrough");
+      engine.end();
+
+      expect(chunks).not.toContain("");
+    });
+  });
+
+  describe("stopReplacingSignal", () => {
+    it("passes chunk through without calling replacement when already aborted", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const fn = vi.fn().mockReturnValue("R");
+      const ac = new AbortController();
+      ac.abort();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn,
+        stopReplacingSignal: ac.signal
+      });
+      expect(outputOf(engine, ["X"])).toBe("X");
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it("flushes buffered tail once on first aborted chunk, then passes subsequent chunks through", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: false,
+        content: "a"
+      });
+      // Real strategy: returns buffer on first flush, then "" once consumed.
+      strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
+      const ac = new AbortController();
+      ac.abort();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("X");
+      engine.write("Y");
+      engine.end();
+      expect(chunks.join("")).toBe("BUFXY");
+    });
+
+    it("stops replacement mid-chunk when signal is aborted inside the replacement fn", () => {
+      const ac = new AbortController();
+      let call = 0;
+      const { strategy } = mockSearchStrategy({
+        chunk: [
+          { isMatch: true, content: "A", streamIndices: [0, 1] },
+          { isMatch: true, content: "B", streamIndices: [1, 2] }
+        ]
+      });
+      const fn = vi.fn().mockImplementation(() => {
+        if (call++ === 0) ac.abort();
+        return "R";
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn,
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.write("AB");
+      engine.end();
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(chunks.join("")).toBe("RB");
+    });
+  });
+
+  describe("stopping the search once stopReplacingSignal aborts", () => {
+    const match = (content: string): MatchResult => ({
+      isMatch: true,
+      content,
+      streamIndices: [0, 1]
+    });
+    const nonMatch = (content: string): MatchResult => ({
+      isMatch: false,
+      content
+    });
+
+    it("stops searching once a replacement aborts the signal, and flushes the rest of the chunk", () => {
+      const ac = new AbortController();
+      const { strategy, counts } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1"), nonMatch("b"), match("2"), match("3")],
+        rest: "REST"
+      });
+      const replacement = abortingOnFirstCall(ac, () => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      expect(outputOf(engine, ["chunk", "next"])).toBe("aRb23RESTnext");
+      expect(counts.pulled).toBe(2);
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("stops settling at end() once a settled match's replacement aborts the signal", () => {
+      const ac = new AbortController();
+      const { strategy, counts } = mockSearchStrategy({
+        settled: [match("M1"), match("M2"), match("M3")],
+        rest: "REST"
+      });
+      const replacement = abortingOnFirstCall(ac, () => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      expect(outputOf(engine, [])).toBe("RM2M3REST");
+      expect(counts.pulled).toBe(1);
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("does not replace a match found after the sink aborts the signal mid-scan", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1"), nonMatch("b")],
+        rest: "REST"
+      });
+      const replacement = vi.fn(() => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("a1bREST");
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("does not call the replacement again once the sink aborts the signal on a replacement's output", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [match("1"), nonMatch("b"), match("2"), nonMatch("c")],
+        rest: "REST"
+      });
+      const replacement = vi.fn(() => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          if (chunk.includes("R")) ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("Rb2cREST");
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("lets an iterable replacement see the sink abort the signal on one of its pieces before it yields the next", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [match("1"), nonMatch("b"), match("2")],
+        rest: "REST"
+      });
+      const replacement = vi.fn(function* () {
+        yield "A";
+        yield ac.signal.aborted ? "B" : "C";
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("ABb2REST");
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("ends an iterable replacement that yields until the sink aborts the signal", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({ chunk: [match("1")] });
+      const yieldsUntilAborted = function* () {
+        for (let piece = 0; piece < 100 && !ac.signal.aborted; piece++) yield "x";
+      };
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: yieldsUntilAborted,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          if (chunks.join("").length === 3) ac.abort();
+        },
+        error: () => {}
+      });
+
+      engine.write("chunk");
+      engine.end();
+
+      expect(chunks.join("")).toBe("xxx");
+    });
+  });
+
+  describe("one output chunk per call", () => {
+    const match = (content: string, start: number): MatchResult => ({
+      isMatch: true,
+      content,
+      streamIndices: [start, start + 1]
+    });
+    const nonMatch = (content: string): MatchResult => ({
+      isMatch: false,
+      content
+    });
+
+    it("enqueues once per write() and once per end(), however many results each reports", () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: (haystack) => [
+          nonMatch(`<${haystack}>`),
+          match("M", 0),
+          nonMatch("-"),
+          match("M", 2)
+        ],
+        settled: [match("S", 0), nonMatch("."), match("S", 2)]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (content) => [content.toLowerCase(), "!"]
+      });
+
+      expect(runEngine(engine, ["1", "2"])).toEqual([
+        "<1>m!-m!",
+        "<2>m!-m!",
+        "s!.s!"
+      ]);
+    });
+
+    it.each([
+      { deferred: undefined, expected: ["a", "R", "b", "R"] },
+      { deferred: false, expected: ["a", "R", "b", "R"] },
+      { deferred: true, expected: ["aRbR"] }
+    ])(
+      "with a stopReplacingSignal, enqueues before and after each replacement unless the sink reports delivery as deferred ($deferred)",
+      ({ deferred, expected }) => {
+        const { strategy } = mockSearchStrategy({
+          chunk: [nonMatch("a"), match("1", 1), nonMatch("b"), match("2", 3)]
+        });
+        const engine = new SerialTransformEngine({
+          searchStrategy: strategy,
+          replacement: "R",
+          stopReplacingSignal: new AbortController().signal
+        });
+        const { sink, chunks } = collectEngineSink();
+        engine.start(
+          deferred === undefined ? sink : { ...sink, deliveryDeferred: deferred }
+        );
+
+        engine.write("a1b2");
+        engine.end();
+
+        expect(chunks).toEqual(expected);
+      }
+    );
+
+    it.each([
+      { deferred: undefined, expected: ["a", "P", "Q", "b"] },
+      { deferred: false, expected: ["a", "P", "Q", "b"] },
+      { deferred: true, expected: ["aPQb"] }
+    ])(
+      "with a stopReplacingSignal, enqueues each piece of an iterable replacement unless the sink reports delivery as deferred ($deferred)",
+      ({ deferred, expected }) => {
+        const { strategy } = mockSearchStrategy({
+          chunk: [nonMatch("a"), match("1", 1), nonMatch("b")]
+        });
+        const engine = new SerialTransformEngine({
+          searchStrategy: strategy,
+          replacement: () => ["P", "Q"],
+          stopReplacingSignal: new AbortController().signal
+        });
+        const { sink, chunks } = collectEngineSink();
+        engine.start(
+          deferred === undefined ? sink : { ...sink, deliveryDeferred: deferred }
+        );
+
+        engine.write("a1b");
+        engine.end();
+
+        expect(chunks).toEqual(expected);
+      }
+    );
+
+    it("stops at the replacement that aborts the signal when the sink reports delivery as deferred", () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1", 1), nonMatch("b"), match("2", 3)],
+        rest: "REST"
+      });
+      const replacement = abortingOnFirstCall(ac, () => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start({ ...sink, deliveryDeferred: true });
+
+      engine.write("a1b2");
+      engine.end();
+
+      expect(chunks.join("")).toBe("aRb2REST");
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("delivers the output of a write() longer than the longest string the runtime can build", () => {
+      const replacementLength = Math.ceil(constants.MAX_STRING_LENGTH / 4);
+      const matches = 5;
+      const { strategy } = mockSearchStrategy({
+        chunk: Array.from({ length: matches }, (_, i) => match("M", i))
+      });
+      const replacement = "x".repeat(replacementLength);
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement
+      });
+      let delivered = 0;
+      engine.start({
+        enqueue: (chunk) => {
+          delivered += chunk.length;
+        },
+        error: () => {}
+      });
+
+      engine.write("M".repeat(matches));
+      engine.end();
+
+      expect(delivered).toBe(replacementLength * matches);
+    });
+
+    it("rethrows an error other than running out of string length while appending a replacement's output", () => {
+      const { strategy } = mockSearchStrategy({ chunk: [match("M", 0)] });
+      const unconvertible = {
+        toString: () => {
+          throw new Error("boom");
+        }
+      } as unknown as string;
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => [unconvertible]
+      });
+      engine.start(collectEngineSink().sink);
+
+      expect(() => engine.write("M")).toThrow("boom");
+    });
+
+    it("enqueues nothing for a call whose output is empty", () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [match("X", 0), match("Y", 1)],
+        settled: [match("Z", 2)]
+      });
+      const { sink } = collectEngineSink();
+      const enqueue = vi.spyOn(sink, "enqueue");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: ""
+      });
+      engine.start(sink);
+
+      engine.write("XY");
+      engine.end();
+
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        thrower: "a replacement function",
+        replacement: (content: string) => {
+          if (content === "2") throw new Error("boom");
+          return "R";
+        },
+        expected: "xRy"
+      },
+      {
+        thrower: "an iterable replacement",
+        replacement: function* (content: string) {
+          yield `${content}a`;
+          if (content === "2") throw new Error("boom");
+          yield `${content}b`;
+        },
+        expected: "x1a1by2a"
+      }
+    ])("still enqueues the output produced before $thrower throws", ({ replacement, expected }) => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("x"), match("1", 1), nonMatch("y"), match("2", 3), nonMatch("z")]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      expect(() => engine.write("x1y2z")).toThrow("boom");
+      expect(chunks.join("")).toBe(expected);
+    });
+  });
+
+  describe("synchronous and asynchronous replacements", () => {
+    it("returns undefined from write() and end() when every replacement is synchronous", () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: true, content: "M", streamIndices: [0, 1] }],
+        settled: [{ isMatch: true, content: "M", streamIndices: [1, 2] }]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (match) => [match.toLowerCase()]
+      });
+      engine.start(collectEngineSink().sink);
+
+      expect(engine.write("M")).toBeUndefined();
+      expect(engine.end()).toBeUndefined();
+    });
+
+    it("returns a Promise from write() when a replacement is asynchronous, having enqueued the output before it", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "M", streamIndices: [4, 5] }
+      );
+      const gate = Promise.withResolvers<string>();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      const written = engine.write("pre M");
+
+      expect(written).toBeInstanceOf(Promise);
+      expect(chunks).toEqual(["pre "]);
+      gate.resolve("R");
+      await written;
+      expect(chunks).toEqual(["pre ", "R"]);
+    });
+
+    it("replaces matches in order when some replacements are synchronous and some asynchronous", async () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [
+          { isMatch: true, content: "a", streamIndices: [0, 1] },
+          { isMatch: true, content: "b", streamIndices: [1, 2] },
+          { isMatch: true, content: "c", streamIndices: [2, 3] },
+          { isMatch: true, content: "d", streamIndices: [3, 4] }
+        ]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (match, { matchIndex }) =>
+          matchIndex % 2 ? Promise.resolve(match.toUpperCase()) : match.toUpperCase()
+      });
+
+      expect((await runEngineAsync(engine, ["abcd", "abcd"])).join("")).toBe("ABCDABCD");
+    });
+
+    it("enqueues an awaited replacement on its own, then the output of the search resumed after it as one chunk", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "A", streamIndices: [4, 5] },
+        { isMatch: false, content: " mid " },
+        { isMatch: true, content: "S", streamIndices: [10, 11] },
+        { isMatch: false, content: " post" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (match) => (match === "A" ? Promise.resolve("a") : "s")
+      });
+
+      expect(await runEngineAsync(engine, ["chunk"])).toEqual(["pre ", "a", " mid s post"]);
+    });
+
+    it("reads a value that is both iterable and async iterable as an iterable", () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const asyncIterator = vi.fn();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => ({
+          *[Symbol.iterator]() {
+            yield "sync";
+          },
+          [Symbol.asyncIterator]: asyncIterator
+        })
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      expect(engine.write("M")).toBeUndefined();
+      expect(chunks).toEqual(["sync"]);
+      expect(asyncIterator).not.toHaveBeenCalled();
+    });
+
+    it("replaces a match with the iterable a Promise resolves to", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => ["X", "Y"]
+      });
+
+      expect((await runEngineAsync(engine, ["M"])).join("")).toBe("XY");
+    });
+
+    it("rejects write() when an asynchronous replacement rejects", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => {
+          throw new Error("boom");
+        }
+      });
+      engine.start(collectEngineSink().sink);
+
+      await expect(engine.write("M")).rejects.toThrow("boom");
+    });
+
+    it("types write() and end() as void when the replacement can only return synchronously", () => {
+      const searchStrategy = mockSearchStrategyFactory();
+      const sync = new SerialTransformEngine({ searchStrategy, replacement: (m: string) => [m] });
+      const fixed = new SerialTransformEngine({ searchStrategy, replacement: "R" });
+      const async = new SerialTransformEngine({ searchStrategy, replacement: async (m: string) => m });
+
+      expectTypeOf(sync.write).returns.toEqualTypeOf<void>();
+      expectTypeOf(fixed.end).returns.toEqualTypeOf<void>();
+      expectTypeOf(async.write).returns.toEqualTypeOf<void | Promise<void>>();
+      expectTypeOf(async.end).returns.toEqualTypeOf<void | Promise<void>>();
+    });
+
+    it("types write() and end() as possibly returning a Promise when the replacement returns any", () => {
+      const searchStrategy = mockSearchStrategyFactory();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const untyped = new SerialTransformEngine({ searchStrategy, replacement: (m: string): any => m });
+
+      expectTypeOf(untyped.write).returns.toEqualTypeOf<void | Promise<void>>();
+      expectTypeOf(untyped.end).returns.toEqualTypeOf<void | Promise<void>>();
+    });
+  });
+
+  describe("asynchronous replacement", () => {
+    it("passes non-match content to the sink", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "hello " },
+        { isMatch: false, content: "world" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "UNUSED"
+      });
+      expect((await runEngineAsync(engine, ["hello world"])).join("")).toBe("hello world");
+    });
+
+    it("calls the replacement function with match and context", async () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const fn = vi.fn().mockResolvedValue("Y");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn
+      });
+      await runEngineAsync(engine, ["X"]);
+      expect(fn).toHaveBeenCalledWith("X", { matchIndex: 0, streamIndices: [0, 1] });
+    });
+
+    it("increments matchIndex across chunks", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const fn = vi.fn().mockResolvedValue("R");
+      const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: fn });
+      await runEngineAsync(engine, ["M", "M", "M"]);
+      expect(fn).toHaveBeenCalledTimes(3);
+      expect(fn).toHaveBeenNthCalledWith(1, "M", expect.objectContaining({ matchIndex: 0 }));
+      expect(fn).toHaveBeenNthCalledWith(2, "M", expect.objectContaining({ matchIndex: 1 }));
+      expect(fn).toHaveBeenNthCalledWith(3, "M", expect.objectContaining({ matchIndex: 2 }));
+    });
+
+    it("preserves strategy state across write() calls — partial match completes in later chunk", async () => {
+      let call = 0;
+      const { strategy } = mockSearchStrategy({
+        chunk: () =>
+          ++call === 1
+            ? [{ isMatch: false, content: "text " }]
+            : [
+                { isMatch: true, content: "OLD", streamIndices: [5, 8] },
+                { isMatch: false, content: " end" }
+              ]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "NEW"
+      });
+      const chunks = await runEngineAsync(engine, ["text OL", "D end"]);
+      expect(chunks.join("")).toBe("text NEW end");
+    });
+
+    it("emits strategy tail on end()", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      strategy.flush.mockReturnValue("TAIL");
+      const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: async () => "R" });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a");
+      const written = chunks.join("");
+      await engine.end();
+      expect(chunks.join("")).toBe(`${written}TAIL`);
+    });
+
+    it("replaces a match with the string a Promise resolves to", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "OLD", streamIndices: [4, 7] },
+        { isMatch: false, content: " post" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "NEW"
+      });
+      expect((await runEngineAsync(engine, ["pre OLD post"])).join("")).toBe("pre NEW post");
+    });
+
+    it("replaces all matches in a single chunk", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: "-" },
+        { isMatch: true, content: "B", streamIndices: [2, 3] }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (m) => m.toLowerCase()
+      });
+      expect((await runEngineAsync(engine, ["A-B"])).join("")).toBe("a-b");
+    });
+
+    it("emits each item of a returned async iterable as it arrives", async () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => (async function* () { yield "A"; yield "B"; })()
+      });
+      expect(await runEngineAsync(engine, ["X"])).toEqual(["A", "B"]);
+    });
+
+    it("accepts a directly-returned AsyncIterable (not just Promise<AsyncIterable>)", async () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => (async function* () { yield "direct"; })()
+      });
+      expect(await runEngineAsync(engine, ["X"])).toEqual(["direct"]);
+    });
+
+    it("processes matches serially — next match waits for previous iterable to drain", async () => {
+      const order: string[] = [];
+      let call = 0;
+      const { strategy } = mockSearchStrategy({
+        chunk: () => {
+          const index = call++;
+          return [{ isMatch: true, content: `M${index}`, streamIndices: [index, index + 1] }];
+        }
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (match) => (async function* () {
+          order.push(`start:${match}`);
+          await Promise.resolve();
+          order.push(`end:${match}`);
+          yield match;
+        })()
+      });
+      await runEngineAsync(engine, ["M0", "M1"]);
+      expect(order).toEqual(["start:M0", "end:M0", "start:M1", "end:M1"]);
+    });
+
+    it("emits nothing for a match when async iterable replacement is empty", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "X", streamIndices: [4, 5] },
+        { isMatch: false, content: " post" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => (async function* () {})()
+      });
+      expect((await runEngineAsync(engine, ["pre X post"])).join("")).toBe("pre  post");
+    });
+
+    it("handles multiple matches with different stream replacements", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: "-" },
+        { isMatch: true, content: "B", streamIndices: [2, 3] }
+      );
+      let call = 0;
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => {
+          const chunks = call++ === 0 ? ["X1", "X2"] : ["Y1", "Y2"];
+          return (async function* () { yield* chunks; })();
+        }
+      });
+      expect((await runEngineAsync(engine, ["A-B"])).join("")).toBe("X1X2-Y1Y2");
+    });
+
+    it("carries on settling after each match settled at end()", async () => {
+      const { strategy } = mockSearchStrategy({
+        settled: [
+          { isMatch: true, content: "M", streamIndices: [0, 1] },
+          { isMatch: true, content: "M", streamIndices: [1, 2] },
+          { isMatch: false, content: "tail" }
+        ]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "R"
+      });
+
+      expect((await runEngineAsync(engine, ["chunk"])).join("")).toBe("RRtail");
+      expect(strategy.processChunk.mock.calls.map(([haystack]) => haystack)).toEqual(["chunk"]);
+      expect(strategy.settle).toHaveBeenCalledTimes(3);
+    });
+
+    it("resolves end() only after a match settled at end() has been replaced", async () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: false, content: "a" }],
+        settled: [{ isMatch: true, content: "M", streamIndices: [1, 2] }]
+      });
+      const gate = Promise.withResolvers<string>();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: () => gate.promise });
+      engine.start(sink);
+      await engine.write("a");
+
+      let ended = false;
+      const endPromise = Promise.resolve(engine.end()).then(() => {
+        ended = true;
+      });
+      await setImmediate();
+      expect(ended).toBe(false);
+
+      gate.resolve("R");
+      await endPromise;
+      expect(chunks).toEqual(["a", "R"]);
+    });
+
+    it("rejects end() when replacing a match settled at end() fails", async () => {
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: false, content: "a" }],
+        settled: [{ isMatch: true, content: "M", streamIndices: [1, 2] }]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => {
+          throw new Error("flush boom");
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("a");
+      await expect(engine.end()).rejects.toThrow("flush boom");
+    });
+  });
+
+  describe("stopReplacingSignal, with asynchronous replacements", () => {
+    it("passes chunk through without calling replacement when already aborted", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "X", streamIndices: [0, 1] }
+      );
+      const fn = vi.fn().mockResolvedValue("R");
+      const ac = new AbortController();
+      ac.abort();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn,
+        stopReplacingSignal: ac.signal
+      });
+      expect((await runEngineAsync(engine, ["X"])).join("")).toBe("X");
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it("flushes buffered tail on first aborted chunk then passes subsequent chunks through", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: false, content: "a" });
+      strategy.flush.mockReturnValueOnce("BUF").mockReturnValue("");
+      const ac = new AbortController();
+      ac.abort();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("X");
+      await engine.write("Y");
+      await engine.end();
+      expect(chunks.join("")).toBe("BUFXY");
+    });
+  });
+
+  describe("stopping the search once stopReplacingSignal aborts, with asynchronous replacements", () => {
+    const match = (content: string): MatchResult => ({
+      isMatch: true,
+      content,
+      streamIndices: [0, 1]
+    });
+    const nonMatch = (content: string): MatchResult => ({
+      isMatch: false,
+      content
+    });
+
+    it("does not replace a match found after the sink aborts the signal mid-scan", async () => {
+      const ac = new AbortController();
+      const { strategy } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1"), nonMatch("b")],
+        rest: "REST"
+      });
+      const replacement = vi.fn(async () => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          ac.abort();
+        },
+        error: () => {}
+      });
+
+      await engine.write("chunk");
+      await engine.end();
+
+      expect(chunks.join("")).toBe("a1bREST");
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("stops searching once a replacement aborts the signal, and flushes the rest of the chunk", async () => {
+      const ac = new AbortController();
+      const { strategy, counts } = mockSearchStrategy({
+        chunk: [nonMatch("a"), match("1"), nonMatch("b"), match("2"), match("3")],
+        rest: "REST"
+      });
+      const replacement = abortingOnFirstCall(ac, async () => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+
+      expect(await runEngineAsync(engine, ["chunk", "next"])).toEqual([
+        "a",
+        "R",
+        "b23REST",
+        "next"
+      ]);
+      expect(counts.pulled).toBe(2);
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it("flushes rather than settles what a strategy holds when the signal aborted before end()", async () => {
+      const ac = new AbortController();
+      const strategy = mockSearchStrategyFactory(match("x"), nonMatch(" "));
+      strategy.settle = vi.fn();
+      strategy.flush.mockReturnValueOnce("HELD").mockReturnValue("");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => "R",
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      await engine.write("chunk");
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("R HELD");
+      expect(strategy.settle).not.toHaveBeenCalled();
+    });
+
+    it("stops settling at end() once a settled match's replacement aborts the signal", async () => {
+      const ac = new AbortController();
+      const { strategy, counts } = mockSearchStrategy({
+        settled: [match("M1"), match("M2"), match("M3")],
+        rest: "REST"
+      });
+      const replacement = abortingOnFirstCall(ac, async () => "R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+
+      await engine.end();
+
+      expect(chunks).toEqual(["R", "M2M3REST"]);
+      expect(counts.pulled).toBe(1);
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    const begunReplacements = [
+      { form: "an iterable", returning: (pieces: () => Iterable<string>) => pieces() },
+      {
+        form: "an async iterable",
+        returning: (pieces: () => Iterable<string>) => ({
+          async *[Symbol.asyncIterator]() {
+            yield* pieces();
+          }
+        })
+      },
+      {
+        form: "a Promise of an iterable",
+        returning: (pieces: () => Iterable<string>) => Promise.resolve(pieces())
+      },
+      {
+        form: "a Promise of an async iterable",
+        returning: (pieces: () => Iterable<string>) =>
+          Promise.resolve({
+            async *[Symbol.asyncIterator]() {
+              yield* pieces();
+            }
+          })
+      }
+    ];
+
+    it.each(begunReplacements)(
+      "completes $form replacement that aborts the signal partway through",
+      async ({ returning }) => {
+        const ac = new AbortController();
+        const { strategy } = mockSearchStrategy({
+          chunk: [match("1"), nonMatch("b"), match("2")],
+          rest: "REST"
+        });
+        const replacement = vi.fn(() =>
+          returning(function* () {
+            yield "A";
+            ac.abort();
+            yield "B";
+            yield "C";
+          })
+        );
+        const engine = new SerialTransformEngine({
+          searchStrategy: strategy,
+          replacement,
+          stopReplacingSignal: ac.signal
+        });
+        const { sink, chunks } = collectEngineSink();
+        engine.start(sink);
+
+        await engine.write("chunk");
+        await engine.end();
+
+        expect(chunks.join("")).toBe("ABCb2REST");
+        expect(replacement).toHaveBeenCalledOnce();
+      }
+    );
+
+    it.each(begunReplacements)(
+      "completes $form replacement when the sink aborts the signal on receiving a piece of it",
+      async ({ returning }) => {
+        const ac = new AbortController();
+        const { strategy } = mockSearchStrategy({
+          chunk: [match("1"), nonMatch("b"), match("2")],
+          rest: "REST"
+        });
+        const replacement = vi.fn(() =>
+          returning(function* () {
+            yield "A";
+            yield "B";
+            yield "C";
+          })
+        );
+        const engine = new SerialTransformEngine({
+          searchStrategy: strategy,
+          replacement,
+          stopReplacingSignal: ac.signal
+        });
+        const chunks: string[] = [];
+        engine.start({
+          enqueue: (chunk) => {
+            chunks.push(chunk);
+            if (chunk.includes("A")) ac.abort();
+          },
+          error: () => {}
+        });
+
+        await engine.write("chunk");
+        await engine.end();
+
+        expect(chunks.join("")).toBe("ABCb2REST");
+        expect(replacement).toHaveBeenCalledOnce();
+      }
+    );
+  });
+
+  describe("cancel", () => {
+    const replacementKinds = [
+      { kind: "synchronous", returning: (value: string) => value },
+      { kind: "asynchronous", returning: (value: string) => Promise.resolve(value) }
+    ];
+
+    it.each(replacementKinds)("stops processing after cancel() is called ($kind replacement)", async ({ returning }) => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const fn = vi.fn(() => returning("R"));
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: fn
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      engine.cancel();
+      await engine.write("M");
+      await engine.end();
+      expect(chunks).toEqual([]);
+      expect(fn).not.toHaveBeenCalled();
+      expect(strategy.processChunk).not.toHaveBeenCalled();
+    });
+
+    it.each(replacementKinds)("discards a replacement whose own call cancelled the engine ($kind replacement)", async ({ returning }) => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] },
+        { isMatch: false, content: "after" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => {
+          engine.cancel();
+          return returning("R");
+        }
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("input");
+      await engine.end();
+
+      expect(chunks).toEqual([]);
+    });
+
+    it.each(replacementKinds)("calls no further replacement once a replacement's own call cancels the engine ($kind replacement)", async ({ returning }) => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "M", streamIndices: [0, 1] },
+        { isMatch: false, content: "between" },
+        { isMatch: true, content: "M", streamIndices: [8, 9] }
+      );
+      const replacement = vi.fn(() => {
+        engine.cancel();
+        return returning("R");
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement
+      });
+
+      engine.start(collectEngineSink().sink);
+      await engine.write("input");
+      await engine.end();
+
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+
+    it.each(replacementKinds)("searches no further once a replacement's own call cancels the engine ($kind replacement)", async ({ returning }) => {
+      const laterScanWork = vi.fn(() => {
+        throw new Error("scanned after cancel()");
+      });
+      const { strategy } = mockSearchStrategy({
+        chunk: [{ isMatch: true, content: "M", streamIndices: [0, 1] }, laterScanWork, { isMatch: false, content: "after" }]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => {
+          engine.cancel();
+          return returning("R");
+        }
+      });
+
+      engine.start(collectEngineSink().sink);
+      await engine.write("input");
+      await engine.end();
+
+      expect(laterScanWork).not.toHaveBeenCalled();
+    });
+
+    it("searches no further once a callback from the strategy, such as onGuardExceeded, cancels the engine", async () => {
+      const laterScanWork = vi.fn(() => {
+        throw new Error("scanned after cancel()");
+      });
+      const replacement = vi.fn(() => "R");
+      const engine: SerialTransformEngine<unknown> = new SerialTransformEngine({
+        searchStrategy: mockSearchStrategy({
+          chunk: [
+            { isMatch: false, content: "a" },
+            () => engine.cancel(),
+            { isMatch: false, content: "b" },
+            laterScanWork,
+            { isMatch: true, content: "M", streamIndices: [2, 3] }
+          ]
+        }).strategy,
+        replacement
+      });
+
+      engine.start(collectEngineSink().sink);
+      await engine.write("input");
+      await engine.end();
+
+      expect(laterScanWork).not.toHaveBeenCalled();
+      expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { iterable: "returned", returning: (pieces: Iterable<string>) => pieces },
+      { iterable: "a Promise resolves to", returning: (pieces: Iterable<string>) => Promise.resolve(pieces) }
+    ])("stops reading an iterable $iterable once cancel() lands between its pieces", async ({ returning }) => {
+      const readAfterCancel = vi.fn();
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () =>
+          returning(
+            (function* () {
+              yield "one";
+              engine.cancel();
+              yield "two";
+              readAfterCancel();
+              yield "three";
+            })()
+          )
+      });
+
+      engine.start(collectEngineSink().sink);
+      await engine.write("input");
+
+      expect(readAfterCancel).not.toHaveBeenCalled();
+    });
+
+    it("reads no further from an async iterable once the sink cancels on receiving a piece of it", async () => {
+      const readAfterCancel = vi.fn();
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async function* () {
+          yield "one";
+          readAfterCancel();
+          yield "two";
+        }
+      });
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk) => {
+          chunks.push(chunk);
+          engine.cancel();
+        },
+        error: () => {}
+      });
+
+      await engine.write("input");
+
+      expect(readAfterCancel).not.toHaveBeenCalled();
+      expect(chunks).toEqual(["one"]);
+    });
+
+    it("stops before the next result when cancel() lands while draining", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: "between" },
+        { isMatch: true, content: "B", streamIndices: [8, 9] },
+        { isMatch: false, content: "after" }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (match) =>
+          match === "A" ? Promise.resolve("R") : new Promise<string>(() => {})
+      });
+
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk: string) => {
+          chunks.push(chunk);
+          if (chunk === "between") engine.cancel();
+        },
+        error: () => {}
+      });
+
+      await expect(engine.write("input")).resolves.toBeUndefined();
+      expect(chunks).toEqual(["R", "between"]);
+    });
+
+    it("stops without awaiting a replacement when the sink cancels on receiving the text before its match", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => new Promise<string>(() => {})
+      });
+
+      const chunks: string[] = [];
+      engine.start({
+        enqueue: (chunk: string) => {
+          chunks.push(chunk);
+          engine.cancel();
+        },
+        error: () => {}
+      });
+
+      await expect(engine.write("input")).resolves.toBeUndefined();
+      expect(chunks).toEqual(["before"]);
+    });
+
+    it("leaves no rejection unhandled from a replacement it stopped awaiting", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const gate = Promise.withResolvers<string>();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+      const unhandled = vi.fn();
+      process.on("unhandledRejection", unhandled);
+
+      try {
+        await engine.write("input");
+        gate.reject(new Error("late"));
+        await setImmediate();
+
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+    });
+
+    it.each([
+      { iterable: "returned", returning: (pieces: Iterable<string>) => pieces },
+      { iterable: "a Promise resolves to", returning: (pieces: Iterable<string>) => Promise.resolve(pieces) }
+    ])("doesn't advance an iterable $iterable by a replacement whose own call cancelled the engine", async ({ returning }) => {
+      const advanced = vi.fn();
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => {
+          engine.cancel();
+          return returning(
+            (function* () {
+              advanced();
+              yield "R";
+            })()
+          );
+        }
+      });
+
+      engine.start(collectEngineSink().sink);
+      await engine.write("input");
+
+      expect(advanced).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        settles: "rejects",
+        settle: (engine: SerialTransformEngine<unknown>, gate: PromiseWithResolvers<string>) => gate.reject(new Error("failed"))
+      },
+      {
+        settles: "resolves after cancel()",
+        settle: (engine: SerialTransformEngine<unknown>, gate: PromiseWithResolvers<string>) => {
+          engine.cancel();
+          gate.resolve("R");
+        }
+      }
+    ])("calls then() once on a thenable replacement that $settles", async ({ settle }) => {
+      const gate = Promise.withResolvers<string>();
+      const thenCalled = vi.fn();
+      const thenable: PromiseLike<string> = {
+        then: (onFulfilled, onRejected) => {
+          thenCalled();
+          return gate.promise.then(onFulfilled, onRejected);
+        }
+      };
+      const engine: SerialTransformEngine<unknown> = new SerialTransformEngine({
+        searchStrategy: mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] }),
+        replacement: () => thenable
+      });
+      engine.start(collectEngineSink().sink);
+
+      const written = Promise.resolve(engine.write("input")).catch(() => {});
+      settle(engine, gate);
+      await written;
+      await setImmediate();
+
+      expect(thenCalled).toHaveBeenCalledOnce();
+    });
+
+    it("leaves no rejection unhandled from a replacement whose match follows text the sink throws on", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => Promise.reject(new Error("replacement failed"))
+      });
+      engine.start({
+        enqueue: () => {
+          throw new Error("sink failed");
+        },
+        error: () => {}
+      });
+      const unhandled = vi.fn();
+      process.on("unhandledRejection", unhandled);
+
+      try {
+        await Promise.resolve(engine.write("input")).catch(() => {});
+        await setImmediate();
+
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+    });
+
+    it("closes an async iterable returned for a match that follows text the sink throws on", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const { iterable, close } = closableAsyncIterable("R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => iterable
+      });
+      engine.start({
+        enqueue: () => {
+          throw new Error("sink failed");
+        },
+        error: () => {}
+      });
+
+      await Promise.resolve(engine.write("input")).catch(() => {});
+      await setImmediate();
+
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    it("closes, without emitting from, an async iterable that a pending replacement resolves to after cancel() lands", async () => {
+      const strategy = mockSearchStrategyFactory<string>({
+        isMatch: true,
+        content: "M",
+        streamIndices: [0, 1]
+      });
+      const { iterable, close } = closableAsyncIterable("R");
+      const gate = Promise.withResolvers<AsyncIterable<string>>();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => gate.promise
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      const written = engine.write("input");
+      engine.cancel();
+      gate.resolve(iterable);
+      await written;
+      await setImmediate();
+
+      expect(close).toHaveBeenCalledOnce();
+      expect(chunks).toEqual([]);
+    });
+
+    it.each([
+      { how: "returned", returning: (iterable: AsyncIterable<string>) => iterable },
+      { how: "a Promise resolves to", returning: (iterable: AsyncIterable<string>) => Promise.resolve(iterable) }
+    ])("closes an async iterable $how once the sink cancels on receiving the text before its match", async ({ returning }) => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const { iterable, close } = closableAsyncIterable("R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => returning(iterable)
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+
+      await engine.write("input");
+      await setImmediate();
+
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      { how: "returned", returning: (stream: ReadableStream<string>) => stream },
+      { how: "a Promise resolves to", returning: (stream: ReadableStream<string>) => Promise.resolve(stream) }
+    ])("cancels a ReadableStream $how that never yields once the sink cancels on receiving the text before its match", async ({ returning }) => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const cancel = vi.fn();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => returning(new ReadableStream<string>({ cancel }))
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+
+      await engine.write("input");
+      await setImmediate();
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it("destroys a Node Readable it no longer reads once the sink cancels on receiving the text before its match", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "before" },
+        { isMatch: true, content: "M", streamIndices: [6, 7] }
+      );
+      const readable = Readable.from(["R"]);
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => readable
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+
+      await engine.write("input");
+      await setImmediate();
+
+      expect(readable.destroyed).toBe(true);
+    });
+
+    it("closes an async iterable returned for a later match once the sink cancels on receiving the text before it", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: "between" },
+        { isMatch: true, content: "B", streamIndices: [8, 9] }
+      );
+      const { iterable, close } = closableAsyncIterable("R");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: (match) => (match === "A" ? Promise.resolve("R") : iterable)
+      });
+      engine.start({
+        enqueue: (chunk) => {
+          if (chunk === "between") engine.cancel();
+        },
+        error: () => {}
+      });
+
+      await engine.write("input");
+      await setImmediate();
+
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    it("closes an async iterable it stops reading part-way once the sink cancels on receiving a piece of it", async () => {
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const { iterable, close } = closableAsyncIterable("one", "two");
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => iterable
+      });
+      engine.start({ enqueue: () => engine.cancel(), error: () => {} });
+
+      await engine.write("input");
+
+      expect(close).toHaveBeenCalledOnce();
+    });
+
+    it("stops mid-iterable when cancel() lands between yielded replacement chunks", async () => {
+      const strategy = mockSearchStrategyFactory<string>({
+        isMatch: true,
+        content: "M",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: async function* () {
+          yield "one";
+          engine.cancel();
+          yield "two";
+        }
+      });
+
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("input");
+
+      expect(chunks).toEqual(["one"]);
+    });
+  });
+});

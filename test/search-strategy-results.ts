@@ -207,7 +207,7 @@ function collectStoppedSearchStrategyResults<TState, TMatch = string>(
 }
 
 /**
- * Drive `strategy` over `chunks` as the async engines do: stop at every match, then carry
+ * Drive `strategy` over `chunks` as an engine does when every replacement is asynchronous: stop at every match, then carry
  * on with `processChunk("")`, or with `settle` again at end of stream, until nothing is
  * left. The results must equal an uninterrupted run's.
  */

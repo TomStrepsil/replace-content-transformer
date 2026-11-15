@@ -1,10 +1,10 @@
-import { AsyncReplaceContentTransformer } from "../../../src/adapters/web/async-transformer.ts";
-import { AsyncSerialReplacementTransformEngine } from "../../../src/engines/async-serial-transform-engine.ts";
-import { AsyncLookaheadTransformEngine } from "../../../src/engines/async-lookahead-transform-engine/engine.ts";
-import { SemaphoreStrategy } from "../../../src/engines/async-lookahead-transform-engine/concurrency-strategy/semaphore-strategy.ts";
-import { PriorityQueueStrategy } from "../../../src/engines/async-lookahead-transform-engine/concurrency-strategy/priority-queue-strategy.ts";
-import { streamOrder, breadthFirst } from "../../../src/engines/async-lookahead-transform-engine/concurrency-strategy/node-comparators.ts";
-import { Nested } from "../../../src/engines/async-lookahead-transform-engine/nested.ts";
+import { ReplaceContentTransformer } from "../../../src/adapters/web/transformer.ts";
+import { SerialTransformEngine } from "../../../src/engines/serial-transform-engine.ts";
+import { LookaheadTransformEngine } from "../../../src/engines/lookahead-transform-engine/engine.ts";
+import { SemaphoreStrategy } from "../../../src/engines/lookahead-transform-engine/concurrency-strategy/semaphore-strategy.ts";
+import { PriorityQueueStrategy } from "../../../src/engines/lookahead-transform-engine/concurrency-strategy/priority-queue-strategy.ts";
+import { streamOrder, breadthFirst } from "../../../src/engines/lookahead-transform-engine/concurrency-strategy/node-comparators.ts";
+import { Nested } from "../../../src/engines/lookahead-transform-engine/nested.ts";
 import type { ReplacementContext } from "../../../src/engines/types.ts";
 import type { Scenario } from "./scenarios.ts";
 import { computeMeasurement, type Measurement, type TimelineEvent } from "./metrics.ts";
@@ -16,14 +16,14 @@ type ReplacementFn = (
 ) => Promise<AsyncIterable<string> | Nested>;
 
 // ---------------------------------------------------------------------------
-// Manual-nesting adapter (for AsyncReplaceContentTransformer / subject A)
+// Manual-nesting adapter (for SerialTransformEngine / subject A)
 //
-// AsyncReplaceContentTransformer cannot consume a `Nested` result — it
-// calls `yield* fn(match)` and expects an AsyncIterable<string>.
+// SerialTransformEngine cannot consume a `Nested` result — it expects a
+// string or an (async) iterable of strings.
 //
 // This adapter wraps an instrumented ReplacementFn so that any `Nested`
 // return value is transparently converted into a child
-// AsyncReplaceContentTransformer pipeline (the README "Manage Recursion"
+// ReplaceContentTransformer pipeline (the README "Manage Recursion"
 // pattern), making subject A a fair serial comparison for nested scenarios.
 // ---------------------------------------------------------------------------
 
@@ -54,10 +54,10 @@ function pipeThrough(
 }
 
 /**
- * Wrap an instrumented ReplacementFn for use with AsyncReplaceContentTransformer.
+ * Wrap an instrumented ReplacementFn for use with ReplaceContentTransformer.
  *
  * When the inner function returns a `Nested`, this adapter creates a child
- * `AsyncReplaceContentTransformer` (using the scenario's search strategy) and
+ * `ReplaceContentTransformer` (using the scenario's search strategy) and
  * pipes the Nested source through it — exactly the README "Manage Recursion"
  * pattern. The adapter is self-referential so nesting works to any depth.
  */
@@ -70,8 +70,8 @@ function makeManualNestingAdapter(
       const result = await instrumented(match, context);
       if (!(result instanceof Nested)) return result as AsyncIterable<string>;
       // Manual nesting: re-scan via a fresh child transformer (same strategy).
-      const childTransformer = new AsyncReplaceContentTransformer(
-        new AsyncSerialReplacementTransformEngine({
+      const childTransformer = new ReplaceContentTransformer(
+        new SerialTransformEngine({
           searchStrategy: createSearchStrategy(),
           replacement: adapted
         })
@@ -100,7 +100,7 @@ export const subjects: Subject[] = [
     id: "A",
     label: "Serial (A)",
     /**
-     * Uses AsyncReplaceContentTransformer with a manual-nesting adapter so
+     * Uses ReplaceContentTransformer with a manual-nesting adapter so
      * that Nested return values are handled via recursive child transformers
      * (the README "Manage Recursion" pattern). On flat scenarios the adapter
      * is a zero-overhead pass-through.
@@ -110,8 +110,8 @@ export const subjects: Subject[] = [
         wrappedReplacement,
         scenario.createSearchStrategy
       );
-      return new AsyncReplaceContentTransformer(
-        new AsyncSerialReplacementTransformEngine({
+      return new ReplaceContentTransformer(
+        new SerialTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           replacement: adapted
         })
@@ -122,8 +122,8 @@ export const subjects: Subject[] = [
     id: "A_prime",
     label: "Lookahead serial c=1 (A')",
     create: (scenario, wrappedReplacement) =>
-      new AsyncReplaceContentTransformer(
-        new AsyncLookaheadTransformEngine({
+      new ReplaceContentTransformer(
+        new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new SemaphoreStrategy(1),
           replacement: wrappedReplacement
@@ -134,8 +134,8 @@ export const subjects: Subject[] = [
     id: "B",
     label: "Lookahead semaphore c=N (B)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new AsyncReplaceContentTransformer(
-        new AsyncLookaheadTransformEngine({
+      new ReplaceContentTransformer(
+        new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new SemaphoreStrategy(concurrency),
           replacement: wrappedReplacement
@@ -146,8 +146,8 @@ export const subjects: Subject[] = [
     id: "C",
     label: "Lookahead streamOrder c=N (C)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new AsyncReplaceContentTransformer(
-        new AsyncLookaheadTransformEngine({
+      new ReplaceContentTransformer(
+        new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new PriorityQueueStrategy(concurrency, streamOrder),
           replacement: wrappedReplacement
@@ -158,8 +158,8 @@ export const subjects: Subject[] = [
     id: "D",
     label: "Lookahead breadthFirst c=N (D)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new AsyncReplaceContentTransformer(
-        new AsyncLookaheadTransformEngine({
+      new ReplaceContentTransformer(
+        new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new PriorityQueueStrategy(concurrency, breadthFirst),
           replacement: wrappedReplacement

@@ -1,6 +1,6 @@
 /**
  * Marker wrapping an `AsyncIterable<string>` whose chunks should be
- * **re-scanned** by a child {@link AsyncLookaheadTransformEngine}
+ * **re-scanned** by a child {@link LookaheadTransformEngine}
  * sharing the parent's search strategy, concurrency strategy, and
  * replacement function.
  *
@@ -16,7 +16,7 @@
  *
  * @example
  * ```ts
- * const transformer = new AsyncLookaheadTransformEngine({
+ * const transformer = new LookaheadTransformEngine({
  *   searchStrategy,
  *   concurrencyStrategy,
  *   replacement: async (match) => {

@@ -23,11 +23,11 @@ import {
  * 
  * @example
  * ```typescript
- * import { searchStrategyFactory, SyncReplacementTransformEngine } from 'replace-content-transformer';
+ * import { searchStrategyFactory, SerialTransformEngine } from 'replace-content-transformer';
  * 
  * // String search
  * const stringStrategy = searchStrategyFactory('{{placeholder}}');
- * const engine = new SyncReplacementTransformEngine({
+ * const engine = new SerialTransformEngine({
  *   searchStrategy: stringStrategy,
  *   replacement: 'value'
  * });

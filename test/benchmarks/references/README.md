@@ -22,9 +22,9 @@ Each comparison compares the other harnesses with a baseline that reports to a s
 
 | Comparison | Question | Baseline | Compared with |
 | --- | --- | --- | --- |
-| **Search algorithms** | Which algorithm finds anchors fastest, in the production shape and the sync engine? | Looped IndexOf Anchored | Buffered IndexOf Anchored, Regex, and the four Anchor Sequence compositions (Looped IndexOf, Buffered IndexOf, KMP, Regex) |
+| **Search algorithms** | Which algorithm finds anchors fastest, in the production shape with a synchronous replacement? | Looped IndexOf Anchored | Buffered IndexOf Anchored, Regex, and the four Anchor Sequence compositions (Looped IndexOf, Buffered IndexOf, KMP, Regex) |
 | **Nesting count** | Does a pre-compiled regex count opening delimiters faster than a `while`/`indexOf` loop? | Balanced Pair | Balanced Pair (regex count) |
-| **Sync vs async engine** | What does the async serial engine cost over the sync one? | Looped IndexOf Anchored | Looped IndexOf Anchored (Async) |
+| **Sync vs async replacement** | What does an asynchronous replacement cost over a synchronous one, through the serial engine? | Looped IndexOf Anchored | Looped IndexOf Anchored (Async) |
 | **Engine shapes: looped-indexOf** | What does reporting to a sink cost, compared with yielding to a generator engine or fusing the replacement into the scan? | Looped IndexOf Anchored | Looped IndexOf Anchored (generator engine), Looped IndexOf Callback |
 | **Engine shapes: buffered-indexOf** | As above, for blind buffering, including the fused generator and the fused `Transformer` | Buffered IndexOf Anchored | Buffered IndexOf Anchored Callback, Buffered IndexOf Callback, Buffered IndexOf Canonical, Buffered IndexOf Generator Canonical |
 | **Engine shapes: regex** | As above, for regex | Regex | Regex Callback, Regex Canonical |
@@ -38,7 +38,7 @@ Each comparison aims to hold everything fixed but one thing. Two things are not 
 
 Each implements `SearchStrategy`, so it runs through the production engines and differs from the shipped strategies only in its search algorithm. They demonstrate:
 
-- **Async vs sync overhead** - the cost of async iteration in streaming scenarios
+- **Async replacement overhead** - what awaiting an asynchronous replacement costs over a synchronous one, through the serial engine
 - **Runtime optimisation supremacy** - brute-force approaches (e.g., `indexOf`, regex) leveraging native runtime optimisations outperform hand-rolled algorithmic "improvements" like Knuth-Morris-Pratt, due to the efficiency of highly-optimised engine internals vs JavaScript-level implementations
 
 ### Buffered IndexOf (Blind Buffering)
@@ -88,7 +88,7 @@ Pre-emptive optimisation via initial implementation of [Knuth-Morris-Pratt](http
 ### Key Performance Insights
 
 1. **Native runtime optimisations dominate** - Brute-force approaches using `indexOf` and regex consistently outperform hand-rolled algorithmic optimisations like KMP, due to highly-optimised engine internals (V8/JavaScriptCore implemented in C++, with SIMD optimisations)
-2. **Async has significant cost** - Async iteration adds substantial overhead compared to synchronous processing
+2. **Async replacement has a cost** - Awaiting each replacement takes up to about 1.9x as long as a synchronous one on match-dense input, and makes no difference where there are no matches
 3. **Smart buffering trade-offs** - Smart buffering (looped-indexOf) emits earlier and usually holds nothing between chunks, so it is faster than blind buffering with large chunks, which copies every chunk to join the tail it held back. With small chunks, how cheaply it checks the end of each chunk decides which is faster
 
 ## 🧩 Engine Shapes
@@ -102,9 +102,9 @@ The production shape is a **sink**: `SearchStrategy.processChunk` calls `sink.re
 | **Fused callback** | The scan calls the replacement and an enqueue callback itself | [buffered-indexOf](./engine-shapes/fused-callback/buffered-indexOf/README.md), [buffered-indexOf-anchored](./engine-shapes/fused-callback/buffered-indexOf-anchored/README.md), [looped-indexOf](./engine-shapes/fused-callback/looped-indexOf/README.md), [regex](./engine-shapes/fused-callback/regex/README.md) |
 | **Fused transformer** | A WHATWG [`Transformer`](https://streams.spec.whatwg.org/#transformer-api) does everything, based on the [canonical example](https://streams.spec.whatwg.org/#example-ts-lipfuzz) | [buffered-indexOf](./engine-shapes/fused-transformer/buffered-indexOf/README.md), [regex](./engine-shapes/fused-transformer/regex/README.md) |
 
-The fused shapes have no boundary between search and replacement, so they bound what keeping strategies and engines separate costs. They are also less flexible: no pluggable strategies, no async engines, and no stopping part-way.
+The fused shapes have no boundary between search and replacement, so they bound what keeping strategies and engines separate costs. They are also less flexible: no pluggable strategies, no asynchronous replacements, and no stopping part-way.
 
-The **generator engine** isolates the interface itself. Its strategy is `StringAnchorSearchStrategy` as it was before the sink, and its engine does the same work per match as `SyncReplacementTransformEngine`, less the check for an iterable replacement, so the only difference from the production pair is how results arrive: yielded to an iterating engine rather than passed to a sink. Anything left over favours the generator, so the comparison understates what the sink saves. Only looped-indexOf, the shipped anchor algorithm, runs in it: other algorithms in the generator engine would repeat the same comparison.
+The **generator engine** isolates the interface itself. Its strategy is `StringAnchorSearchStrategy` as it was before the sink, and its engine does the same work per match as `SerialTransformEngine` with a synchronous replacement, less the check for an iterable replacement, so the only difference from the production pair is how results arrive: yielded to an iterating engine rather than passed to a sink. Anything left over favours the generator, so the comparison understates what the sink saves. Only looped-indexOf, the shipped anchor algorithm, runs in it: other algorithms in the generator engine would repeat the same comparison.
 
 The generator engine is cheaper to build, since it has no `stopReplacingSignal` or `settle` handling. The benchmark scenarios build a transformer per iteration and hold only a few matches, so in them that construction cost can outweigh the per-match difference.
 

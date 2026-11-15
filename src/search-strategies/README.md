@@ -2,7 +2,7 @@
 
 This directory contains search strategies for finding and matching patterns in streaming content. Each strategy handles patterns that may span chunk boundaries.
 
-These strategies have been chosen from an array of alternatives based on performance (see [benchmarking](#benchmark-strategies)). The "string anchor" is most performant (marginally), so should be preferred unless more complex matching is required.
+These strategies have been chosen from an array of alternatives (see [benchmarking](#benchmark-strategies)). The "string anchor" is 1.3–2.7x faster than the regex strategy on the same patterns in the algorithm benchmarks, and about 30x with 16 KB chunks and no matches, so should be preferred unless more complex matching is required. See [why it uses smart buffering](./looped-indexOf-anchored/README.md#why-smart-buffering).
 
 ## 🪝 String Anchor (N-Token Sequential Matching)
 

@@ -1,6 +1,6 @@
-import type { SyncTransformEngine, AsyncTransformEngine, EngineSink } from "../../../src/engines/types.ts";
+import type { TransformEngine, EngineSink } from "../../../src/engines/types.ts";
 
-export function syncHarnessTransformer(engine: SyncTransformEngine) {
+export function syncHarnessTransformer(engine: TransformEngine) {
   let started = false;
   function ensureStarted(controller: EngineSink) {
     if (!started) { engine.start(controller); started = true; }
@@ -17,7 +17,7 @@ export function syncHarnessTransformer(engine: SyncTransformEngine) {
   };
 }
 
-export function asyncHarnessTransformer(engine: AsyncTransformEngine) {
+export function asyncHarnessTransformer(engine: TransformEngine) {
   let started = false;
   function ensureStarted(controller: EngineSink) {
     if (!started) { engine.start(controller); started = true; }

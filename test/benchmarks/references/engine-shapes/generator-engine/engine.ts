@@ -1,12 +1,12 @@
 import type {
   EngineSink,
   ReplacementContext,
-  SyncTransformEngine
+  TransformEngine
 } from "../../../../../src/engines/types.ts";
 import type { GeneratorSearchStrategy } from "./types.ts";
 
-export class GeneratorSyncTransformEngine<TState, TMatch = string>
-  implements SyncTransformEngine
+export class GeneratorTransformEngine<TState, TMatch = string>
+  implements TransformEngine
 {
   readonly #searchStrategy: GeneratorSearchStrategy<TState, TMatch>;
   readonly #replacement: (match: TMatch, context: ReplacementContext) => string;

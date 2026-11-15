@@ -1,8 +1,8 @@
-# AsyncLookaheadTransformEngine
+# LookaheadTransformEngine
 
-A protocol-agnostic engine for I/O-bound replacements where the `AsyncSerialReplacementTransformEngine` would stall on each replacement before scanning for the next, even when matches could be processed concurrently.
+A protocol-agnostic engine for I/O-bound replacements where the `SerialTransformEngine` would stall on each asynchronous replacement before scanning for the next, even when matches could be processed concurrently.
 
-`AsyncLookaheadTransformEngine` scans ahead and **initiates** later matches' replacement work while earlier ones are still pending, with:
+`LookaheadTransformEngine` scans ahead and **initiates** later matches' replacement work while earlier ones are still pending, with:
 
 - 🔗 **In-order output** — chunks still emit in source order; a fast later replacement never overtakes a slow earlier one.
 - 🚦 **Pluggable concurrency control** — a `ConcurrencyStrategy` decides when (and in what order) queued work is dispatched. Two built-ins:
@@ -12,9 +12,9 @@ A protocol-agnostic engine for I/O-bound replacements where the `AsyncSerialRepl
 
 Each engine instance owns its scanning state, so construct a fresh instance per input stream.
 
-The engine is adapter-agnostic. Wrap it in `AsyncReplaceContentTransformer` (from `replace-content-transformer/web`) for WHATWG streams, or `AsyncReplaceContentTransform` (from `replace-content-transformer/node`) for Node `.pipe()` pipelines — same engine options, same semantics.
+Wrap it in `ReplaceContentTransformer` (from `replace-content-transformer/web`) for WHATWG streams, or `ReplaceContentTransform` (from `replace-content-transformer/node`) for Node `.pipe()` pipelines.
 
-See the [main README](../../../README.md#-pipelined-async-replacement-with-asynclookaheadtransformengine) for full usage examples covering both WHATWG streams and Node.js pipelines.
+See the [main README](../../../README.md#pipelined-async-replacement-with-lookaheadtransformengine) for full usage examples covering both WHATWG streams and Node.js pipelines.
 
 ## Recursive Replacement
 
@@ -23,9 +23,9 @@ Replacements whose output may itself contain further matches can be re-scanned r
 The `replacement` callback receives a `LookaheadReplacementContext` as its second argument: `{ matchIndex, streamIndices, depth }`. `depth` is `0` for top-level matches and increments by `1` per `nested()` level — the natural place to guard against unbounded recursion or vary behaviour by nesting level:
 
 ```typescript
-import { AsyncReplaceContentTransformer } from "replace-content-transformer/web";
+import { ReplaceContentTransformer } from "replace-content-transformer/web";
 import {
-  AsyncLookaheadTransformEngine,
+  LookaheadTransformEngine,
   PriorityQueueStrategy,
   nested,
   streamOrder,
@@ -34,8 +34,8 @@ import {
 
 // Earlier-in-output-stream work is prioritised (via LCA in the slot tree).
 // depth guards against fetched fragments that themselves contain <esi:include>.
-const transformer = new AsyncReplaceContentTransformer(
-  new AsyncLookaheadTransformEngine({
+const transformer = new ReplaceContentTransformer(
+  new LookaheadTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     concurrencyStrategy: new PriorityQueueStrategy(8, streamOrder),
     replacement: async (match, { depth }) => {
@@ -51,7 +51,7 @@ const transformer = new AsyncReplaceContentTransformer(
 );
 ```
 
-See the [full usage examples](../../../README.md#-pipelined-async-replacement-with-asynclookaheadtransformengine) in the main README.
+See the [full usage examples](../../../README.md#pipelined-async-replacement-with-lookaheadtransformengine) in the main README.
 
 > [!IMPORTANT]
 > When a child engine errors, any chunks it had already enqueued into its internal buffer are yielded to the outer drain loop before the error is thrown. The outer stream may therefore emit partial output before the rejection surfaces — this is intentional, preserving the "emit what you have" semantics consistent with the rest of the drain loop.
@@ -71,7 +71,7 @@ Implement `NodeComparator` for custom policies.
 Internally the engine runs two concurrent loops — a **scanner** (driven by each `write()` call as chunks arrive) and a **drainer** (emitting to downstream in stream order) — connected by a bounded queue of slots. The `highWaterMark` option caps how many slots the scanner may buffer ahead of the drainer:
 
 ```typescript
-new AsyncLookaheadTransformEngine({
+new LookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
@@ -114,7 +114,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stream teardown
 
-`AsyncReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. `AsyncReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
+`ReplaceContentTransformer` honours WHATWG `Transformer.cancel()` through the normal stream-teardown path — it forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
@@ -126,7 +126,7 @@ Whether a match scanned just before the signal fires has had its replacement cal
 
 ```typescript
 const abortController = new AbortController();
-const engine = new AsyncLookaheadTransformEngine({
+const engine = new LookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
@@ -144,7 +144,7 @@ When aborted, **both the scanner and the drain loop** switch mode:
 
 ```typescript
 const abortController = new AbortController();
-const engine = new AsyncLookaheadTransformEngine({
+const engine = new LookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
@@ -167,7 +167,7 @@ The two signals can be on separate controllers when you want staged shutdown —
 const stopAbortController = new AbortController();
 const abandonAbortController = new AbortController();
 
-const engine = new AsyncLookaheadTransformEngine({
+const engine = new LookaheadTransformEngine({
   searchStrategy,
   replacement,
   concurrencyStrategy: new SemaphoreStrategy(8),
@@ -186,7 +186,7 @@ Or pass the same controller to both when a single abort should do everything:
 
 ```typescript
 const abortController = new AbortController();
-const engine = new AsyncLookaheadTransformEngine({
+const engine = new LookaheadTransformEngine({
   ...
   stopReplacingSignal: abortController.signal,
   abandonPendingSignal: abortController.signal

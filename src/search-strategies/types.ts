@@ -89,7 +89,7 @@ export interface SearchStrategy<TState, TMatch = string> {
    * Convert a match value to the raw matched string.
    *
    * Used when a match must be emitted verbatim (e.g. when
-   * {@link AsyncLookaheadTransformEngineOptions.abandonPendingSignal} fires).
+   * {@link LookaheadTransformEngineOptions.abandonPendingSignal} fires).
    * For string-based strategies this is the identity function; for richer
    * match types (e.g. `StreamRegexMatch`) implementations should return the
    * full matched text (`match[0]`).

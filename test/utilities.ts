@@ -1,13 +1,9 @@
 import type { MatchSink, SearchStrategy } from "../src/search-strategies/types.ts";
 import type { MatchResult } from "./search-strategy-results.ts";
-import type { IterableSlotNode } from "../src/engines/async-lookahead-transform-engine/slot-tree/types.ts";
-import type { Nested } from "../src/engines/async-lookahead-transform-engine/nested.ts";
-import type {
-  AsyncTransformEngine,
-  EngineSink,
-  SyncTransformEngine
-} from "../src/engines/types.ts";
-import { SLOT_KIND } from "../src/engines/async-lookahead-transform-engine/slot-tree/constants.ts";
+import type { IterableSlotNode } from "../src/engines/lookahead-transform-engine/slot-tree/types.ts";
+import type { Nested } from "../src/engines/lookahead-transform-engine/nested.ts";
+import type { EngineSink, TransformEngine } from "../src/engines/types.ts";
+import { SLOT_KIND } from "../src/engines/lookahead-transform-engine/slot-tree/constants.ts";
 import { Writable } from "node:stream";
 import { vi, type Mocked } from "vitest";
 
@@ -301,7 +297,7 @@ function mockSyncEngine() {
     start: vi.fn<(sink: EngineSink) => void>(),
     write: vi.fn<(chunk: string) => void>(),
     end: vi.fn<() => void>()
-  } satisfies SyncTransformEngine;
+  } satisfies TransformEngine;
 }
 
 function mockAsyncEngine() {
@@ -312,7 +308,7 @@ function mockAsyncEngine() {
       .mockResolvedValue(undefined),
     end: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     cancel: vi.fn<() => void>()
-  } satisfies AsyncTransformEngine;
+  } satisfies TransformEngine;
 }
 
 function textWrittenTo(engine: { write: { mock: { calls: [string][] } } }) {

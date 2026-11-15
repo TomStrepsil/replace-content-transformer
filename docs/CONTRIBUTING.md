@@ -140,8 +140,8 @@ Tests use [Vitest](https://vitest.dev/) with globals enabled. CI runs the suite 
 
 ### Where tests live
 
-- **Unit tests** sit next to the code they cover as `*.test.ts` (e.g. `src/adapters/web/sync-transformer.test.ts`). They isolate one unit and mock its collaborators.
-- **Integration tests** sit alongside as `*.integration.test.ts`. They wire real components together (adapter + engine + search strategy) and drive them through a real `TransformStream` or Node `Transform`. Name the `describe` after the composition under test, e.g. `"ReplaceContentTransformer + SyncReplacementTransformEngine + StringAnchorSearchStrategy"`.
+- **Unit tests** sit next to the code they cover as `*.test.ts` (e.g. `src/adapters/web/transformer.test.ts`). They isolate one unit and mock its collaborators.
+- **Integration tests** sit alongside as `*.integration.test.ts`. They wire real components together (adapter + engine + search strategy) and drive them through a real `TransformStream` or Node `Transform`. Name the `describe` after the composition under test, e.g. `"ReplaceContentTransformer + SerialTransformEngine + StringAnchorSearchStrategy"`.
 - **Shared helpers** live in [`test/`](../test/README.md). Check there before writing a new mock or collector.
 
 ### Test descriptions document behaviour

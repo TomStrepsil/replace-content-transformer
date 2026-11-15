@@ -40,39 +40,43 @@ See example output of `npm run bench:algorithms:visualise`:
 
 ```shell
 System: Apple M4 (arm64-darwin)
-Runtime: node 24.9.0
+Runtime: node 24.20.0
 
 1. Setup Cost (strategy + transformer creation)
-    Buffered IndexOf + Anchor Sequence   ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 32.21 ns
-    Buffered IndexOf Anchored (Async)    █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 15.28 ns
-    Buffered IndexOf Anchored Callback   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 6.27 ns
-    Buffered IndexOf Anchored            █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 15.28 ns
-    Buffered IndexOf Callback            ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 7.69 ns
-  ★ Buffered IndexOf Canonical           ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 0.28 ns
-    Buffered IndexOf Generator Canonical ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 7.91 ns
-    KMP + Anchor Sequence                ███░░░░░░░░░░░░░░░░░░░░░░░░░░░ 53.62 ns
-    Looped IndexOf + Anchor Sequence     ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 31.08 ns
-    Looped IndexOf Callback              ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 7.86 ns
-    Regex + Anchor Sequence              ██████████████████████████████ 550.02 ns
-    Regex Callback                       █████████████████████░░░░░░░░░ 380.96 ns
-    Regex-Canon                          █████████████████████████████░ 532.75 ns
-    Regex                                ██████████████████████████░░░░ 483.34 ns
+    Balanced Pair                              █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 93.64 ns
+    Balanced Pair (regex count)                ████░░░░░░░░░░░░░░░░░░░░░░░░░░ 258.04 ns
+    Buffered IndexOf + Anchor Sequence         █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 60.15 ns
+  ★ Buffered IndexOf Anchored Callback         ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 4.63 ns
+    Buffered IndexOf Anchored                  █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 36.35 ns
+    Buffered IndexOf Callback                  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 6.03 ns
+    Buffered IndexOf Canonical                 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 8.01 ns
+    Buffered IndexOf Generator Canonical       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 9.46 ns
+    KMP + Anchor Sequence                      █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 83.83 ns
+    Looped IndexOf + Anchor Sequence           █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 74.75 ns
+    Looped IndexOf Anchored (Async)            █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 78.16 ns
+    Looped IndexOf Anchored (generator engine) █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 55.22 ns
+    Looped IndexOf Anchored                    █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 77.90 ns
+    Looped IndexOf Callback                    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 5.76 ns
+    Regex + Anchor Sequence                    ██████████████████████████████ 2.12 µs
+    Regex Callback                             █████████████░░░░░░░░░░░░░░░░░ 942.90 ns
+    Regex Canonical                            ███████████████░░░░░░░░░░░░░░░ 1.07 µs
+    Regex                                      ███████████████████░░░░░░░░░░░ 1.35 µs
 ```
 
 Default [`mitata`](https://github.com/evanwashere/mitata) output is also available via `npm run bench:algorithms`:
 
 ```shell
-benchmark                           avg (min … max) p75 / p99    (min … top 1%)
---------------------------------------------------- -------------------------------
+benchmark                                 avg (min … max) p75 / p99    (min … top 1%)
+--------------------------------------------------------- -------------------------------
 • Setup Cost (strategy + transformer creation)
---------------------------------------------------- -------------------------------
-Buffered IndexOf + Anchor Sequence    38.58 ns/iter  39.00 ns    ▅█
-                             (34.36 ns … 192.83 ns)  48.15 ns    ██
-                            (307.45  b … 811.08  b) 546.40  b ▁▁▁██▇▆▆▃▂▂▁▆▂▂▂▂▁▁▁▁
+--------------------------------------------------------- -------------------------------
+Balanced Pair                               99.52 ns/iter 101.78 ns  █▄
+                                   (93.04 ns … 354.11 ns) 117.69 ns  ██▇  █▅▂
+                                  (  1.41 kb …   1.75 kb)   1.47 kb █████▇███▆▄▄▃▃▂▂▁▁▁▁▁
 
-Buffered IndexOf Anchored (Async)     24.19 ns/iter  23.88 ns    █
-                             (21.48 ns … 136.36 ns)  33.58 ns    █
-                            (147.24  b … 537.64  b) 304.31  b ▁▁▁█▃▂▂▂▂▁▁▁▁▁▂▁▁▁▁▁▁
+Balanced Pair (regex count)                257.73 ns/iter 260.52 ns   █▅▃
+                                  (244.41 ns … 361.49 ns) 308.45 ns  ▅███▄
+                                  (  1.63 kb …   2.06 kb)   1.81 kb ▃██████▅▄▃▂▂▂▁▁▁▁▁▁▁▁
 ...
 ```
 
@@ -148,7 +152,7 @@ Stream processing performance with the same code across different JavaScript eng
 
 ### Lookahead Engine Benchmarks
 
-Compares concurrency strategies for `AsyncLookaheadTransformEngine` against the serial `AsyncReplaceContentTransformer` baseline.  See [separate documentation](./lookahead-engine/README.md).
+Compares concurrency strategies for `LookaheadTransformEngine` against the `SerialTransformEngine` baseline.  See [separate documentation](./lookahead-engine/README.md).
 
 ## Development
 

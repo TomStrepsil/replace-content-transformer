@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { ReplaceContentTransformer } from "./sync-transformer.js";
+import { ReplaceContentTransformer } from "./transformer.js";
 import {
+  mockAsyncEngine,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   startedSinkOf
 } from "../../../test/utilities.js";
-import type { EngineSink, SyncTransformEngine } from "../../engines/types.js";
+import type { EngineSink, TransformEngine } from "../../engines/types.js";
 
-describe("ReplaceContentTransformer (sync adapter)", () => {
+describe("ReplaceContentTransformer (web adapter)", () => {
   it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {
     const engine = mockSyncEngine();
     const transformer = new ReplaceContentTransformer(engine);
@@ -44,29 +45,49 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     expect(controller.error).toHaveBeenCalledWith(err);
   });
 
-  it("delegates transform(chunk) to engine.write(chunk)", () => {
+  it("delegates transform(chunk) to engine.write(chunk) and returns undefined when the engine does", () => {
     const engine = mockSyncEngine();
     const transformer = new ReplaceContentTransformer(engine);
     transformer.start(mockTransformStreamDefaultControllerFactory([]));
 
-    transformer.transform("hello");
-
+    expect(transformer.transform("hello")).toBeUndefined();
     expect(engine.write).toHaveBeenCalledWith("hello");
   });
 
-  it("delegates flush() to engine.end()", () => {
+  it("delegates transform(chunk) to engine.write(chunk) and returns its promise", async () => {
+    const engine = mockAsyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+
+    const promise = transformer.transform("hello");
+
+    expect(engine.write).toHaveBeenCalledWith("hello");
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("delegates flush() to engine.end() and returns undefined when the engine does", () => {
     const engine = mockSyncEngine();
     const transformer = new ReplaceContentTransformer(engine);
     transformer.start(mockTransformStreamDefaultControllerFactory([]));
 
-    transformer.flush();
+    expect(transformer.flush()).toBeUndefined();
+    expect(engine.end).toHaveBeenCalledOnce();
+  });
+
+  it("delegates flush() to engine.end() and returns its promise", async () => {
+    const engine = mockAsyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+
+    const promise = transformer.flush();
 
     expect(engine.end).toHaveBeenCalledOnce();
+    await expect(promise).resolves.toBeUndefined();
   });
 
   it("pipes end-to-end: engine output via sink is forwarded to the controller", () => {
     let capturedSink!: EngineSink;
-    const engine: SyncTransformEngine = {
+    const engine: TransformEngine = {
       start: (sink) => { capturedSink = sink; },
       write: (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
       end: () => { capturedSink.enqueue("END"); }
@@ -80,5 +101,20 @@ describe("ReplaceContentTransformer (sync adapter)", () => {
     transformer.flush();
 
     expect(outputs).toEqual(["ABC", "END"]);
+  });
+
+  it("calls engine.cancel() when cancel() is called and engine supports it", () => {
+    const engine = mockAsyncEngine();
+    const transformer = new ReplaceContentTransformer(engine);
+
+    transformer.cancel("test reason");
+
+    expect(engine.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not throw when cancel() is called on an engine without cancel support", () => {
+    const transformer = new ReplaceContentTransformer(mockSyncEngine());
+
+    expect(() => transformer.cancel()).not.toThrow();
   });
 });

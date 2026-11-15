@@ -11,11 +11,12 @@ export interface EngineSink {
   /**
    * `true` when, for the life of the stream, nothing downstream can observe
    * a chunk enqueued during the engine's `write()` or `end()` until that
-   * call has returned, as with a WHATWG `TransformStreamDefaultController`,
+   * call has returned (for a call that returns a `Promise`, until it first
+   * awaits), as with a WHATWG `TransformStreamDefaultController`,
    * whose readers receive chunks through promises.
-   * `SyncReplacementTransformEngine` then enqueues once per call even with a
-   * `stopReplacingSignal`, rather than as output is produced, since nothing
-   * downstream could abort the signal any sooner.
+   * `SerialTransformEngine` then enqueues its synchronous output once per
+   * call even with a `stopReplacingSignal`, rather than as it is produced,
+   * since nothing downstream could abort the signal any sooner.
    *
    * Engines read it once, in `start()`. Leave it unset when `enqueue` can
    * ever run code synchronously, as a Node `Readable`'s `push()` does once
@@ -35,37 +36,20 @@ export type ReplacementContext = {
   streamIndices: StreamIndices;
 };
 
-export interface TransformEngine<T> {
+/**
+ * A transform engine. Adapters call {@link start} once, then feed chunks via
+ * {@link write}, and signal end-of-stream via {@link end}, one call at a time,
+ * which keeps output in order; an engine should not be driven otherwise.
+ *
+ * {@link write} and {@link end} return `undefined` when the call completed
+ * synchronously, or a `Promise` that settles when it completes. The adapter
+ * waits for that before the next call, which gives backpressure.
+ */
+export interface TransformEngine {
   /** Attach the output sink. Must be called exactly once before {@link write}. */
   start(sink: EngineSink): void;
-  write(chunk: string): T;
-}
-
-/**
- * A synchronous transform engine. Adapters call {@link start} once, then
- * feed chunks via {@link write}, and signal end-of-stream via {@link end}.
- * All output is pushed synchronously to the sink supplied in {@link start}.
- * Adapters call {@link write} and {@link end} one at a time, which keeps
- * output in order; an engine should not be driven otherwise.
- */
-export interface SyncTransformEngine extends TransformEngine<void> {
-  /** Process one chunk synchronously, pushing output to the sink. */
-  write(chunk: string): void;
-  /** Flush any buffered tail from the search strategy to the sink. */
-  end(): void;
-}
-
-/**
- * An asynchronous transform engine. Adapters call {@link start} once, then
- * feed chunks via {@link write}, and signal end-of-stream via {@link end}.
- * The returned Promises provide backpressure: the adapter should await each
- * call before proceeding. Adapters call {@link write} and {@link end} one at
- * a time, which keeps output in order; an engine should not be driven
- * otherwise.
- */
-export interface AsyncTransformEngine extends TransformEngine<Promise<void>> {
-  /** Process one chunk, pushing output to the sink. May be awaited for backpressure. */
-  write(chunk: string): Promise<void>;
+  /** Process one chunk, pushing output to the sink. */
+  write(chunk: string): void | Promise<void>;
   /** Flush any buffered tail from the search strategy to the sink. */
   end(): void | Promise<void>;
   /** Optional: called by the adapter when the stream is cancelled or destroyed before it ends, to stop in-flight work. */

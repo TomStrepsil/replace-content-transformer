@@ -272,6 +272,13 @@ describe("BufferedIndexOfAnchoredSearchStrategy", () => {
         expectedFlush: "e"
       },
       {
+        name: "later delimiter not found inside an earlier one held from the previous chunk: 'ab' + 'x b'",
+        delimiters: ["ab", "b"],
+        chunks: ["ab", "x b"],
+        expectedOutputs: ["ABX B"],
+        expectedFlush: ""
+      },
+      {
         name: "incomplete match at end after multiple chunks",
         delimiters: ["{{", "}}"],
         chunks: ["text ", "{{incomplete"],
