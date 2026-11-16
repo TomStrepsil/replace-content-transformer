@@ -5,6 +5,13 @@ import {
   executeBenchmarkAsync,
   type BenchmarkDefinition
 } from "./benchmark-definitions.ts";
+import {
+  runWebAdapterPipeline,
+  validateWebAdapterPipeline,
+  webAdapterChunkSizes,
+  webAdapterInput,
+  webAdapterPipelines
+} from "./web-adapter-definitions.ts";
 
 /**
  * Mitata Benchmark Suite - Cross-Runtime Performance Measurement
@@ -106,6 +113,25 @@ group("🔄 Async Replacement Performance", () => {
       });
     });
 });
+
+for (const chunkSize of webAdapterChunkSizes) {
+  for (const pipeline of webAdapterPipelines) {
+    await validateWebAdapterPipeline(
+      pipeline,
+      webAdapterInput(pipeline.source, chunkSize)
+    );
+  }
+}
+for (const chunkSize of webAdapterChunkSizes) {
+  group(`🌐 Web Adapters, ${chunkSize} B chunks`, () => {
+    for (const pipeline of webAdapterPipelines) {
+      const input = webAdapterInput(pipeline.source, chunkSize);
+      bench(pipeline.name, async () => {
+        do_not_optimize(await runWebAdapterPipeline(pipeline, input));
+      });
+    }
+  });
+}
 
 bench(`Runtime: ${runtime}`, () => {
   let sum = 0;

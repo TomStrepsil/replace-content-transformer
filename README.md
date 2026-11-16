@@ -75,20 +75,41 @@ It accepts an engine (see [Engines](#-engines)):
 const transformer = new ReplaceContentTransformer(engine: TransformEngine);
 ```
 
-The transformer acts on decoded text streams, and should be plugged into a stream pipeline appropriately. e.g.
+The transformer takes and emits UTF-8 bytes (`Uint8Array`), so a byte stream such as a `fetch` response body needs no other stage. e.g.
 
 ```typescript
-const replacedStream = readableStream
-  .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new TransformStream(transformer))
-  .pipeThrough(new TextEncoderStream());
+const replaced = response.body!.pipeThrough(new TransformStream(transformer));
+return new Response(replaced, response);
 ```
 
+Multi-byte characters split across chunks are decoded intact, and a byte order mark is kept. A string chunk errors the stream.
+
+#### Streams of strings
+
+Where the source is already strings, such as an LLM token stream or another text transform, use `ReplaceContentTextTransformer`, which takes and emits strings:
+
+```js
+import { ReplaceContentTextTransformer } from "replace-content-transformer/web";
+
+const textTransformer = new ReplaceContentTextTransformer(engine);
+const replaced = tokenStream.pipeThrough(new TransformStream(textTransformer));
+```
+
+`ReplaceContentTransformer` only reads UTF-8. For input in another encoding, decode it with a `TextDecoderStream` for that encoding, and use `ReplaceContentTextTransformer`:
+
+```typescript
+const replaced = readableStream
+  .pipeThrough(new TextDecoderStream("shift_jis"))
+  .pipeThrough(new TransformStream(textTransformer));
+```
+
+The output is strings. A `TextEncoderStream` can only encode them as UTF-8, so if they become a `Response` body, change any `charset` in its `Content-Type` to `utf-8`.
+
 > [!NOTE]
-> String chunks must come from a `TextDecoder`/`TextDecoderStream`, so a surrogate pair is never split across chunks. See [Surrogate pairs split across chunks](./src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
+> With the regex search strategy, string chunks must not split a surrogate pair. A `TextDecoder` or `TextDecoderStream` never does. See [Surrogate pairs split across chunks](./src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
 
 > [!TIP]
-> On Node 22, on Node 24 before 24.21.0 and on Node 26 before 26.8.0, `TextEncoderStream` is slow: it costs about 5–10 ms per MB, often more than the replacement itself ([nodejs/node#65414](https://github.com/nodejs/node/pull/65414)). Upgrade, or encode with a `TextEncoder` in a `TransformStream` that, like `TextEncoderStream`, holds a trailing high surrogate back until the next chunk:
+> To encode a text transformer's output, note that on Node 22, on Node 24 before 24.21.0 and on Node 26 before 26.8.0, `TextEncoderStream` is slow: it costs about 5–10 ms per MB, often more than the replacement itself ([nodejs/node#65414](https://github.com/nodejs/node/pull/65414)). Upgrade, or encode with a `TextEncoder` in a `TransformStream` that, like `TextEncoderStream`, holds a trailing high surrogate back until the next chunk:
 >
 > ```typescript
 > function utf8EncoderStream() {
@@ -108,9 +129,8 @@ const replacedStream = readableStream
 >   });
 > }
 >
-> const replacedStream = readableStream
->   .pipeThrough(new TextDecoderStream())
->   .pipeThrough(new TransformStream(transformer))
+> const replacedStream = tokenStream
+>   .pipeThrough(new TransformStream(textTransformer))
 >   .pipeThrough(utf8EncoderStream());
 > ```
 >
@@ -386,28 +406,30 @@ Recursive replacement, with controlled depth:
 ```typescript
 const searchStrategy = searchStrategyFactory(["<esi:include", "/>"]);
 const maxDepth = 3;
-function transformerFactory(currentDepth: number) {
-  return new ReplaceContentTransformer(
-    new SerialTransformEngine({
-      searchStrategy,
-      replacement: async (match: string) => {
-        const {
-          groups: { url }
-        } = /src="(?<url>[^"]+)"/.exec(match)!;
-        const res = await fetch(url);
-        const bodyStream = res.body!.pipeThrough(new TextDecoderStream());
-        return currentDepth < maxDepth
-          ? bodyStream.pipeThrough(
-              new TransformStream(transformerFactory(currentDepth + 1))
+function engineFor(currentDepth: number): TransformEngine {
+  return new SerialTransformEngine({
+    searchStrategy,
+    replacement: async (match: string) => {
+      const {
+        groups: { url }
+      } = /src="(?<url>[^"]+)"/.exec(match)!;
+      const res = await fetch(url);
+      const fragment = res.body!.pipeThrough(new TextDecoderStream());
+      return currentDepth < maxDepth
+        ? fragment.pipeThrough(
+            new TransformStream(
+              new ReplaceContentTextTransformer(engineFor(currentDepth + 1))
             )
-          : bodyStream;
-      }
-    })
-  );
+          )
+        : fragment;
+    }
+  });
 }
 // replaces esi include tags, recursively in fetched content, to a max depth of 3
-const transformer = transformerFactory(0);
+const transformer = new ReplaceContentTransformer(engineFor(0));
 ```
+
+Replacements return strings, so each level decodes the fragment it fetched, and nested levels search it as text with `ReplaceContentTextTransformer`. Only the outermost transformer takes and emits bytes, so the text is encoded once, in its output.
 
 > [!NOTE]
 > When using `matchIndex` / `streamIndices` from context, these will be specific to each engine instance, thus may not be the holistic "indexes into the stream".

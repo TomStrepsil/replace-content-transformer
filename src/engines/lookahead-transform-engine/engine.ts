@@ -146,8 +146,8 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
  * (started by {@link start}) dequeues slots in stream order and emits
  * chunks through the supplied {@link EngineSink}.
  *
- * Adapter classes (`ReplaceContentTransformer` in web,
- * `ReplaceContentTransform` in node) wrap this engine, mapping
+ * Adapter classes (`ReplaceContentTransformer` and
+ * `ReplaceContentTextTransformer` in web, `ReplaceContentTransform` in node) wrap this engine, mapping
  * their runtime's transform lifecycle onto `start`/`write`/`end`.
  *
  * Nested re-scanning (returned via the `nested()` sentinel) is handled
