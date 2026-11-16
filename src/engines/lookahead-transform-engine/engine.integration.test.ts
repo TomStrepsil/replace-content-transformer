@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { text } from "node:stream/consumers";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
-import { ReplaceContentTransformer } from "../../adapters/web/transformer.js";
+import { ReplaceContentTextTransformer } from "../../adapters/web/text-transformer.js";
 import { LookaheadTransformEngine } from "./engine.js";
 import { nested } from "./nested.js";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.js";
@@ -20,8 +20,8 @@ function streamFromChunks(chunks: string[]): ReadableStream<string> {
 
 function makeTransformer<TState>(
   options: ConstructorParameters<typeof LookaheadTransformEngine<TState, string>>[0]
-): ReplaceContentTransformer {
-  return new ReplaceContentTransformer(
+): ReplaceContentTextTransformer {
+  return new ReplaceContentTextTransformer(
     new LookaheadTransformEngine(options)
   );
 }

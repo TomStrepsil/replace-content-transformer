@@ -499,7 +499,7 @@ Where a partial match _is_ viable at a position the strategy defers instead of s
 
 ### ⚠️ Surrogate pairs split across chunks
 
-Chunks must not split a surrogate pair. Only whole astral characters are supported, as with [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#surrogate-pair-matching). If the source is bytes, decode them with a `TextDecoder` (or `TextDecoderStream`, which never emits half a pair) before the stream reaches the transformer. The strategy has no handling for a pair divided across two chunks.
+Chunks must not split a surrogate pair. Only whole astral characters are supported, as with [`regex-partial-match`](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/caveats.md#surrogate-pair-matching). The web byte adapter (`ReplaceContentTransformer`) and the Node adapter decode UTF-8 bytes themselves. For the web text adapter (`ReplaceContentTextTransformer`), decode bytes with a `TextDecoder` (or `TextDecoderStream`, which never emits half a pair) before the stream reaches the transformer. The strategy has no handling for a pair divided across two chunks.
 
 ### ⚠️ Strings of several code points (`v` flag)
 

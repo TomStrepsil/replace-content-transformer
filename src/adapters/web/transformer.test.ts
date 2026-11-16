@@ -1,120 +1,309 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ReplaceContentTransformer } from "./transformer.js";
 import {
   mockAsyncEngine,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
-  startedSinkOf
+  startedSinkOf,
+  textWrittenTo
 } from "../../../test/utilities.js";
+import {
+  byteStreamOf,
+  byteWebAdapter,
+  textWebAdapter,
+  type WebAdapterFamily,
+  type WebChunk
+} from "../../../test/web-adapters.js";
 import type { EngineSink, TransformEngine } from "../../engines/types.js";
 
-describe("ReplaceContentTransformer (web adapter)", () => {
-  it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {
-    const engine = mockSyncEngine();
+function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
+  describe(`${family.adapter} (web adapter)`, () => {
+    it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {
+      const engine = mockSyncEngine();
+      const transformer = family.create(engine);
+      const outputs: C[] = [];
+      const controller = mockTransformStreamDefaultControllerFactory(outputs);
+
+      transformer.start(controller);
+
+      expect(engine.start).toHaveBeenCalledOnce();
+      const sink = startedSinkOf(engine);
+      sink.enqueue("hello");
+      expect(outputs.map(family.textOf)).toEqual(["hello"]);
+    });
+
+    it("reports delivery as deferred, since readers only receive enqueued chunks through promises", () => {
+      const engine = mockSyncEngine();
+      const transformer = family.create(engine);
+      transformer.start(mockTransformStreamDefaultControllerFactory<C>([]));
+
+      expect(startedSinkOf(engine).deliveryDeferred).toBe(true);
+    });
+
+    it("wires start(controller) to engine.start with a sink that forwards error", () => {
+      const engine = mockSyncEngine();
+      const transformer = family.create(engine);
+      const controller = mockTransformStreamDefaultControllerFactory<C>([]);
+
+      transformer.start(controller);
+
+      const sink = startedSinkOf(engine);
+      const err = new Error("boom");
+      sink.error(err);
+      expect(controller.error).toHaveBeenCalledWith(err);
+    });
+
+    it("delegates transform(chunk) to engine.write with the chunk's text and returns undefined when the engine does", () => {
+      const engine = mockSyncEngine();
+      const transformer = family.create(engine);
+      transformer.start(mockTransformStreamDefaultControllerFactory<C>([]));
+
+      expect(transformer.transform(family.chunkOf("hello"))).toBeUndefined();
+      expect(engine.write).toHaveBeenCalledWith("hello");
+    });
+
+    it("delegates transform(chunk) to engine.write with the chunk's text and settles with its promise", async () => {
+      const engine = mockAsyncEngine();
+      const transformer = family.create(engine);
+      transformer.start(mockTransformStreamDefaultControllerFactory<C>([]));
+
+      const promise = transformer.transform(family.chunkOf("hello"));
+
+      expect(engine.write).toHaveBeenCalledWith("hello");
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("delegates flush() to engine.end() and returns undefined when the engine does", () => {
+      const engine = mockSyncEngine();
+      const transformer = family.create(engine);
+      transformer.start(mockTransformStreamDefaultControllerFactory<C>([]));
+
+      expect(transformer.flush()).toBeUndefined();
+      expect(engine.end).toHaveBeenCalledOnce();
+    });
+
+    it("delegates flush() to engine.end() and settles with its promise", async () => {
+      const engine = mockAsyncEngine();
+      const transformer = family.create(engine);
+      transformer.start(mockTransformStreamDefaultControllerFactory<C>([]));
+
+      const promise = transformer.flush();
+
+      expect(engine.end).toHaveBeenCalledOnce();
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("pipes end-to-end: engine output via sink is forwarded to the controller", () => {
+      let capturedSink!: EngineSink;
+      const engine: TransformEngine = {
+        start: (sink) => { capturedSink = sink; },
+        write: (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
+        end: () => { capturedSink.enqueue("END"); }
+      };
+      const outputs: C[] = [];
+      const controller = mockTransformStreamDefaultControllerFactory(outputs);
+      const transformer = family.create(engine);
+
+      transformer.start(controller);
+      transformer.transform(family.chunkOf("abc"));
+      transformer.flush();
+
+      expect(outputs.map(family.textOf)).toEqual(["ABC", "END"]);
+    });
+
+    it("calls engine.cancel() when cancel() is called and engine supports it", () => {
+      const engine = mockAsyncEngine();
+      const transformer = family.create(engine);
+
+      transformer.cancel("test reason");
+
+      expect(engine.cancel).toHaveBeenCalledOnce();
+    });
+
+    it("does not throw when cancel() is called on an engine without cancel support", () => {
+      const transformer = family.create(mockSyncEngine());
+
+      expect(() => transformer.cancel()).not.toThrow();
+    });
+  });
+}
+
+describeWebAdapter(byteWebAdapter);
+describeWebAdapter(textWebAdapter);
+
+describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
+  const utf8 = new TextEncoder();
+
+  function startedTransformer<
+    E extends ReturnType<typeof mockSyncEngine> | ReturnType<typeof mockAsyncEngine>
+  >(engine: E) {
     const transformer = new ReplaceContentTransformer(engine);
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+    const outputs: Uint8Array[] = [];
+    transformer.start(mockTransformStreamDefaultControllerFactory(outputs));
+    return { engine, transformer, outputs, sink: startedSinkOf(engine) };
+  }
 
-    transformer.start(controller);
+  const textOf = (outputs: Uint8Array[]) =>
+    outputs.map((chunk) => new TextDecoder().decode(chunk));
 
-    expect(engine.start).toHaveBeenCalledOnce();
-    const sink = startedSinkOf(engine);
-    sink.enqueue("hello");
-    expect(outputs).toEqual(["hello"]);
+  describe("UTF-8 decoding", () => {
+    const text = "a£€😀b";
+
+    it.each(
+      Array.from({ length: utf8.encode(text).length + 1 }, (_, splitAt) => ({
+        splitAt
+      }))
+    )(
+      "keeps 2-, 3- and 4-byte characters intact when a chunk boundary falls inside one (split at byte $splitAt)",
+      ({ splitAt }) => {
+        const { engine, transformer } = startedTransformer(mockSyncEngine());
+        const bytes = utf8.encode(text);
+
+        transformer.transform(bytes.subarray(0, splitAt));
+        transformer.transform(bytes.subarray(splitAt));
+        transformer.flush();
+
+        expect(textWrittenTo(engine)).toBe(text);
+      }
+    );
+
+    it("writes an incomplete trailing sequence to the engine as U+FFFD before engine.end, so no bytes are dropped at the end of the stream", () => {
+      const { engine, transformer } = startedTransformer(mockSyncEngine());
+
+      transformer.transform(new Uint8Array([0x61, 0xe2, 0x82]));
+      transformer.flush();
+
+      expect(textWrittenTo(engine)).toBe("a\uFFFD");
+      expect(engine.write.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        engine.end.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("waits for the engine to accept the trailing sequence before calling engine.end", async () => {
+      const { engine, transformer } = startedTransformer(mockAsyncEngine());
+      const trailingSequenceWrite = Promise.withResolvers<void>();
+      engine.write.mockReturnValueOnce(trailingSequenceWrite.promise);
+
+      await transformer.transform(new Uint8Array([0xe2]));
+      const flushed = transformer.flush();
+      await vi.waitFor(() => expect(engine.write).toHaveBeenCalledOnce());
+      expect(engine.end).not.toHaveBeenCalled();
+
+      trailingSequenceWrite.resolve();
+      await flushed;
+      expect(engine.end).toHaveBeenCalledOnce();
+    });
+
+    it("does not write to the engine on flush when no bytes are pending", () => {
+      const { engine, transformer } = startedTransformer(mockSyncEngine());
+
+      transformer.transform(utf8.encode("abc"));
+      transformer.flush();
+
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("abc");
+    });
+
+    it("does not write to the engine for a chunk holding only the start of a character", () => {
+      const { engine, transformer } = startedTransformer(mockSyncEngine());
+
+      transformer.transform(new Uint8Array([0xe2]));
+
+      expect(engine.write).not.toHaveBeenCalled();
+    });
+
+    it("keeps a leading byte order mark", () => {
+      const { engine, transformer } = startedTransformer(mockSyncEngine());
+
+      transformer.transform(new Uint8Array([0xef, 0xbb, 0xbf, 0x61]));
+
+      expect(engine.write).toHaveBeenCalledExactlyOnceWith("\uFEFFa");
+    });
+
+    it("errors the stream when given a string chunk, as from an unmigrated TextDecoderStream", async () => {
+      const unmigrated = byteStreamOf([utf8.encode("text")])
+        .pipeThrough(new TextDecoderStream())
+        .pipeThrough(
+          new TransformStream(
+            new ReplaceContentTransformer(mockSyncEngine())
+          ) as unknown as TransformStream<string, Uint8Array>
+        );
+
+      await expect(unmigrated.getReader().read()).rejects.toThrow(TypeError);
+    });
   });
 
-  it("reports delivery as deferred, since readers only receive enqueued chunks through promises", () => {
-    const engine = mockSyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+  describe("UTF-8 encoding", () => {
+    it("enqueues a surrogate pair split across two enqueued chunks as one character", () => {
+      const { transformer, outputs, sink } = startedTransformer(mockSyncEngine());
 
-    expect(startedSinkOf(engine).deliveryDeferred).toBe(true);
-  });
+      sink.enqueue("a\uD83D");
+      sink.enqueue("\uDE00b");
+      transformer.flush();
 
-  it("wires start(controller) to engine.start with a sink that forwards error", () => {
-    const engine = mockSyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
+      expect(textOf(outputs)).toEqual(["a", "😀b"]);
+    });
 
-    transformer.start(controller);
+    it("completes a held surrogate pair with a chunk the engine enqueues during end", () => {
+      const { engine, transformer, outputs, sink } = startedTransformer(mockSyncEngine());
+      engine.end.mockImplementation(() => sink.enqueue("\uDE00b"));
 
-    const sink = startedSinkOf(engine);
-    const err = new Error("boom");
-    sink.error(err);
-    expect(controller.error).toHaveBeenCalledWith(err);
-  });
+      sink.enqueue("a\uD83D");
+      transformer.flush();
 
-  it("delegates transform(chunk) to engine.write(chunk) and returns undefined when the engine does", () => {
-    const engine = mockSyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+      expect(textOf(outputs)).toEqual(["a", "😀b"]);
+    });
 
-    expect(transformer.transform("hello")).toBeUndefined();
-    expect(engine.write).toHaveBeenCalledWith("hello");
-  });
+    it("completes a held surrogate pair with a chunk the engine enqueues during an asynchronous end", async () => {
+      const { engine, transformer, outputs, sink } = startedTransformer(mockAsyncEngine());
+      engine.end.mockImplementation(async () => sink.enqueue("\uDE00b"));
 
-  it("delegates transform(chunk) to engine.write(chunk) and returns its promise", async () => {
-    const engine = mockAsyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+      sink.enqueue("a\uD83D");
+      await transformer.flush();
 
-    const promise = transformer.transform("hello");
+      expect(textOf(outputs)).toEqual(["a", "😀b"]);
+    });
 
-    expect(engine.write).toHaveBeenCalledWith("hello");
-    await expect(promise).resolves.toBeUndefined();
-  });
+    it("enqueues a high surrogate still held at the end of the stream as U+FFFD, so no output is dropped", () => {
+      const { transformer, outputs, sink } = startedTransformer(mockSyncEngine());
 
-  it("delegates flush() to engine.end() and returns undefined when the engine does", () => {
-    const engine = mockSyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+      sink.enqueue("a\uD83D");
+      transformer.flush();
 
-    expect(transformer.flush()).toBeUndefined();
-    expect(engine.end).toHaveBeenCalledOnce();
-  });
+      expect(textOf(outputs).join("")).toBe("a\uFFFD");
+    });
 
-  it("delegates flush() to engine.end() and returns its promise", async () => {
-    const engine = mockAsyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-    transformer.start(mockTransformStreamDefaultControllerFactory([]));
+    it("enqueues a high surrogate still held at the end of the stream as U+FFFD once an asynchronous engine.end settles", async () => {
+      const { transformer, outputs, sink } = startedTransformer(mockAsyncEngine());
 
-    const promise = transformer.flush();
+      sink.enqueue("a\uD83D");
+      await transformer.flush();
 
-    expect(engine.end).toHaveBeenCalledOnce();
-    await expect(promise).resolves.toBeUndefined();
-  });
+      expect(textOf(outputs).join("")).toBe("a\uFFFD");
+    });
 
-  it("pipes end-to-end: engine output via sink is forwarded to the controller", () => {
-    let capturedSink!: EngineSink;
-    const engine: TransformEngine = {
-      start: (sink) => { capturedSink = sink; },
-      write: (chunk) => { capturedSink.enqueue(chunk.toUpperCase()); },
-      end: () => { capturedSink.enqueue("END"); }
-    };
-    const outputs: string[] = [];
-    const controller = mockTransformStreamDefaultControllerFactory(outputs);
-    const transformer = new ReplaceContentTransformer(engine);
+    it("emits chunks downstream can transfer, such as by enqueueing each on a byte stream", async () => {
+      let capturedSink!: EngineSink;
+      const engine: TransformEngine = {
+        start: (sink) => { capturedSink = sink; },
+        write: (chunk) => { capturedSink.enqueue(chunk); },
+        end: () => {}
+      };
+      const reader = byteStreamOf([utf8.encode("one "), utf8.encode("two")])
+        .pipeThrough(new TransformStream(new ReplaceContentTransformer(engine)))
+        .getReader();
+      const forwarded = new ReadableStream<Uint8Array>({
+        type: "bytes",
+        async pull(controller) {
+          const { done, value } = await reader.read();
+          if (done) controller.close();
+          else controller.enqueue(value);
+        }
+      });
 
-    transformer.start(controller);
-    transformer.transform("abc");
-    transformer.flush();
+      let text = "";
+      for await (const chunk of forwarded) text += new TextDecoder().decode(chunk);
 
-    expect(outputs).toEqual(["ABC", "END"]);
-  });
-
-  it("calls engine.cancel() when cancel() is called and engine supports it", () => {
-    const engine = mockAsyncEngine();
-    const transformer = new ReplaceContentTransformer(engine);
-
-    transformer.cancel("test reason");
-
-    expect(engine.cancel).toHaveBeenCalledOnce();
-  });
-
-  it("does not throw when cancel() is called on an engine without cancel support", () => {
-    const transformer = new ReplaceContentTransformer(mockSyncEngine());
-
-    expect(() => transformer.cancel()).not.toThrow();
+      expect(text).toBe("one two");
+    });
   });
 });

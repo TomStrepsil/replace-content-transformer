@@ -5,7 +5,7 @@ import {
 } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { TransformEngine } from "../../engines/types.js";
-import endsWithHighSurrogate from "./ends-with-high-surrogate.js";
+import { TrailingHighSurrogateHold } from "../trailing-high-surrogate-hold.js";
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
@@ -87,14 +87,14 @@ function cancelEngine(engine?: TransformEngine): Error | undefined {
 export class ReplaceContentTransform extends Transform {
   readonly #engine: TransformEngine;
   readonly #decoder = new StringDecoder("utf8");
-  #heldHighSurrogate = "";
+  readonly #hold = new TrailingHighSurrogateHold();
   private _engineRunning?: boolean;
 
   constructor(engine: TransformEngine, options?: TransformOptions) {
     super(options);
     this.#engine = engine;
     engine.start({
-      enqueue: (chunk) => this.#pushWholeCodePoints(chunk),
+      enqueue: (chunk) => this.#pushIfAny(this.#hold.wholeCodePoints(chunk)),
       error: (err) => this.destroy(toError(err))
     });
     if (this.destroyed) {
@@ -150,8 +150,7 @@ export class ReplaceContentTransform extends Transform {
 
   #finish(callback: TransformCallback): void {
     this._engineRunning = false;
-    if (this.#heldHighSurrogate) this.push(this.#heldHighSurrogate);
-    this.#heldHighSurrogate = "";
+    this.#pushIfAny(this.#hold.remainder());
     callback();
   }
 
@@ -161,11 +160,7 @@ export class ReplaceContentTransform extends Transform {
       : this.#decoder.write(chunk);
   }
 
-  #pushWholeCodePoints(chunk: string): void {
-    const text = this.#heldHighSurrogate + chunk;
-    const splitsPair = endsWithHighSurrogate(text);
-    this.#heldHighSurrogate = splitsPair ? text.slice(-1) : "";
-    const wholeCodePoints = splitsPair ? text.slice(0, -1) : text;
-    if (wholeCodePoints) this.push(wholeCodePoints);
+  #pushIfAny(text: string): void {
+    if (text) this.push(text);
   }
 }

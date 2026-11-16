@@ -1,4 +1,4 @@
-import { ReplaceContentTransformer } from "../../../src/adapters/web/transformer.ts";
+import { ReplaceContentTextTransformer } from "../../../src/adapters/web/text-transformer.ts";
 import { SerialTransformEngine } from "../../../src/engines/serial-transform-engine.ts";
 import { LookaheadTransformEngine } from "../../../src/engines/lookahead-transform-engine/engine.ts";
 import { SemaphoreStrategy } from "../../../src/engines/lookahead-transform-engine/concurrency-strategy/semaphore-strategy.ts";
@@ -23,7 +23,7 @@ type ReplacementFn = (
 //
 // This adapter wraps an instrumented ReplacementFn so that any `Nested`
 // return value is transparently converted into a child
-// ReplaceContentTransformer pipeline (the README "Manage Recursion"
+// ReplaceContentTextTransformer pipeline (the README "Manage Recursion"
 // pattern), making subject A a fair serial comparison for nested scenarios.
 // ---------------------------------------------------------------------------
 
@@ -54,10 +54,10 @@ function pipeThrough(
 }
 
 /**
- * Wrap an instrumented ReplacementFn for use with ReplaceContentTransformer.
+ * Wrap an instrumented ReplacementFn for use with ReplaceContentTextTransformer.
  *
  * When the inner function returns a `Nested`, this adapter creates a child
- * `ReplaceContentTransformer` (using the scenario's search strategy) and
+ * `ReplaceContentTextTransformer` (using the scenario's search strategy) and
  * pipes the Nested source through it — exactly the README "Manage Recursion"
  * pattern. The adapter is self-referential so nesting works to any depth.
  */
@@ -70,7 +70,7 @@ function makeManualNestingAdapter(
       const result = await instrumented(match, context);
       if (!(result instanceof Nested)) return result as AsyncIterable<string>;
       // Manual nesting: re-scan via a fresh child transformer (same strategy).
-      const childTransformer = new ReplaceContentTransformer(
+      const childTransformer = new ReplaceContentTextTransformer(
         new SerialTransformEngine({
           searchStrategy: createSearchStrategy(),
           replacement: adapted
@@ -100,7 +100,7 @@ export const subjects: Subject[] = [
     id: "A",
     label: "Serial (A)",
     /**
-     * Uses ReplaceContentTransformer with a manual-nesting adapter so
+     * Uses ReplaceContentTextTransformer with a manual-nesting adapter so
      * that Nested return values are handled via recursive child transformers
      * (the README "Manage Recursion" pattern). On flat scenarios the adapter
      * is a zero-overhead pass-through.
@@ -110,7 +110,7 @@ export const subjects: Subject[] = [
         wrappedReplacement,
         scenario.createSearchStrategy
       );
-      return new ReplaceContentTransformer(
+      return new ReplaceContentTextTransformer(
         new SerialTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           replacement: adapted
@@ -122,7 +122,7 @@ export const subjects: Subject[] = [
     id: "A_prime",
     label: "Lookahead serial c=1 (A')",
     create: (scenario, wrappedReplacement) =>
-      new ReplaceContentTransformer(
+      new ReplaceContentTextTransformer(
         new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new SemaphoreStrategy(1),
@@ -134,7 +134,7 @@ export const subjects: Subject[] = [
     id: "B",
     label: "Lookahead semaphore c=N (B)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new ReplaceContentTransformer(
+      new ReplaceContentTextTransformer(
         new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new SemaphoreStrategy(concurrency),
@@ -146,7 +146,7 @@ export const subjects: Subject[] = [
     id: "C",
     label: "Lookahead streamOrder c=N (C)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new ReplaceContentTransformer(
+      new ReplaceContentTextTransformer(
         new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new PriorityQueueStrategy(concurrency, streamOrder),
@@ -158,7 +158,7 @@ export const subjects: Subject[] = [
     id: "D",
     label: "Lookahead breadthFirst c=N (D)",
     create: (scenario, wrappedReplacement, concurrency) =>
-      new ReplaceContentTransformer(
+      new ReplaceContentTextTransformer(
         new LookaheadTransformEngine({
           searchStrategy: scenario.createSearchStrategy(),
           concurrencyStrategy: new PriorityQueueStrategy(concurrency, breadthFirst),

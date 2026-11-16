@@ -149,6 +149,7 @@ Stream processing performance with the same code across different JavaScript eng
 - Transformer overhead
 - Async vs sync performance
 - Output chunks on match-dense input: each costs every downstream stage, so outside `--json` mode the count for each match-dense scenario is printed before the timings
+- Web adapters at 16 KiB, 1 KiB and 64 B chunks: `ReplaceContentTransformer` on a byte source and `ReplaceContentTextTransformer` on a string source, each next to the other adapter wrapped in the `TextDecoderStream` and `TextEncoderStream` that it would need for that source
 
 ### Lookahead Engine Benchmarks
 
@@ -165,7 +166,7 @@ Compares concurrency strategies for `LookaheadTransformEngine` against the `Seri
 
 ### Adding New Runtime Benchmarks
 
-1. Add scenario to `runtime/benchmark-definitions.ts`
+1. Add scenario to `runtime/benchmark-definitions.ts`, or a web adapter pipeline to `runtime/web-adapter-definitions.ts`
 2. Update `runtime/benchmarks.ts` if needed
 3. Run on each runtime to verify compatibility
 
