@@ -95,13 +95,15 @@ const textTransformer = new ReplaceContentTextTransformer(engine);
 const replaced = tokenStream.pipeThrough(new TransformStream(textTransformer));
 ```
 
-For input in an encoding other than UTF-8, decode it first:
+`ReplaceContentTransformer` only reads UTF-8. For input in another encoding, decode it with a `TextDecoderStream` for that encoding, and use `ReplaceContentTextTransformer`:
 
 ```typescript
 const replaced = readableStream
   .pipeThrough(new TextDecoderStream("shift_jis"))
   .pipeThrough(new TransformStream(textTransformer));
 ```
+
+The output is strings. A `TextEncoderStream` can only encode them as UTF-8, so if they become a `Response` body, change any `charset` in its `Content-Type` to `utf-8`.
 
 > [!NOTE]
 > With the regex search strategy, string chunks must not split a surrogate pair. A `TextDecoder` or `TextDecoderStream` never does. See [Surrogate pairs split across chunks](./src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
