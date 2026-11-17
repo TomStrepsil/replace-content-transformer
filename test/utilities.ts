@@ -2,10 +2,17 @@ import type { MatchSink, SearchStrategy } from "../src/search-strategies/types.t
 import type { MatchResult } from "./search-strategy-results.ts";
 import type { IterableSlotNode } from "../src/engines/lookahead-transform-engine/slot-tree/types.ts";
 import type { Nested } from "../src/engines/lookahead-transform-engine/nested.ts";
-import type { EngineSink, TransformEngine } from "../src/engines/types.ts";
+import type {
+  EngineSink,
+  TransformEngine,
+  Utf8Bytes
+} from "../src/engines/types.ts";
 import { SLOT_KIND } from "../src/engines/lookahead-transform-engine/slot-tree/constants.ts";
+import { LookaheadTransformEngine, SemaphoreStrategy, SerialTransformEngine } from "../src/engines/index.ts";
+import { StringAnchorSearchStrategy } from "../src/search-strategies/index.ts";
 import { Writable } from "node:stream";
-import { vi, type Mocked } from "vitest";
+import { runInNewContext } from "node:vm";
+import { onTestFinished, vi, type Mocked } from "vitest";
 
 type TestHttpHandler = (request: Request) => Response | Promise<Response>;
 
@@ -154,11 +161,11 @@ function createIterableSlotNode(
 }
 
 /**
- * Build an `AsyncIterable<string>` that yields the given chunks in order.
+ * Build an `AsyncIterable` that yields the given chunks in order.
  *
  * (Awaiting AsyncIterator.from(chunks) in proposal: https://github.com/tc39/proposal-async-iterator-helpers)
  */
-function asyncIterable(...chunks: string[]): AsyncIterable<string> {
+function asyncIterable<T extends string | Utf8Bytes = string>(...chunks: T[]): AsyncIterable<T> {
   return {
     [Symbol.asyncIterator]: async function* () {
       yield* chunks;
@@ -264,21 +271,112 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
   };
 }
 
-function collectEngineSink(): {
-  sink: EngineSink;
-  chunks: string[];
-  errors: unknown[];
-} {
-  const chunks: string[] = [];
+type CollectedEngineSink<TChunk> = { sink: EngineSink; chunks: TChunk[]; errors: unknown[] };
+
+type ByteReplacement = (match: string) => Promise<AsyncIterable<string | Utf8Bytes>>;
+
+/** Each engine, built to replace `{{…}}` matches with a replacement that may return bytes. */
+const byteReplacementEngines = [
+  {
+    engine: "SerialTransformEngine",
+    create: (replacement: ByteReplacement): TransformEngine =>
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement })
+  },
+  {
+    engine: "LookaheadTransformEngine",
+    create: (replacement: ByteReplacement): TransformEngine =>
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement
+      })
+  }
+];
+
+const sinkKinds = [
+  { sinkKind: "a sink that accepts bytes", acceptsBytes: true },
+  { sinkKind: "a sink that receives only strings", acceptsBytes: false }
+];
+
+/** A sink that collects what it receives, accepting bytes as well as strings when `acceptsBytes` is set. */
+function collectEngineSink(options?: { acceptsBytes?: false }): CollectedEngineSink<string>;
+function collectEngineSink(options: { acceptsBytes: boolean }): CollectedEngineSink<string | Utf8Bytes>;
+function collectEngineSink({ acceptsBytes = false }: { acceptsBytes?: boolean } = {}): CollectedEngineSink<
+  string | Utf8Bytes
+> {
+  const chunks: (string | Utf8Bytes)[] = [];
   const errors: unknown[] = [];
+  const enqueue = (chunk: string | Utf8Bytes) => chunks.push(chunk);
+  const error = (err: unknown) => errors.push(err);
   return {
-    sink: {
-      enqueue: (chunk) => chunks.push(chunk),
-      error: (err) => errors.push(err)
-    },
+    sink: { enqueue, error, acceptsBytes },
     chunks,
     errors
   };
+}
+
+const utf8Encoder = new TextEncoder();
+
+type EncodedBytes = ReturnType<TextEncoder["encode"]>;
+
+function utf8(text: string): EncodedBytes {
+  return utf8Encoder.encode(text);
+}
+
+/**
+ * The UTF-8 bytes of `text` as a `Uint8Array` of another realm, which fails
+ * `instanceof Uint8Array` here, as the chunks of a `fetch` body do for code
+ * run in a `vm` context, such as a Jest test environment.
+ */
+function foreignRealmUtf8(text: string): Utf8Bytes {
+  return runInNewContext("Uint8Array.from(bytes)", { bytes: [...utf8(text)] }) as Utf8Bytes;
+}
+
+/** A copy of `bytes` in a resizable `ArrayBuffer`, which browsers refuse where a `BufferSource` is expected. */
+function inResizableArrayBuffer(bytes: Utf8Bytes): Utf8Bytes {
+  const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength, { maxByteLength: bytes.byteLength * 2 + 1 }));
+  copy.set(bytes);
+  return copy;
+}
+
+/**
+ * Makes `TextDecoder.decode` refuse a view of a resizable `ArrayBuffer` until
+ * the test finishes, as browsers do, though Node, Deno and Bun accept one.
+ */
+function refuseResizableBuffersInTextDecoder(): void {
+  const decode = TextDecoder.prototype.decode;
+  const spy = vi
+    .spyOn(TextDecoder.prototype, "decode")
+    .mockImplementation(function (this: TextDecoder, input?: AllowSharedBufferSource, options?: TextDecodeOptions) {
+      if (ArrayBuffer.isView(input) && (input.buffer as ArrayBuffer).resizable) {
+        throw new TypeError("The provided ArrayBufferView value must not be resizable.");
+      }
+      return decode.call(this, input, options);
+    });
+  onTestFinished(() => spy.mockRestore());
+}
+
+/**
+ * The text of `chunks`, each decoded on its own, so it throws unless every
+ * byte chunk is valid UTF-8 that ends at a character boundary.
+ */
+function textOfPieces(chunks: (string | Utf8Bytes)[]): string {
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  return chunks.map((chunk) => (typeof chunk === "string" ? chunk : decoder.decode(new Uint8Array(chunk)))).join("");
+}
+
+/** The reasons of rejections left unhandled while `run` ran, or by the turn after it. */
+async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
+  const reasons: unknown[] = [];
+  const record = (reason: unknown) => reasons.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    await run();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+  return reasons;
 }
 
 function collectWritable(): { writable: Writable; outputs: string[] } {
@@ -348,7 +446,7 @@ function startedSinkOf(engine: {
 }
 
 export type { CanonicalSegment, GuardedStrategy, MatchResult } from "./search-strategy-results.ts";
-export type { MockStep };
+export type { ByteReplacement, MockStep };
 
 export {
   asMatch,
@@ -367,6 +465,7 @@ export {
 
 export {
   abortingOnFirstCall,
+  byteReplacementEngines,
   collectEngineSink,
   collectWritable,
   asyncIterable,
@@ -377,8 +476,15 @@ export {
   mockSearchStrategyFactory,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
+  sinkKinds,
   startTestHttpServer,
   startedSinkOf,
   streamToString,
-  textWrittenTo
+  refuseResizableBuffersInTextDecoder,
+  inResizableArrayBuffer,
+  textOfPieces,
+  foreignRealmUtf8,
+  textWrittenTo,
+  unhandledRejectionsDuring,
+  utf8
 };

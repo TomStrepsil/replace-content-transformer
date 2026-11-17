@@ -1,9 +1,19 @@
 import type { StreamIndices } from "../search-strategies/types.ts";
 
 /**
+ * UTF-8 bytes, as a replacement may return them, e.g. the chunks of a
+ * `fetch` response body, or a Node `Buffer`.
+ */
+export type Utf8Bytes = Uint8Array;
+
+/**
  * The output sink supplied by an adapter to an engine. The engine calls
- * `enqueue` for every string it produces and `error` (at most once) when
+ * `enqueue` for every chunk it produces and `error` (at most once) when
  * a fatal failure occurs; no further `enqueue` calls follow an `error`.
+ *
+ * `enqueue` receives only strings, and bytes a replacement returns are
+ * decoded by the engine before reaching it, unless the sink is a
+ * {@link ByteEngineSink}.
  */
 export interface EngineSink {
   enqueue(chunk: string): void;
@@ -23,6 +33,31 @@ export interface EngineSink {
    * a consumer makes it flow, which can happen part-way through a call.
    */
   readonly deliveryDeferred?: boolean;
+  /** `true` only for a {@link ByteEngineSink}. */
+  readonly acceptsBytes?: boolean;
+}
+
+/**
+ * An {@link EngineSink} that also receives UTF-8 bytes. Engines pass bytes a
+ * replacement produces asynchronously to `enqueue` rather than decoding
+ * them, in order with the strings around them. Each chunk of bytes is valid
+ * UTF-8 that ends at a character boundary: a character split across a
+ * replacement's pieces is held back until it is whole, and one a
+ * replacement leaves incomplete is enqueued as U+FFFD. From a malformed
+ * sequence on, the replacement's bytes, up to its end or a string it
+ * yields, are enqueued decoded, as strings with U+FFFD in place of what is
+ * malformed. A byte order mark at the start of a replacement's bytes, or of
+ * bytes that follow a string it yields, is dropped.
+ *
+ * A chunk of bytes may be a view of the replacement's own buffer, which it
+ * may overwrite once `enqueue` returns, so a sink that keeps one must copy
+ * it.
+ *
+ * Engines read `acceptsBytes` once, in `start()`.
+ */
+export interface ByteEngineSink extends EngineSink {
+  enqueue(chunk: string | Utf8Bytes): void;
+  readonly acceptsBytes: true;
 }
 
 /**

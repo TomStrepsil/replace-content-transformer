@@ -22,6 +22,15 @@ describe("TrailingHighSurrogateHold", () => {
     expect(hold.remainder()).toBe("");
   });
 
+  it("gives up the high surrogate it held when taken as the remainder, so it is emitted once", () => {
+    const hold = new TrailingHighSurrogateHold();
+    hold.wholeCodePoints("a\uD83D");
+    hold.remainder();
+
+    expect(hold.remainder()).toBe("");
+    expect(hold.wholeCodePoints("\uDE00")).toBe("\uDE00");
+  });
+
   it("prefixes the next chunk with the high surrogate it held", () => {
     const hold = new TrailingHighSurrogateHold();
     hold.wholeCodePoints("a\uD83D");

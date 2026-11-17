@@ -42,10 +42,9 @@ const transformer = new ReplaceContentTransformer(
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      const body = res.body!.pipeThrough(new TextDecoderStream());
+      const { body } = await fetch(url);
       // Re-scan one level deep; emit verbatim beyond that.
-      return depth === 0 ? nested(body) : body;
+      return depth === 0 ? nested(body!) : body!;
     }
   })
 );

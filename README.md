@@ -323,7 +323,7 @@ const transformer = new ReplaceContentTransformer(
 
 #### Iterable Replacement
 
-Interpolate a sequence into the stream:
+Interpolate a sequence of strings, UTF-8 bytes (`Uint8Array`), or both, into the stream:
 
 ```typescript
 // "1 2 3 4 5" becomes "1 2 3.1 3.2 3.3 4 5"
@@ -342,7 +342,9 @@ Interpolate [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/
 You can return either form:
 
 - an async iterable directly (for example `async function*`)
-- a `Promise<AsyncIterable<string>>` (for example an `async` function returning a stream)
+- a `Promise` of one (for example an `async` function returning a stream)
+
+It can yield strings, UTF-8 bytes (`Uint8Array`), or both, so a `fetch` response body can be returned as it is:
 
 ```typescript
 // `<div><esi:include src="https://example.com/foo" /></div>` fills the `<div>` with content fetched from https://example.com/foo
@@ -353,8 +355,7 @@ const transformer = new ReplaceContentTransformer(
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      return res.body!.pipeThrough(new TextDecoderStream());
+      return (await fetch(url)).body!;
     }
   })
 );
@@ -370,6 +371,11 @@ const transformerWithGenerator = new ReplaceContentTransformer(
   })
 );
 ```
+
+The engine reads each replacement's bytes as one sequence: a character split across a fragment's chunks is kept whole, and one a fragment leaves incomplete, or a malformed byte, becomes U+FFFD. `ReplaceContentTransformer` and `ReplaceContentTransform` emit valid bytes without decoding them and encoding them again. With `ReplaceContentTextTransformer`, `ReplaceContentTransform` in `readableObjectMode` (whose output is strings only), or a sink of your own (see [Engines](#-engines)), the engine decodes them, so the output is the same text with any adapter. Bytes returned synchronously, alone or in an iterable, are decoded into the output whatever the sink. In every case, a byte order mark at the start of a replacement's bytes, or of bytes that follow a string it yields, is dropped, as a `TextDecoderStream` drops one at the start of its input, since it would otherwise land in the middle of the output.
+
+> [!NOTE]
+> The adapters copy the bytes they emit, so a replacement may reuse its buffer for its next chunk, and each chunk `ReplaceContentTransformer` emits has its own `ArrayBuffer`, so downstream may transfer it, as a byte stream does when enqueuing it.
 
 #### Pipelined Async Replacement with `LookaheadTransformEngine`
 
@@ -390,8 +396,7 @@ const transformer = new ReplaceContentTransformer(
     concurrencyStrategy: new SemaphoreStrategy(8),
     replacement: async (match) => {
       const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      return res.body!.pipeThrough(new TextDecoderStream());
+      return (await fetch(url)).body!;
     }
   })
 );
@@ -413,15 +418,14 @@ function engineFor(currentDepth: number): TransformEngine {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const res = await fetch(url);
-      const fragment = res.body!.pipeThrough(new TextDecoderStream());
+      const { body } = await fetch(url);
       return currentDepth < maxDepth
-        ? fragment.pipeThrough(
+        ? body!.pipeThrough(
             new TransformStream(
-              new ReplaceContentTextTransformer(engineFor(currentDepth + 1))
+              new ReplaceContentTransformer(engineFor(currentDepth + 1))
             )
           )
-        : fragment;
+        : body!;
     }
   });
 }
@@ -429,7 +433,7 @@ function engineFor(currentDepth: number): TransformEngine {
 const transformer = new ReplaceContentTransformer(engineFor(0));
 ```
 
-Replacements return strings, so each level decodes the fragment it fetched, and nested levels search it as text with `ReplaceContentTextTransformer`. Only the outermost transformer takes and emits bytes, so the text is encoded once, in its output.
+Each fragment is decoded once, by the transformer that searches it, and encoded once, in that transformer's output. The levels above pass its bytes through.
 
 > [!NOTE]
 > When using `matchIndex` / `streamIndices` from context, these will be specific to each engine instance, thus may not be the holistic "indexes into the stream".
@@ -449,7 +453,7 @@ const transformer = new ReplaceContentTransformer(
       } = /src="(?<url>[^"]+)"/.exec(match)!;
       const response = await fetch(url);
       if (response.ok) {
-        return response.body!.pipeThrough(new TextDecoderStream());
+        return response.body!;
       }
       if (matchIndex === 1) {
         abortController.abort(); // after two replacements, stop replacing
@@ -478,7 +482,7 @@ const transformer = new ReplaceContentTransformer(
       try {
         const response = await fetch(url, { signal: abortController.signal });
         if (response.ok) {
-          return response.body!.pipeThrough(new TextDecoderStream());
+          return response.body!;
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -529,10 +533,7 @@ function transformFactory() {
           groups: { url }
         } = /src="(?<url>[^"]+)"/.exec(match)!;
         const nodeStream = await new Promise<Readable>((resolve, reject) => {
-          get(url, (res) => {
-            res.setEncoding("utf8");
-            resolve(res);
-          }).on("error", reject);
+          get(url, resolve).on("error", reject);
         });
         return depth < maxDepth ? nested(nodeStream) : nodeStream;
       }
@@ -692,16 +693,18 @@ interface TransformEngine {
 
 `write()` and `end()` return `undefined` when the call completed synchronously, or a `Promise` the adapter waits for before its next call.
 
+The `EngineSink` receives the output as strings. A `ByteEngineSink`, which sets `acceptsBytes: true`, as `ReplaceContentTransformer` and `ReplaceContentTransform` do, also receives the UTF-8 bytes a replacement produces asynchronously, in order with the strings around them, without their being decoded. Each chunk of bytes is valid UTF-8 that ends at a character boundary, and may be a view of the replacement's own buffer, so a sink that keeps one past `enqueue` must copy it.
+
 > [!CAUTION]
 > Engines should only be driven by an adapter. Adapters call `write()` and `end()` one at a time, which keeps output in order and buffered text intact.
 
 There are two concrete engines:
 
-- **`SerialTransformEngine`** — serial replacement, synchronous or asynchronous. Each match is fully replaced before the engine searches for the next. `replacement` can be a plain `string` for static replacement, or a function returning a `string`, an `Iterable<string>`, an `AsyncIterable<string>` (e.g. a `ReadableStream`), or a `Promise` of any of these
+- **`SerialTransformEngine`** — serial replacement, synchronous or asynchronous. Each match is fully replaced before the engine searches for the next. `replacement` can be a plain `string` for static replacement, or a function returning a `string`, UTF-8 bytes (`Uint8Array`), an `Iterable` or `AsyncIterable` of strings or bytes (e.g. a `ReadableStream`, such as a `fetch` body), or a `Promise` of any of these
   - A function can return synchronously for some matches and asynchronously for others (see [Async Replacement](#async-replacement)):
-    - a `string` or `Iterable<string>` goes straight into the output, and the search carries on
-    - a `Promise` or `AsyncIterable<string>` pauses the search until it has been fully read
-  - An iterable must yield strings, not Promises. To yield Promises, return an async generator instead, e.g. `async function* () { yield* promises; }`, which awaits each in turn
+    - a `string`, bytes or `Iterable` goes straight into the output, and the search carries on
+    - a `Promise` or `AsyncIterable` pauses the search until it has been fully read
+  - An iterable must yield strings or bytes, not Promises. To yield Promises, return an async generator instead, e.g. `async function* () { yield* promises; }`, which awaits each in turn
   - Output arrives in as few chunks as possible. With a `stopReplacingSignal`, a Node consumer gets it piece by piece instead, so it can stop replacements as soon as it sees something (see [Stopping on output](#stopping-on-output))
 
 - **`LookaheadTransformEngine`** — concurrent pipelined replacement. Scans ahead and initiates replacement work for later matches while earlier ones are still in flight, preserving in-order output. Uses a pluggable `ConcurrencyStrategy` and supports recursive re-scanning via the `nested()` sentinel. See the [full documentation](./src/engines/lookahead-transform-engine/README.md)

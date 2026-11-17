@@ -43,6 +43,6 @@ export default [
     }
   },
   {
-    ignores: ["lib/", "node_modules/", "*.js", "coverage/", "test/benchmarks/build/"]
+    ignores: ["lib/", "node_modules/", "*.js", "coverage/", "test/benchmarks/build/", "types/**"]
   }
 ];

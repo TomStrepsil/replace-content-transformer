@@ -1,31 +1,49 @@
 import type {
+  ByteEngineSink,
   EngineSink,
   ReplacementContext,
-  TransformEngine
+  TransformEngine,
+  Utf8Bytes
 } from "./types.ts";
 import { TransformEngineBase } from "./transform-engine-base.ts";
 import { closeAbandoned, ignore } from "./abandon.ts";
 import type { MatchSink, SearchStrategy } from "../search-strategies/types.ts";
+import {
+  acceptsBytes,
+  isUtf8Bytes,
+  replacementPieceForwarder,
+  type ReplacementPieceForwarder
+} from "./replacement-pieces.ts";
 
-type SyncReplacement = string | Iterable<string>;
-type ReplacementValue = SyncReplacement | AsyncIterable<string>;
+type SyncReplacement = string | Utf8Bytes | Iterable<string | Utf8Bytes>;
+type ReplacementValue = SyncReplacement | AsyncIterable<string | Utf8Bytes>;
 
 /**
- * What a {@link SerialReplacementFn} may return: a `string`, an
- * `Iterable<string>` (e.g. an array or a generator), an
- * `AsyncIterable<string>` (e.g. an async generator or a `ReadableStream`),
- * or a `PromiseLike` of any of these.
+ * What a {@link SerialReplacementFn} may return: a `string`, UTF-8 bytes
+ * (a `Uint8Array`), an `Iterable` of strings and UTF-8 bytes (e.g. an array
+ * or a generator), an `AsyncIterable` of strings and UTF-8 bytes (e.g. an async generator, or a
+ * `ReadableStream` such as a `fetch` response body), or a `PromiseLike` of
+ * any of these.
  */
 export type SerialReplacement = ReplacementValue | PromiseLike<ReplacementValue>;
 
 /**
  * A replacement function for {@link SerialTransformEngine}.
  *
- * A `string` or an `Iterable<string>` is consumed within the call that found
- * the match. Anything else is awaited, and an `AsyncIterable<string>` read to
- * its end, before the search carries on, and makes that call return a
- * `Promise`. A value that is both iterable and async iterable is read as an
- * iterable.
+ * A `string`, bytes or an `Iterable` is consumed within the call that found
+ * the match, bytes decoded into its output. Anything else is
+ * awaited, and an `AsyncIterable` read to its end, before the search carries
+ * on, and makes that call return a `Promise`. A value that is both iterable
+ * and async iterable is read as an iterable.
+ *
+ * Bytes are read as UTF-8, as one sequence for each replacement, so a
+ * character split across its pieces is kept whole, and one it leaves
+ * incomplete becomes U+FFFD, as do malformed bytes. A byte order mark at the
+ * start of a replacement's bytes, or of bytes that follow a string it
+ * yields, is dropped. Those it produces asynchronously, whether a `Promise`
+ * resolves to them or to an iterable of them, or an `AsyncIterable` yields
+ * them, go to a sink with `EngineSink.acceptsBytes` without being decoded
+ * (see `ByteEngineSink`), and are otherwise decoded.
  *
  * @typeParam TMatch - The search strategy's match type
  * @typeParam TReturn - What the function returns
@@ -38,7 +56,7 @@ export type SerialReplacementFn<
 /**
  * What {@link SerialTransformEngine.write} and {@link SerialTransformEngine.end}
  * return for a given `replacement`: `void` when it is a `string` or a function
- * that can only return a `string` or an `Iterable<string>`, otherwise
+ * that can only return a `string`, bytes or an `Iterable`, otherwise
  * `void | Promise<void>`.
  */
 export type SerialEngineCallResult<TReplacement> = CallResultFor<
@@ -144,7 +162,12 @@ export class SerialTransformEngine<
   #stoppedAt: string | undefined;
   #output = "";
   #enqueueAsProduced = false;
-  #pending: Promise<ReplacementValue> | AsyncIterable<string> | undefined;
+  #pieces!: ReplacementPieceForwarder;
+  readonly #producedPieces = replacementPieceForwarder({
+    enqueue: (text: string) => this.#appendProduced(text)
+  });
+  #awaitedIterablePieces!: ReplacementPieceForwarder;
+  #pending: Promise<ReplacementValue> | AsyncIterable<string | Utf8Bytes> | undefined;
   #cancelled = false;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
@@ -164,7 +187,7 @@ export class SerialTransformEngine<
       if (typeof replacement === "string") {
         this.#appendProduced(replacement);
       } else if (Symbol.iterator in replacement) {
-        this.#appendIterable(replacement);
+        this.#forwardIterable(replacement, this.#producedPieces);
       } else {
         this.#pending = isPromiseLike(replacement) ? Promise.resolve(replacement) : replacement;
         return false;
@@ -185,13 +208,20 @@ export class SerialTransformEngine<
     this.#replacement =
       typeof replacement === "string"
         ? () => replacement
-        : (replacement as SerialReplacementFn<TMatch>);
+        : replacement;
   }
 
   override start(sink: EngineSink): void {
     super.start(sink);
     this.#enqueueAsProduced =
       this._stopReplacingSignal !== undefined && sink.deliveryDeferred !== true;
+    this.#pieces = replacementPieceForwarder(sink);
+    this.#awaitedIterablePieces = acceptsBytes(sink)
+      ? replacementPieceForwarder({
+          enqueue: (chunk: string | Utf8Bytes) => this.#appendOrEnqueueBytes(chunk, sink),
+          acceptsBytes: true
+        })
+      : this.#producedPieces;
   }
 
   write(chunk: string): SerialEngineCallResult<TReplacement>;
@@ -249,15 +279,16 @@ export class SerialTransformEngine<
         this.#pending = undefined;
         if (typeof replacement === "string") {
           if (replacement) this._sink.enqueue(replacement);
-        } else if (awaited && Symbol.iterator in replacement) {
-          this.#appendIterable(replacement);
+        } else if (Symbol.iterator in replacement) {
+          this.#forwardIterable(replacement, this.#awaitedIterablePieces);
           this.#enqueueOutput();
         } else {
-          for await (const item of replacement) {
+          for await (const piece of replacement) {
             if (this.#cancelled) return;
-            if (item) this._sink.enqueue(item);
+            this.#pieces.piece(piece);
             if (this.#cancelled) return;
           }
+          this.#pieces.end();
         }
         if (this.#cancelled) return;
         if (this._stopReplacingSignal?.aborted) {
@@ -283,12 +314,23 @@ export class SerialTransformEngine<
     void Promise.resolve(abandoned).then(closeIfAsyncIterable).catch(ignore);
   }
 
-  #appendIterable(replacement: Iterable<string>): void {
+  #forwardIterable(replacement: Utf8Bytes | Iterable<string | Utf8Bytes>, pieces: ReplacementPieceForwarder): void {
     if (this.#cancelled) throw scanCancelled;
-    for (const item of replacement) {
+    for (const piece of isUtf8Bytes(replacement) ? [replacement] : replacement) {
       if (this.#cancelled) throw scanCancelled;
-      this.#appendProduced(item);
+      pieces.piece(piece);
     }
+    pieces.end();
+  }
+
+  #appendOrEnqueueBytes(chunk: string | Utf8Bytes, sink: ByteEngineSink): void {
+    if (typeof chunk === "string") {
+      this.#appendProduced(chunk);
+      return;
+    }
+    this.#enqueueOutput();
+    if (this.#cancelled) throw scanCancelled;
+    sink.enqueue(chunk);
   }
 
   #appendProduced(content: string): void {
@@ -310,8 +352,7 @@ export class SerialTransformEngine<
   #append(content: string): void {
     try {
       this.#output += content;
-    } catch (error) {
-      if (typeof content !== "string") throw error;
+    } catch {
       this.#enqueueOutput();
       this.#output = content;
     }

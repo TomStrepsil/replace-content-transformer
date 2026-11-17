@@ -1,4 +1,4 @@
-export const BYTE_ORDER_MARK = "\uFEFF";
+import { BYTE_ORDER_MARK } from "../byte-order-mark.js";
 
 export class ByteOrderMarkBypass {
   readonly #onByteOrderMark: () => void;

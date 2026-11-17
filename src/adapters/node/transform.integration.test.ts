@@ -4,18 +4,27 @@ import { finished } from "node:stream/promises";
 import { buffer, text } from "node:stream/consumers";
 import { setImmediate } from "node:timers/promises";
 import { ReplaceContentTransform } from "./transform.js";
-import { collectWritable } from "../../../test/utilities.js";
+import {
+  asyncIterable,
+  byteReplacementEngines,
+  collectWritable,
+  textOfPieces,
+  unhandledRejectionsDuring,
+  utf8,
+  type ByteReplacement
+} from "../../../test/utilities.js";
+import { everyTwoWayByteSplit, midCharacterSplits } from "../../../test/web-adapters.js";
 import {
   LookaheadTransformEngine,
   SemaphoreStrategy,
   SerialTransformEngine,
-  nested
+  nested,
+  type Utf8Bytes
 } from "../../engines/index.js";
 import {
   RegexSearchStrategy,
   StringAnchorSearchStrategy
 } from "../../search-strategies/index.js";
-import { everyTwoWayByteSplit } from "../../../test/web-adapters.js";
 
 function sourceOf(...chunks: (string | Buffer)[]): Readable {
   return Readable.from(chunks, { objectMode: true });
@@ -484,5 +493,110 @@ describe("ReplaceContentTransform + LookaheadTransformEngine (Node adapter) + St
 
     const out = await text(sourceOf("{{outer}}").pipe(transform));
     expect(out).toBe("<o><i>leaf!</i></o>");
+  });
+});
+
+describe.each(byteReplacementEngines)("ReplaceContentTransform + $engine, with replacements that return bytes", ({ create }) => {
+  const replaced = (input: string, replacement: ByteReplacement) =>
+    text(sourceOf(input).pipe(new ReplaceContentTransform(create(replacement))));
+
+  it.each(midCharacterSplits())(
+    "replaces a match with a fragment's bytes, wherever its chunks split a 2-, 3- or 4-byte character (at byte $splitAt)",
+    async ({ chunks }) => {
+      await expect(replaced("a{{x}}b", async () => asyncIterable(...chunks))).resolves.toBe("a£€😀b");
+    }
+  );
+
+  it.each([
+    {
+      bytes: "a character a fragment leaves incomplete, rather than completing it with the next fragment's bytes",
+      input: "a{{x}}{{y}}b",
+      output: "a\uFFFD\uFFFDb"
+    },
+    { bytes: "malformed bytes in a fragment", input: "a{{z}}b", output: "a<\uFFFD>b" }
+  ])("pushes $bytes as U+FFFD", async ({ input, output }) => {
+    const fragments: Record<string, Utf8Bytes> = {
+      "{{x}}": Uint8Array.of(0xe2, 0x82),
+      "{{y}}": Uint8Array.of(0xac),
+      "{{z}}": Uint8Array.of(0x3c, 0xff, 0x3e)
+    };
+    const transform = new ReplaceContentTransform(create(async (match) => asyncIterable(fragments[match])));
+
+    expect(textOfPieces(await sourceOf(input).pipe(transform).toArray())).toBe(output);
+  });
+
+  it("pushes each piece of a fragment that reuses its buffer for the next piece as it was", async () => {
+    await expect(
+      replaced("a{{x}}b", async () =>
+        (async function* () {
+          const buffer = utf8("1");
+          yield buffer;
+          buffer.set(utf8("2"));
+          yield buffer;
+        })()
+      )
+    ).resolves.toBe("a12b");
+  });
+
+  it("pushes only strings when readableObjectMode is set, decoding a replacement's bytes", async () => {
+    const transform = new ReplaceContentTransform(
+      create(async () => asyncIterable(utf8("£€"))),
+      { readableObjectMode: true }
+    );
+
+    const chunks = await sourceOf("a{{x}}b").pipe(transform).toArray();
+
+    expect(chunks.every((chunk) => typeof chunk === "string")).toBe(true);
+    expect(chunks.join("")).toBe("a£€b");
+  });
+
+  it("streams a Node Readable of Buffers into the output, with no setEncoding", async () => {
+    await expect(
+      replaced("a{{x}}b", async () => Readable.from([Buffer.from("£€"), Buffer.from("😀")]))
+    ).resolves.toBe("a£€😀b");
+  });
+});
+
+describe("ReplaceContentTransform + LookaheadTransformEngine, with nested() replacements that return bytes", () => {
+  it("re-scans the Buffers of a nested() Node Readable at a depth over 1", async () => {
+    const fragments: Record<string, string> = {
+      "{{outer}}": "<o>€{{inner}}</o>",
+      "{{inner}}": "<i>😀{{leaf}}</i>",
+      "{{leaf}}": "leaf£"
+    };
+    const transform = new ReplaceContentTransform(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match, { depth }) => {
+          const encoded = Buffer.from(fragments[match]);
+          const source = Readable.from([encoded.subarray(0, 4), encoded.subarray(4)]);
+          return depth < 2 ? nested(source) : source;
+        }
+      })
+    );
+
+    await expect(text(sourceOf("{{outer}}").pipe(transform))).resolves.toBe("<o>€<i>😀leaf£</i></o>");
+  });
+});
+
+describe("ReplaceContentTransform + LookaheadTransformEngine, failing replacement", () => {
+  it("destroys the stream with the replacement's error, leaving no rejection unhandled", async () => {
+    let streamError: unknown;
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      const transform = new ReplaceContentTransform(
+        new LookaheadTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement: async () => {
+            throw new Error("fragment failed");
+          }
+        })
+      );
+      streamError = await text(sourceOf("a{{x}}b").pipe(transform)).catch((error: unknown) => error);
+    });
+
+    expect(streamError).toEqual(new Error("fragment failed"));
+    expect(unhandled).toEqual([]);
   });
 });

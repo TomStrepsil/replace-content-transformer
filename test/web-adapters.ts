@@ -1,10 +1,11 @@
 import type { TransformEngine } from "../src/engines/types.ts";
+import { utf8 } from "./utilities.ts";
 import {
   ReplaceContentTextTransformer,
   ReplaceContentTransformer
 } from "../src/adapters/web/index.ts";
 
-type Bytes = ReturnType<TextEncoder["encode"]>;
+type Bytes = ReturnType<typeof utf8>;
 
 type WebChunk = string | Bytes;
 
@@ -23,12 +24,10 @@ interface WebAdapterFamily<C extends WebChunk> {
   fromBytes(source: ReadableStream<Bytes>): ReadableStream<C>;
 }
 
-const utf8Encoder = new TextEncoder();
-
 const byteWebAdapter: WebAdapterFamily<Bytes> = {
   adapter: "ReplaceContentTransformer",
   create: (engine) => new ReplaceContentTransformer(engine),
-  chunkOf: (text) => utf8Encoder.encode(text),
+  chunkOf: utf8,
   textOf: (chunk) => new TextDecoder().decode(chunk),
   fromBytes: (source) => source
 };
@@ -42,11 +41,17 @@ const textWebAdapter: WebAdapterFamily<string> = {
 };
 
 function everyTwoWayByteSplit(text: string): Bytes[][] {
-  const bytes = utf8Encoder.encode(text);
+  const bytes = utf8(text);
   return Array.from({ length: bytes.length + 1 }, (_, at) => [
     bytes.subarray(0, at),
     bytes.subarray(at)
   ]);
+}
+
+/** A split inside each of a 2-, a 3- and a 4-byte character. */
+function midCharacterSplits(): { splitAt: number; chunks: Bytes[] }[] {
+  const splits = everyTwoWayByteSplit("£€😀");
+  return [1, 3, 6].map((splitAt) => ({ splitAt, chunks: splits[splitAt] }));
 }
 
 function byteStreamOf(chunks: Bytes[]): ReadableStream<Bytes> {
@@ -64,5 +69,6 @@ export {
   byteStreamOf,
   byteWebAdapter,
   everyTwoWayByteSplit,
+  midCharacterSplits,
   textWebAdapter
 };

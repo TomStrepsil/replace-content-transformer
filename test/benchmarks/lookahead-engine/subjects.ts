@@ -68,7 +68,7 @@ function makeManualNestingAdapter(
   const adapted: (match: string, context: ReplacementContext) => Promise<AsyncIterable<string>> =
     async (match, context) => {
       const result = await instrumented(match, context);
-      if (!(result instanceof Nested)) return result as AsyncIterable<string>;
+      if (!(result instanceof Nested)) return result;
       // Manual nesting: re-scan via a fresh child transformer (same strategy).
       const childTransformer = new ReplaceContentTextTransformer(
         new SerialTransformEngine({

@@ -755,12 +755,8 @@ describe("RegexSearchStrategy", () => {
 
     testCases.forEach(
       ({ name, pattern, chunks, expected }) => {
-        const skipOnBun =
-          typeof Bun !== "undefined" &&
-          name.includes("complement unicodeSet character classes");
-
         describe(name, () => {
-          test.skipIf(skipOnBun)("matches", () => {
+          test("matches", () => {
             const { results, settledResults } = collectSearchStrategyResults(
               new RegexSearchStrategy(pattern),
               chunks
@@ -770,7 +766,7 @@ describe("RegexSearchStrategy", () => {
             expect(results).toMatchObject(expected);
           });
 
-          test.skipIf(skipOnBun)(
+          test(
             "matches the same at every two-way, three-way and per-character split",
             () => {
               expectSameMatchesAtEverySplit(pattern, chunks.join(""));

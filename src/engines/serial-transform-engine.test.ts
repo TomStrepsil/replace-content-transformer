@@ -3,13 +3,19 @@ import { constants } from "node:buffer";
 import { setImmediate } from "node:timers/promises";
 import { Readable } from "node:stream";
 import { SerialTransformEngine } from "./serial-transform-engine.ts";
-import type { TransformEngine } from "./types.ts";
+import type { EngineSink, TransformEngine, Utf8Bytes } from "./types.ts";
 import type { MatchResult } from "../../test/utilities.ts";
 import {
   abortingOnFirstCall,
+  asyncIterable,
   collectEngineSink,
+  foreignRealmUtf8,
   mockSearchStrategy,
-  mockSearchStrategyFactory
+  mockSearchStrategyFactory,
+  sinkKinds,
+  textOfPieces,
+  unhandledRejectionsDuring,
+  utf8
 } from "../../test/utilities.ts";
 
 function runEngine(engine: TransformEngine, inputs: string[]): string[] {
@@ -39,9 +45,10 @@ function closableAsyncIterable(...pieces: string[]) {
 
 async function runEngineAsync(
   engine: TransformEngine,
-  inputs: string[]
-): Promise<string[]> {
-  const { sink, chunks } = collectEngineSink();
+  inputs: string[],
+  { acceptsBytes = false } = {}
+): Promise<(string | Utf8Bytes)[]> {
+  const { sink, chunks } = collectEngineSink({ acceptsBytes });
   engine.start(sink);
   for (const input of inputs) await engine.write(input);
   await engine.end();
@@ -155,6 +162,52 @@ describe("SerialTransformEngine", () => {
         }
       });
       expect(outputOf(engine, ["X"])).toBe("PQ");
+    });
+
+    it.each([undefined, null])("skips an item that is %s", (item) => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => ["A", item as unknown as string, "B"]
+      });
+      expect(outputOf(engine, ["X"])).toBe("AB");
+    });
+
+    it("converts an item that is neither a string nor bytes to a string", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => [1, 2] as unknown as string[]
+      });
+      expect(outputOf(engine, ["X"])).toBe("12");
+    });
+
+    it("throws the error from converting an item to a string", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const unconvertible = {
+        toString: () => {
+          throw new Error("boom");
+        }
+      } as unknown as string;
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => [unconvertible]
+      });
+      engine.start(collectEngineSink().sink);
+
+      expect(() => engine.write("X")).toThrow("boom");
     });
   });
 
@@ -730,22 +783,6 @@ describe("SerialTransformEngine", () => {
       engine.end();
 
       expect(delivered).toBe(replacementLength * matches);
-    });
-
-    it("rethrows an error other than running out of string length while appending a replacement's output", () => {
-      const { strategy } = mockSearchStrategy({ chunk: [match("M", 0)] });
-      const unconvertible = {
-        toString: () => {
-          throw new Error("boom");
-        }
-      } as unknown as string;
-      const engine = new SerialTransformEngine({
-        searchStrategy: strategy,
-        replacement: () => [unconvertible]
-      });
-      engine.start(collectEngineSink().sink);
-
-      expect(() => engine.write("M")).toThrow("boom");
     });
 
     it("enqueues nothing for a call whose output is empty", () => {
@@ -1633,18 +1670,13 @@ describe("SerialTransformEngine", () => {
         replacement: () => gate.promise
       });
       engine.start({ enqueue: () => engine.cancel(), error: () => {} });
-      const unhandled = vi.fn();
-      process.on("unhandledRejection", unhandled);
 
-      try {
+      const unhandled = await unhandledRejectionsDuring(async () => {
         await engine.write("input");
         gate.reject(new Error("late"));
-        await setImmediate();
+      });
 
-        expect(unhandled).not.toHaveBeenCalled();
-      } finally {
-        process.off("unhandledRejection", unhandled);
-      }
+      expect(unhandled).toEqual([]);
     });
 
     it.each([
@@ -1722,17 +1754,12 @@ describe("SerialTransformEngine", () => {
         },
         error: () => {}
       });
-      const unhandled = vi.fn();
-      process.on("unhandledRejection", unhandled);
 
-      try {
+      const unhandled = await unhandledRejectionsDuring(async () => {
         await Promise.resolve(engine.write("input")).catch(() => {});
-        await setImmediate();
+      });
 
-        expect(unhandled).not.toHaveBeenCalled();
-      } finally {
-        process.off("unhandledRejection", unhandled);
-      }
+      expect(unhandled).toEqual([]);
     });
 
     it("closes an async iterable returned for a match that follows text the sink throws on", async () => {
@@ -1901,6 +1928,246 @@ describe("SerialTransformEngine", () => {
       await engine.write("input");
 
       expect(chunks).toEqual(["one"]);
+    });
+  });
+
+  describe("byte replacements", () => {
+    const aroundOneMatch = () =>
+      mockSearchStrategyFactory<string>(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "M", streamIndices: [4, 5] },
+        { isMatch: false, content: " post" }
+      );
+
+    const twoAdjacentMatches = () =>
+      mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: true, content: "B", streamIndices: [1, 2] }
+      );
+
+    const iterableShapes = [
+      { shape: "an iterable", of: (...pieces: (string | Utf8Bytes)[]) => pieces },
+      { shape: "an async iterable", of: (...pieces: (string | Utf8Bytes)[]) => asyncIterable(...pieces) }
+    ];
+    const replacementShapes = [
+      { shape: "bytes", of: (bytes: Utf8Bytes) => bytes },
+      { shape: "a Promise of bytes", of: async (bytes: Utf8Bytes) => bytes },
+      ...iterableShapes
+    ];
+    const forEachSinkKind = <T extends object>(cases: T[]) =>
+      cases.flatMap((testCase) => sinkKinds.map((kind) => ({ ...testCase, ...kind })));
+
+    it.each([
+      { shape: "bytes", replacement: () => utf8("€") },
+      { shape: "the byte pieces of an iterable", replacement: () => [Uint8Array.of(0xe2), Uint8Array.of(0x82, 0xac)] }
+    ])("decodes $shape returned synchronously into the call's one output chunk, keeping the call synchronous, even for a sink that accepts bytes", ({ replacement }) => {
+      const engine = new SerialTransformEngine({ searchStrategy: aroundOneMatch(), replacement });
+      const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
+      engine.start(sink);
+
+      expect(engine.write("input")).toBeUndefined();
+      expect(chunks).toEqual(["pre € post"]);
+    });
+
+    it("types write() as synchronous for a replacement that returns bytes, or an iterable of strings and bytes", () => {
+      const returningBytes = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => utf8("€")
+      });
+      const returningIterable = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => ["<", utf8("€")]
+      });
+
+      expectTypeOf(returningBytes.write).returns.toEqualTypeOf<void>();
+      expectTypeOf(returningIterable.write).returns.toEqualTypeOf<void>();
+    });
+
+    it("passes the byte pieces of an iterable a Promise resolves to, to a sink that accepts bytes, as they are, in order with the strings around them", async () => {
+      const fragment = utf8("€");
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async () => ["<", fragment, ">"]
+      });
+      const chunks = await runEngineAsync(engine, ["input"], { acceptsBytes: true });
+
+      expect(chunks).toContain(fragment);
+      expect(textOfPieces(chunks)).toBe("pre <€> post");
+    });
+
+    it.each(sinkKinds)("enqueues the strings of an iterable a Promise resolves to as one chunk, for $sinkKind", async ({ acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async () => ["<", "€", ">"]
+      });
+
+      expect(await runEngineAsync(engine, ["input"], { acceptsBytes })).toEqual(["pre ", "<€>", " post"]);
+    });
+
+    it.each(sinkKinds)("skips an undefined or null piece of an async iterable, for $sinkKind", async ({ acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async function* () {
+          yield "x";
+          yield undefined as unknown as string;
+          yield null as unknown as string;
+          yield "y";
+        }
+      });
+
+      expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre xy post");
+    });
+
+    it("passes bytes a Promise resolves to, to a sink that accepts bytes, as they are", async () => {
+      const fragment = utf8("€");
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async () => fragment
+      });
+      const chunks = await runEngineAsync(engine, ["input"], { acceptsBytes: true });
+
+      expect(chunks).toHaveLength(3);
+      expect(chunks[1]).toBe(fragment);
+    });
+
+    it("decodes bytes a Promise resolves to, for a sink that receives only strings", async () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async () => utf8("€")
+      });
+
+      expect((await runEngineAsync(engine, ["input"])).join("")).toBe("pre € post");
+    });
+
+    it("passes each byte piece of an async iterable to a sink that accepts bytes as it is, in order with the strings around it", async () => {
+      const first = utf8("a");
+      const last = utf8("c");
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => asyncIterable<string | Utf8Bytes>(first, "b", last)
+      });
+      const chunks = await runEngineAsync(engine, ["input"], { acceptsBytes: true });
+
+      expect(chunks).toHaveLength(5);
+      expect(chunks[0]).toBe("pre ");
+      expect(chunks[1]).toBe(first);
+      expect(chunks[2]).toBe("b");
+      expect(chunks[3]).toBe(last);
+      expect(chunks[4]).toBe(" post");
+    });
+
+    it("passes the bytes of a ReadableStream, such as a fetch response body, to a sink that accepts bytes", async () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async () => new Response("fragment €").body!
+      });
+      const chunks = await runEngineAsync(engine, ["input"], { acceptsBytes: true });
+
+      expect(chunks.slice(1, -1).every((chunk) => chunk instanceof Uint8Array)).toBe(true);
+      expect(textOfPieces([chunks[1]])).toBe("fragment €");
+    });
+
+    it("enqueues no chunk for an empty byte piece", async () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => asyncIterable(new Uint8Array(0))
+      });
+
+      expect(await runEngineAsync(engine, ["input"], { acceptsBytes: true })).toEqual(["pre ", " post"]);
+    });
+
+    it.each(forEachSinkKind(replacementShapes))("decodes $shape replacement that ends part way through a character as U+FFFD at its own end, rather than completing it with the next replacement's bytes, for $sinkKind", async ({ of, acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: twoAdjacentMatches(),
+        replacement: (match) => of(match === "A" ? Uint8Array.of(0xe2, 0x82) : Uint8Array.of(0xac))
+      });
+
+      expect(textOfPieces(await runEngineAsync(engine, ["AB"], { acceptsBytes }))).toBe("\uFFFD\uFFFD");
+    });
+
+    it.each(forEachSinkKind(replacementShapes))("drops a byte order mark at the start of $shape replacement's bytes, for $sinkKind", async ({ of, acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => of(utf8("\uFEFFa"))
+      });
+
+      expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre a post");
+    });
+
+    it.each(forEachSinkKind(iterableShapes))("drops a byte order mark at the start of bytes that follow a string piece of $shape replacement, for $sinkKind", async ({ of, acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => of("<div>", utf8("\uFEFFa"), "</div>")
+      });
+
+      expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre <div>a</div> post");
+    });
+
+    it.each(forEachSinkKind(replacementShapes))("reads $shape replacement's bytes from another realm as bytes, for $sinkKind, as a fetch body's chunks are by code run in a vm context, such as a Jest test environment", async ({ of, acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => of(foreignRealmUtf8("€"))
+      });
+
+      expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre € post");
+    });
+
+    it.each(forEachSinkKind(iterableShapes))("keeps a character whole across an empty string piece of $shape replacement, which doesn't end its bytes, for $sinkKind", async ({ of, acceptsBytes }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => of(Uint8Array.of(0xe2), "", Uint8Array.of(0x82, 0xac))
+      });
+
+      expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre € post");
+    });
+
+    it("decodes bytes for a sink declared as a class implementing EngineSink, whose enqueue takes only strings", async () => {
+      class StringSink implements EngineSink {
+        readonly chunks: string[] = [];
+        enqueue(chunk: string): void {
+          this.chunks.push(chunk);
+        }
+        error(): void {}
+      }
+      const sink = new StringSink();
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => asyncIterable(utf8("€"))
+      });
+      engine.start(sink);
+      await engine.write("input");
+      await engine.end();
+
+      expect(sink.chunks.join("")).toBe("pre € post");
+    });
+
+    it("accepts a replacement typed as returning any Uint8Array, such as a Node Buffer", () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: (): Buffer => Buffer.from("€")
+      });
+
+      expect(runEngine(engine, ["input"]).join("")).toBe("pre € post");
+    });
+
+    it("accepts an async iterable replacement typed as yielding any Uint8Array, such as Node Buffers", async () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async function* (): AsyncGenerator<Uint8Array> {
+          yield Buffer.from("€");
+        }
+      });
+
+      expect((await runEngineAsync(engine, ["input"])).join("")).toBe("pre € post");
+    });
+
+    it("reads a Node Readable's Buffer chunks as bytes, rather than as strings", async () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => Readable.from([Buffer.from("€")])
+      });
+
+      expect((await runEngineAsync(engine, ["input"])).join("")).toBe("pre € post");
     });
   });
 });
