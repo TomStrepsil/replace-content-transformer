@@ -2121,6 +2121,31 @@ describe("SerialTransformEngine", () => {
       expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre € post");
     });
 
+    it("enqueues nothing once a sink that accepts bytes cancels it on receiving the U+FFFD that ends a run of bytes before a string piece", async () => {
+      const afterCancel: (string | Utf8Bytes)[] = [];
+      let cancelled = false;
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: () => asyncIterable<string | Utf8Bytes>(Uint8Array.of(0xe2), "x")
+      });
+      engine.start({
+        enqueue: (chunk: string | Utf8Bytes) => {
+          if (cancelled) afterCancel.push(chunk);
+          else if (typeof chunk === "string" && chunk.includes("\uFFFD")) {
+            cancelled = true;
+            engine.cancel();
+          }
+        },
+        error: () => {},
+        acceptsBytes: true
+      });
+      await engine.write("input");
+      await engine.end();
+
+      expect(cancelled).toBe(true);
+      expect(afterCancel).toEqual([]);
+    });
+
     it("decodes bytes for a sink declared as a class implementing EngineSink, whose enqueue takes only strings", async () => {
       class StringSink implements EngineSink {
         readonly chunks: string[] = [];

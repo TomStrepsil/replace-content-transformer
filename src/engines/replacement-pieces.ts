@@ -155,9 +155,7 @@ class BytePieceForwarder implements ReplacementPieceForwarder {
   piece(piece: string | Utf8Bytes): void {
     if (!isUtf8Bytes(piece)) {
       const text = textOf(piece);
-      if (!text) return;
-      this.end();
-      this.#sink.enqueue(text);
+      if (text) this.#sink.enqueue(this.#endRun() + text);
       return;
     }
     if (this.#malformedRun.decoding) {
@@ -181,10 +179,14 @@ class BytePieceForwarder implements ReplacementPieceForwarder {
   }
 
   end(): void {
+    this.#enqueueText(this.#endRun());
+  }
+
+  #endRun(): string {
     const text = this.#malformedRun.end() + heldBytesDecoder.decode(this.#held);
     this.#held = noBytes;
     this.#runStarting = true;
-    this.#enqueueText(text);
+    return text;
   }
 
   #enqueueText(text: string): void {

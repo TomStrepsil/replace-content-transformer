@@ -498,7 +498,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     );
     child.start({
       enqueue: (c: string | Utf8Bytes) => {
-        buffer.push(c);
+        buffer.push(typeof c === "string" ? c : new Uint8Array(c));
         wake();
       },
       error: (e) => {

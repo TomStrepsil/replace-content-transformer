@@ -8,6 +8,7 @@ import {
   asyncIterable,
   byteReplacementEngines,
   collectWritable,
+  reusingOneBuffer,
   textOfPieces,
   unhandledRejectionsDuring,
   utf8,
@@ -527,14 +528,7 @@ describe.each(byteReplacementEngines)("ReplaceContentTransform + $engine, with r
 
   it("pushes each piece of a fragment that reuses its buffer for the next piece as it was", async () => {
     await expect(
-      replaced("a{{x}}b", async () =>
-        (async function* () {
-          const buffer = utf8("1");
-          yield buffer;
-          buffer.set(utf8("2"));
-          yield buffer;
-        })()
-      )
+      replaced("a{{x}}b", async () => reusingOneBuffer("1", "2"))
     ).resolves.toBe("a12b");
   });
 
@@ -577,6 +571,19 @@ describe("ReplaceContentTransform + LookaheadTransformEngine, with nested() repl
     );
 
     await expect(text(sourceOf("{{outer}}").pipe(transform))).resolves.toBe("<o>€<i>😀leaf£</i></o>");
+  });
+
+  it("pushes each piece of a replacement within nested() content that reuses its buffer for the next piece as it was", async () => {
+    const transform = new ReplaceContentTransform(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "{{outer}}" ? nested(asyncIterable("<{{leaf}}>")) : reusingOneBuffer("1", "2")
+      })
+    );
+
+    await expect(text(sourceOf("{{outer}}").pipe(transform))).resolves.toBe("<12>");
   });
 });
 

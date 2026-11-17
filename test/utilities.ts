@@ -332,6 +332,14 @@ function foreignRealmUtf8(text: string): Utf8Bytes {
   return runInNewContext("Uint8Array.from(bytes)", { bytes: [...utf8(text)] }) as Utf8Bytes;
 }
 
+/** Yields `first` then `second` as UTF-8 of the same length, from one buffer it overwrites for `second`. */
+async function* reusingOneBuffer(first: string, second: string): AsyncGenerator<Utf8Bytes> {
+  const buffer = utf8(first);
+  yield buffer;
+  buffer.set(utf8(second));
+  yield buffer;
+}
+
 /** A copy of `bytes` in a resizable `ArrayBuffer`, which browsers refuse where a `BufferSource` is expected. */
 function inResizableArrayBuffer(bytes: Utf8Bytes): Utf8Bytes {
   const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength, { maxByteLength: bytes.byteLength * 2 + 1 }));
@@ -482,6 +490,7 @@ export {
   streamToString,
   refuseResizableBuffersInTextDecoder,
   inResizableArrayBuffer,
+  reusingOneBuffer,
   textOfPieces,
   foreignRealmUtf8,
   textWrittenTo,

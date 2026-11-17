@@ -2278,6 +2278,34 @@ describe("LookaheadTransformEngine", () => {
       expect(textOfPieces(chunks)).toBe("<€>");
     });
 
+    it("enqueues nothing once a sink that accepts bytes cancels it on receiving the U+FFFD that ends a run of bytes before a string piece", async () => {
+      const afterCancel: (string | Utf8Bytes)[] = [];
+      let cancelled = false;
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async () => asyncIterable<string | Utf8Bytes>(Uint8Array.of(0xe2), "x")
+      });
+      await runEngine(
+        engine,
+        {
+          enqueue: (chunk: string | Utf8Bytes) => {
+            if (cancelled) afterCancel.push(chunk);
+            else if (typeof chunk === "string" && chunk.includes("\uFFFD")) {
+              cancelled = true;
+              engine.cancel();
+            }
+          },
+          error: () => {},
+          acceptsBytes: true
+        },
+        ["<{{x}}>"]
+      );
+
+      expect(cancelled).toBe(true);
+      expect(afterCancel).toEqual([]);
+    });
+
     it("keeps byte slots in stream order when a later replacement settles first", async () => {
       const first = Promise.withResolvers<void>();
       const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
@@ -2356,7 +2384,7 @@ describe("LookaheadTransformEngine", () => {
       expect(textOfPieces(chunks)).toBe("\uFFFD\uFFFD");
     });
 
-    it("passes the bytes of a nested replacement to a sink that accepts bytes as they are", async () => {
+    it("passes the bytes of a nested replacement to a sink that accepts bytes undecoded", async () => {
       const leaf = utf8("€");
       const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
       const engine = new LookaheadTransformEngine({
@@ -2367,7 +2395,7 @@ describe("LookaheadTransformEngine", () => {
       });
       await runEngine(engine, sink, ["{{outer}}"]);
 
-      expect(chunks).toContain(leaf);
+      expect(chunks).toContainEqual(leaf);
     });
   });
 });
