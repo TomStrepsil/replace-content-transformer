@@ -2121,6 +2121,28 @@ describe("SerialTransformEngine", () => {
       expect(textOfPieces(await runEngineAsync(engine, ["input"], { acceptsBytes }))).toBe("pre € post");
     });
 
+    it.each(sinkKinds)("enqueues nothing once cancelled while the last read of an async iterable that left a character incomplete is pending, for $sinkKind", async ({ acceptsBytes }) => {
+      const lastRead = Promise.withResolvers<void>();
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundOneMatch(),
+        replacement: async function* () {
+          yield Uint8Array.of(0xe2);
+          await lastRead.promise;
+        }
+      });
+      const { sink, chunks } = collectEngineSink({ acceptsBytes });
+      engine.start(sink);
+      const written = engine.write("input");
+      await setImmediate();
+      const enqueuedBeforeCancel = chunks.length;
+
+      engine.cancel();
+      lastRead.resolve();
+      await written;
+
+      expect(chunks.slice(enqueuedBeforeCancel)).toEqual([]);
+    });
+
     it("enqueues nothing once a sink that accepts bytes cancels it on receiving the U+FFFD that ends a run of bytes before a string piece", async () => {
       const afterCancel: (string | Utf8Bytes)[] = [];
       let cancelled = false;

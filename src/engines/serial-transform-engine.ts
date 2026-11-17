@@ -288,6 +288,7 @@ export class SerialTransformEngine<
             this.#pieces.piece(piece);
             if (this.#cancelled) return;
           }
+          if (this.#cancelled) return;
           this.#pieces.end();
         }
         if (this.#cancelled) return;
