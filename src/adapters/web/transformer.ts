@@ -1,4 +1,5 @@
 import type { TransformEngine } from "../../engines/types.js";
+import { BYTE_ORDER_MARK, ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
 import { TrailingHighSurrogateHold } from "../trailing-high-surrogate-hold.js";
 
 const encoder = new TextEncoder();
@@ -53,8 +54,10 @@ type EncodedChunk = ReturnType<TextEncoder["encode"]>;
  * @remarks **Encoding**: input is decoded as UTF-8, keeping multi-byte
  * characters intact across chunk boundaries, so a byte stream such as
  * `Response.body` needs no {@link TextDecoderStream} or
- * {@link TextEncoderStream}. A byte order mark is kept, as are malformed
- * bytes, each decoded as U+FFFD. Output is encoded as UTF-8, holding a
+ * {@link TextEncoderStream}. A byte order mark at the start of the input is
+ * kept at the start of the output but not searched, so the engine sees the
+ * text a {@link TextDecoderStream} would decode. Malformed bytes are each
+ * decoded as U+FFFD. Output is encoded as UTF-8, holding a
  * trailing high surrogate back until the next chunk so a surrogate pair split
  * across output chunks is encoded as one character. Each chunk the adapter
  * encodes has its own `ArrayBuffer`, so downstream may transfer it.
@@ -70,6 +73,9 @@ export class ReplaceContentTransformer implements Transformer<
   readonly #engine: TransformEngine;
   readonly #decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   readonly #hold = new TrailingHighSurrogateHold();
+  readonly #byteOrderMark = new ByteOrderMarkBypass(() =>
+    this.#controller!.enqueue(encoder.encode(BYTE_ORDER_MARK))
+  );
   #controller?: TransformStreamDefaultController<EncodedChunk>;
 
   constructor(engine: TransformEngine) {
@@ -86,7 +92,9 @@ export class ReplaceContentTransformer implements Transformer<
   }
 
   transform(chunk: Uint8Array): void | Promise<void> {
-    const text = this.#decoder.decode(chunk, { stream: true });
+    const text = this.#byteOrderMark.textForEngine(
+      this.#decoder.decode(chunk, { stream: true })
+    );
     return text ? this.#engine.write(text) : undefined;
   }
 

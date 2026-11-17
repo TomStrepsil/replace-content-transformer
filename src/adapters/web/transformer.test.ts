@@ -211,13 +211,25 @@ describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
       expect(engine.write).not.toHaveBeenCalled();
     });
 
-    it("keeps a leading byte order mark", () => {
-      const { engine, transformer } = startedTransformer(mockSyncEngine());
+    it.each([
+      { name: "in one chunk", chunks: [[0xef, 0xbb, 0xbf, 0x61]] },
+      { name: "split across chunks", chunks: [[0xef], [0xbb, 0xbf, 0x61]] }
+    ])(
+      "enqueues a leading byte order mark ahead of the engine's output, and writes only the text after it to the engine ($name)",
+      ({ chunks }) => {
+        const { engine, transformer, outputs, sink } = startedTransformer(
+          mockSyncEngine()
+        );
+        engine.write.mockImplementation((text) => sink.enqueue(text));
 
-      transformer.transform(new Uint8Array([0xef, 0xbb, 0xbf, 0x61]));
+        for (const chunk of chunks) transformer.transform(new Uint8Array(chunk));
 
-      expect(engine.write).toHaveBeenCalledExactlyOnceWith("\uFEFFa");
-    });
+        expect(textWrittenTo(engine)).toBe("a");
+        expect(outputs.flatMap((chunk) => [...chunk])).toEqual([
+          0xef, 0xbb, 0xbf, 0x61
+        ]);
+      }
+    );
 
     it("errors the stream when given a string chunk, as from an unmigrated TextDecoderStream", async () => {
       const unmigrated = byteStreamOf([utf8.encode("text")])
