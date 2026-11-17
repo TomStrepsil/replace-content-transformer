@@ -5,6 +5,7 @@ import {
 } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { TransformEngine } from "../../engines/types.js";
+import { BYTE_ORDER_MARK, ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
 import { TrailingHighSurrogateHold } from "../trailing-high-surrogate-hold.js";
 
 function toError(err: unknown): Error {
@@ -72,9 +73,12 @@ function cancelEngine(engine?: TransformEngine): Error | undefined {
  * decode upstream (e.g. with a streaming `TextDecoder`) and write strings
  * with `decodeStrings: false`. With Node's default `decodeStrings: true`, a
  * written string is converted to a `Buffer` using `write()`'s encoding, then
- * decoded as UTF-8. Output is encoded as UTF-8, holding a trailing high
- * surrogate back until the next chunk so a surrogate pair split across
- * output chunks is encoded as one character.
+ * decoded as UTF-8. A byte order mark at the start of the input the adapter
+ * decodes is kept at the start of the output but not searched; a string
+ * written with `decodeStrings: false` is searched as written. Output is
+ * encoded as UTF-8, holding a trailing high surrogate back until the next
+ * chunk so a surrogate pair split across output chunks is encoded as one
+ * character.
  *
  * @remarks **Stopping on output**: destroying the stream cancels the engine.
  * A consumer that destroys it on receiving some output prevents any later
@@ -88,6 +92,9 @@ export class ReplaceContentTransform extends Transform {
   readonly #engine: TransformEngine;
   readonly #decoder = new StringDecoder("utf8");
   readonly #hold = new TrailingHighSurrogateHold();
+  readonly #byteOrderMark = new ByteOrderMarkBypass(() =>
+    this.push(BYTE_ORDER_MARK)
+  );
   private _engineRunning?: boolean;
 
   constructor(engine: TransformEngine, options?: TransformOptions) {
@@ -156,8 +163,8 @@ export class ReplaceContentTransform extends Transform {
 
   #decode(chunk: Buffer | string): string {
     return typeof chunk === "string"
-      ? this.#decoder.end() + chunk
-      : this.#decoder.write(chunk);
+      ? this.#byteOrderMark.textDecodedUpstream(this.#decoder.end() + chunk)
+      : this.#byteOrderMark.textForEngine(this.#decoder.write(chunk));
   }
 
   #pushIfAny(text: string): void {

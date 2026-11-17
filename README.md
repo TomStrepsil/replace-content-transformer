@@ -82,7 +82,7 @@ const replaced = response.body!.pipeThrough(new TransformStream(transformer));
 return new Response(replaced, response);
 ```
 
-Multi-byte characters split across chunks are decoded intact, and a byte order mark is kept. A string chunk errors the stream.
+Multi-byte characters split across chunks are decoded intact. A byte order mark at the start of the input is kept at the start of the output but not searched, so a search strategy and `streamIndices` see the text a `TextDecoderStream` would decode. A string chunk errors the stream.
 
 #### Streams of strings
 
@@ -500,7 +500,7 @@ This should ensure in-flight requests are cancelled along with ongoing replaceme
 Use the Node adapter (`ReplaceContentTransform`) for a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform) implementation, if performance cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion is a concern.
 
 > [!CAUTION]
-> **Encoding**: this adapter decodes `Buffer` input as UTF-8, keeping a multi-byte character intact across chunk boundaries. Non-UTF-8 byte streams will be mis-decoded silently: decode upstream with a [`TextDecoder`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder) for the source charset (calling `decode(chunk, { stream: true })` per chunk) and write strings with `decodeStrings: false`. Output is always UTF-8, with a surrogate pair split across output chunks encoded as one character; to re-encode it to a legacy charset, use a library such as [`iconv-lite`](https://www.npmjs.com/package/iconv-lite), since `TextEncoder` only produces UTF-8. A string written with Node's default `decodeStrings: true` is converted to a `Buffer` using the encoding passed to `write()` (or `defaultEncoding`) and then decoded as UTF-8; with `decodeStrings: false`, string chunks reach the engine unchanged.
+> **Encoding**: this adapter decodes `Buffer` input as UTF-8, keeping a multi-byte character intact across chunk boundaries. Non-UTF-8 byte streams will be mis-decoded silently: decode upstream with a [`TextDecoder`](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder) for the source charset (calling `decode(chunk, { stream: true })` per chunk) and write strings with `decodeStrings: false`. Output is always UTF-8, with a surrogate pair split across output chunks encoded as one character; to re-encode it to a legacy charset, use a library such as [`iconv-lite`](https://www.npmjs.com/package/iconv-lite), since `TextEncoder` only produces UTF-8. A string written with Node's default `decodeStrings: true` is converted to a `Buffer` using the encoding passed to `write()` (or `defaultEncoding`) and then decoded as UTF-8; with `decodeStrings: false`, string chunks reach the engine unchanged, a leading U+FEFF included, as a `TextDecoder` upstream has already removed any byte order mark. A byte order mark at the start of the input the adapter decodes is kept at the start of the output but not searched, so a search strategy and `streamIndices` see the text a `TextDecoder` would decode.
 
 `ReplaceContentTransform` shares the same engines and options as its web counterpart, so pipelined in-order async replacement, nested `nested()` re-scanning, bounded concurrency, and `highWaterMark` backpressure behave identically across runtimes. The standard `TransformOptions.highWaterMark` controls Node-stream backpressure independently of the engine's own `highWaterMark`.
 

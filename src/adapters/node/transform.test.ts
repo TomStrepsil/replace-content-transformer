@@ -304,6 +304,53 @@ describe("ReplaceContentTransform (Node adapter)", () => {
         expect(textWrittenTo(engine)).toBe("hé");
       });
 
+      it.each([
+        { name: "in one chunk", chunks: [[0xef, 0xbb, 0xbf, 0x61]] },
+        { name: "split across chunks", chunks: [[0xef], [0xbb, 0xbf, 0x61]] }
+      ])(
+        "pushes a leading byte order mark ahead of the engine's output, and writes only the text after it to the engine ($name)",
+        async ({ chunks }) => {
+          const engine = mockSyncEngine();
+          const transform = new ReplaceContentTransform(engine);
+          const { writable, outputs } = collectWritable();
+          transform.pipe(writable);
+          const sink = startedSinkOf(engine);
+          engine.write.mockImplementation((text) => sink.enqueue(text));
+
+          for (const chunk of chunks) transform.write(Buffer.from(chunk));
+          transform.end();
+          await finished(writable);
+
+          expect(textWrittenTo(engine)).toBe("a");
+          expect(outputs.join("")).toBe("\uFEFFa");
+        }
+      );
+
+      it("writes a U+FEFF leading a string chunk to the engine when decodeStrings is false, as the string was decoded upstream", () => {
+        const engine = mockSyncEngine();
+        const transform = new ReplaceContentTransform(engine, {
+          decodeStrings: false
+        });
+
+        transform.write("\uFEFFa");
+        transform.end();
+
+        expect(textWrittenTo(engine)).toBe("\uFEFFa");
+      });
+
+      it("writes a byte order mark leading a Buffer written after a string chunk to the engine when decodeStrings is false, as it is not at the start of the input", () => {
+        const engine = mockSyncEngine();
+        const transform = new ReplaceContentTransform(engine, {
+          decodeStrings: false
+        });
+
+        transform.write("a");
+        transform.write(Buffer.from([0xef, 0xbb, 0xbf, 0x62]));
+        transform.end();
+
+        expect(textWrittenTo(engine)).toBe("a\uFEFFb");
+      });
+
       it("decodes a dangling partial sequence as U+FFFD ahead of a following string chunk, preserving order when decodeStrings is false", () => {
         const engine = mockSyncEngine();
         const transform = new ReplaceContentTransform(engine, {

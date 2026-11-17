@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
-import { text } from "node:stream/consumers";
+import { buffer, text } from "node:stream/consumers";
 import { setImmediate } from "node:timers/promises";
 import { ReplaceContentTransform } from "./transform.js";
 import { collectWritable } from "../../../test/utilities.js";
@@ -15,6 +15,7 @@ import {
   RegexSearchStrategy,
   StringAnchorSearchStrategy
 } from "../../search-strategies/index.js";
+import { everyTwoWayByteSplit } from "../../../test/web-adapters.js";
 
 function sourceOf(...chunks: (string | Buffer)[]): Readable {
   return Readable.from(chunks, { objectMode: true });
@@ -35,6 +36,21 @@ describe("ReplaceContentTransform + SerialTransformEngine + StringAnchorSearchSt
     );
     expect(out).toBe("héllo X wörld");
   });
+
+  it.each(everyTwoWayByteSplit("\uFEFF{{name}}").map((chunks, splitAt) => ({ chunks, splitAt })))(
+    "searches the text after a leading byte order mark, with the indices a TextDecoder gives, and keeps the mark at the start of the output, wherever the input is split (at byte $splitAt)",
+    async ({ chunks }) => {
+      const transform = new ReplaceContentTransform(
+        new SerialTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement: (_match, { streamIndices }) => JSON.stringify(streamIndices)
+        })
+      );
+
+      const out = await buffer(Readable.from(chunks).pipe(transform));
+      expect(out).toEqual(Buffer.from("\uFEFF[0,8]"));
+    }
+  );
 
   it("does not call the replacement again once a data listener aborts the stopReplacingSignal on output from the same chunk", async () => {
     const abortController = new AbortController();

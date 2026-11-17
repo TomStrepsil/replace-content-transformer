@@ -339,6 +339,26 @@ describe("ReplaceContentTransformer + SerialTransformEngine + StringAnchorSearch
     );
   });
 
+  it.each(everyTwoWayByteSplit("\uFEFF{{name}}").map((chunks, splitAt) => ({ chunks, splitAt })))(
+    "searches the text after a leading byte order mark, with the indices a TextDecoderStream gives, and keeps the mark at the start of the output, wherever the input is split (at byte $splitAt)",
+    async ({ chunks }) => {
+      const replaced = byteStreamOf(chunks).pipeThrough(
+        new TransformStream(
+          new ReplaceContentTransformer(
+            new SerialTransformEngine({
+              searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+              replacement: (_match, { streamIndices }) => JSON.stringify(streamIndices)
+            })
+          )
+        )
+      );
+
+      await expect(new Response(replaced).bytes()).resolves.toEqual(
+        new TextEncoder().encode("\uFEFF[0,8]")
+      );
+    }
+  );
+
   it("can be handed straight to a Response, which needs bytes", async () => {
     const replaced = new Response("Hello {{name}}").body!.pipeThrough(
       new TransformStream(
