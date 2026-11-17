@@ -814,7 +814,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
 ### ✅ Fully Supported Runtimes
 
 - **Node.js** 22.0.0+ (`TextEncoderStream` is much faster from 24.21.0 and 26.8.0; see [WHATWG Transformer](#whatwg-transformer))
-- **Bun** 1.0+
+- **Bun** 1.4.0+
 - **Deno** 1.38+
 - **Browsers:**
   - Chrome 85+
@@ -827,7 +827,7 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
   - Akamai EdgeWorkers
   - Fastly Compute
 
-`LookaheadTransformEngine` also needs [`AbortSignal.any()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static): Chrome and Edge 116+, Firefox 124+, Safari 17.4+, Deno 1.39+ and Bun 1.1.4+.
+`LookaheadTransformEngine` also needs [`AbortSignal.any()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static): Chrome and Edge 116+, Firefox 124+, Safari 17.4+ and Deno 1.39+.
 
 A regex search strategy also needs whatever its pattern's own syntax needs, such as the `v` flag. See `regex-partial-match`'s [Compatibility](https://github.com/TomStrepsil/regex-partial-match/blob/main/docs/compatibility.md).
 
