@@ -74,6 +74,10 @@ describe.each(utf8Checks)("checking bytes with $utf8Check", ({ load }) => {
         expect(forwarded([utf8("x"), utf8("\uFEFFa")])).toBe("x\uFEFFa");
       });
 
+      it("is kept after a character the run left incomplete before it, which becomes U+FFFD", () => {
+        expect(forwarded([Uint8Array.of(0xe2, 0x82), utf8("\uFEFFa")])).toBe("\uFFFD\uFEFFa");
+      });
+
       it("is kept after an empty string piece within a run of bytes, since an empty string doesn't end the run", () => {
         expect(forwarded([utf8("x"), "", utf8("\uFEFFa")])).toBe("x\uFEFFa");
       });

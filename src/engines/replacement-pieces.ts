@@ -92,12 +92,13 @@ export interface ReplacementPieceForwarder {
 }
 
 export class ReplacementPieceDecoder {
-  readonly #ignoreBOM: boolean;
+  readonly #keepsByteOrderMark: boolean;
   #decoder: TextDecoder | undefined;
   #decoding = false;
+  #runStarting = true;
 
   constructor({ ignoreBOM = false } = {}) {
-    this.#ignoreBOM = ignoreBOM;
+    this.#keepsByteOrderMark = ignoreBOM;
   }
 
   get decoding(): boolean {
@@ -110,14 +111,22 @@ export class ReplacementPieceDecoder {
       return text && this.end() + text;
     }
     this.#decoding = true;
-    this.#decoder ??= new TextDecoder("utf-8", { ignoreBOM: this.#ignoreBOM });
-    return this.#decoder.decode(decodable(piece), continueAcrossPieces);
+    this.#decoder ??= new TextDecoder("utf-8", { ignoreBOM: true });
+    return this.#withoutLeadingByteOrderMark(this.#decoder.decode(decodable(piece), continueAcrossPieces));
   }
 
   end(): string {
     if (!this.#decoding) return "";
     this.#decoding = false;
-    return this.#decoder!.decode();
+    const text = this.#withoutLeadingByteOrderMark(this.#decoder!.decode());
+    this.#runStarting = true;
+    return text;
+  }
+
+  #withoutLeadingByteOrderMark(text: string): string {
+    if (!this.#runStarting || !text) return text;
+    this.#runStarting = false;
+    return !this.#keepsByteOrderMark && text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
   }
 }
 
