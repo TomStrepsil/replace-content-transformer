@@ -1584,30 +1584,48 @@ describe("SerialTransformEngine", () => {
       expect(readAfterCancel).not.toHaveBeenCalled();
     });
 
-    it("reads no further from an async iterable once the sink cancels on receiving a piece of it", async () => {
+    it.each([
+      {
+        replacement: "an async iterable",
+        acceptsBytes: false,
+        returning: (readAfterCancel: () => void) =>
+          (async function* () {
+            yield "one";
+            readAfterCancel();
+            yield "two";
+          })()
+      },
+      {
+        replacement: "an iterable a Promise resolves to, for a sink that accepts bytes",
+        acceptsBytes: true,
+        returning: async (readAfterCancel: () => void) =>
+          (function* () {
+            yield utf8("one");
+            readAfterCancel();
+            yield utf8("two");
+          })()
+      }
+    ])("reads no further from $replacement once the sink cancels on receiving a piece of it", async ({ acceptsBytes, returning }) => {
       const readAfterCancel = vi.fn();
       const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
       const engine = new SerialTransformEngine({
         searchStrategy: strategy,
-        replacement: async function* () {
-          yield "one";
-          readAfterCancel();
-          yield "two";
-        }
+        replacement: () => returning(readAfterCancel)
       });
-      const chunks: string[] = [];
+      const chunks: (string | Utf8Bytes)[] = [];
       engine.start({
-        enqueue: (chunk) => {
+        enqueue: (chunk: string | Utf8Bytes) => {
           chunks.push(chunk);
           engine.cancel();
         },
-        error: () => {}
+        error: () => {},
+        acceptsBytes
       });
 
       await engine.write("input");
 
       expect(readAfterCancel).not.toHaveBeenCalled();
-      expect(chunks).toEqual(["one"]);
+      expect(textOfPieces(chunks)).toBe("one");
     });
 
     it("stops before the next result when cancel() lands while draining", async () => {

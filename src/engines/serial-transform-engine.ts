@@ -318,8 +318,8 @@ export class SerialTransformEngine<
   #forwardIterable(replacement: Utf8Bytes | Iterable<string | Utf8Bytes>, pieces: ReplacementPieceForwarder): void {
     if (this.#cancelled) throw scanCancelled;
     for (const piece of isUtf8Bytes(replacement) ? [replacement] : replacement) {
-      if (this.#cancelled) throw scanCancelled;
       pieces.piece(piece);
+      if (this.#cancelled) throw scanCancelled;
     }
     pieces.end();
   }
