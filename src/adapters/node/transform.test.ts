@@ -4,12 +4,14 @@ import { finished } from "node:stream/promises";
 import { ReplaceContentTransform } from "./transform.js";
 import {
   collectWritable,
+  foreignRealmUtf8,
   mockAsyncEngine,
   mockSyncEngine,
   startedSinkOf,
-  textWrittenTo
+  textWrittenTo,
+  utf8
 } from "../../../test/utilities.js";
-import type { EngineSink, TransformEngine } from "../../engines/types.js";
+import type { ByteEngineSink, EngineSink, TransformEngine } from "../../engines/types.js";
 
 describe("ReplaceContentTransform (Node adapter)", () => {
   it("calls engine.start with a sink that pushes to the stream", () => {
@@ -408,6 +410,61 @@ describe("ReplaceContentTransform (Node adapter)", () => {
         await finished(writable);
 
         expect(outputs.join("")).toBe("a\uFFFD");
+      });
+
+      it("accepts bytes from the engine, so a replacement's bytes need not be decoded and encoded again", () => {
+        const engine = mockSyncEngine();
+        new ReplaceContentTransform(engine);
+
+        expect(startedSinkOf(engine).acceptsBytes).toBe(true);
+      });
+
+      it("does not accept bytes from the engine when readableObjectMode is set, so the engine decodes them", () => {
+        const engine = mockSyncEngine();
+        new ReplaceContentTransform(engine, { readableObjectMode: true });
+
+        expect(startedSinkOf(engine).acceptsBytes).not.toBe(true);
+      });
+
+      it("pushes a copy of bytes from the engine as a Buffer, so a replacement that reuses its buffer can't change output already buffered", async () => {
+        const engine = mockSyncEngine();
+        const transform = new ReplaceContentTransform(engine);
+        const reused = utf8("a");
+
+        (startedSinkOf(engine) as ByteEngineSink).enqueue(reused);
+        reused.set(utf8("b"));
+        transform.end();
+        const [pushed] = await transform.toArray();
+
+        expect(Buffer.isBuffer(pushed)).toBe(true);
+        expect(pushed.toString()).toBe("a");
+      });
+
+      it("pushes a copy of bytes from the engine created in another realm, as a fetch body's chunks are for code run in a vm context, such as a Jest test environment", async () => {
+        const engine = mockSyncEngine();
+        const transform = new ReplaceContentTransform(engine);
+
+        (startedSinkOf(engine) as ByteEngineSink).enqueue(foreignRealmUtf8("€"));
+        transform.end();
+        const [pushed] = await transform.toArray();
+
+        expect(Buffer.isBuffer(pushed)).toBe(true);
+        expect(pushed.toString()).toBe("€");
+      });
+
+      it("pushes a high surrogate held before bytes from the engine as U+FFFD, once, since bytes can't complete it", async () => {
+        const engine = mockSyncEngine();
+        const transform = new ReplaceContentTransform(engine);
+        const { writable, outputs } = collectWritable();
+        transform.pipe(writable);
+        const sink = startedSinkOf(engine) as ByteEngineSink;
+
+        sink.enqueue("a\uD83D");
+        sink.enqueue(utf8("€"));
+        transform.end();
+        await finished(writable);
+
+        expect(outputs.join("")).toBe("a\uFFFD€");
       });
     });
   });

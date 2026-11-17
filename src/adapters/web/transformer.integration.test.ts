@@ -4,16 +4,25 @@ import { ReplaceContentTransformer } from "./transformer.js";
 import { SerialTransformEngine } from "../../engines/serial-transform-engine.js";
 import { LookaheadTransformEngine, SemaphoreStrategy } from "../../engines/index.js";
 import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
+import { nested } from "../../engines/lookahead-transform-engine/nested.js";
+import type { TransformEngine, Utf8Bytes } from "../../engines/types.js";
 import {
   asyncIterable,
+  byteReplacementEngines,
   mockSearchStrategyFactory,
   mockTransformStreamDefaultControllerFactory,
-  startTestHttpServer
+  reusingOneBuffer,
+  startTestHttpServer,
+  textOfPieces,
+  unhandledRejectionsDuring,
+  utf8,
+  type ByteReplacement
 } from "../../../test/utilities.js";
 import {
   byteStreamOf,
   byteWebAdapter,
   everyTwoWayByteSplit,
+  midCharacterSplits,
   textWebAdapter,
   type WebAdapterFamily,
   type WebChunk
@@ -87,10 +96,9 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
         })
       );
 
-      const encoder = new TextEncoder();
       const transformed = family
         .fromBytes(
-          byteStreamOf([encoder.encode("{{a}}{{b}}{{c}}"), encoder.encode(" next")])
+          byteStreamOf([utf8("{{a}}{{b}}{{c}}"), utf8(" next")])
         )
         .pipeThrough(new TransformStream<C, C>(transformer));
 
@@ -302,7 +310,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
       );
 
       const source = family
-        .fromBytes(byteStreamOf([new TextEncoder().encode("pre M post")]))
+        .fromBytes(byteStreamOf([utf8("pre M post")]))
         .pipeThrough(new TransformStream<C, C>(transformer));
 
       await expect(text(source)).resolves.toBe("pre X post");
@@ -310,8 +318,124 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
   });
 }
 
+function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C>) {
+  const outputOf = (input: string | ReadableStream<Uint8Array<ArrayBuffer>>, engine: TransformEngine) =>
+    family
+      .fromBytes(typeof input === "string" ? byteStreamOf([utf8(input)]) : input)
+      .pipeThrough(new TransformStream<C, C>(family.create(engine)));
+
+  describe.each(byteReplacementEngines)(`${family.adapter} + $engine, with replacements that return bytes`, ({ create }) => {
+    const replaced = (input: string, replacement: ByteReplacement) => text(outputOf(input, create(replacement)));
+
+    it.each(midCharacterSplits())(
+      "replaces a match with a fragment's bytes, wherever its chunks split a 2-, 3- or 4-byte character (at byte $splitAt)",
+      async ({ chunks }) => {
+        await expect(replaced("a{{x}}b", async () => byteStreamOf(chunks))).resolves.toBe("a£€😀b");
+      }
+    );
+
+    const piecesOf = async (input: string, replacement: ByteReplacement) =>
+      textOfPieces(await Array.fromAsync<string | Utf8Bytes>(outputOf(input, create(replacement))));
+
+    it.each([
+      {
+        bytes: "a character a fragment leaves incomplete, rather than completing it with the next fragment's bytes",
+        input: "a{{x}}{{y}}b",
+        output: "a\uFFFD\uFFFDb"
+      },
+      { bytes: "malformed bytes in a fragment", input: "a{{z}}b", output: "a<\uFFFD>b" }
+    ])("emits $bytes as U+FFFD", async ({ input, output }) => {
+      const fragments: Record<string, Utf8Bytes> = {
+        "{{x}}": Uint8Array.of(0xe2, 0x82),
+        "{{y}}": Uint8Array.of(0xac),
+        "{{z}}": Uint8Array.of(0x3c, 0xff, 0x3e)
+      };
+
+      await expect(piecesOf(input, async (match) => asyncIterable(fragments[match]))).resolves.toBe(output);
+    });
+
+    it("emits each piece of a fragment that reuses its buffer for the next piece as it was", async () => {
+      await expect(
+        replaced("a{{x}}b", async () => reusingOneBuffer("1", "2"))
+      ).resolves.toBe("a12b");
+    });
+
+    it("mixes string and byte pieces of one replacement in order", async () => {
+      await expect(
+        replaced("a{{x}}b", async () => asyncIterable<string | Utf8Bytes>("x", utf8("€"), "y"))
+      ).resolves.toBe("ax€yb");
+    });
+
+    it.each([
+      { body: "a fetch response body", fragment: utf8("<h1>fragment €</h1>") },
+      { body: "a fetch response body that starts with a byte order mark", fragment: utf8("\uFEFF<h1>fragment €</h1>") }
+    ])("streams $body into the output, with no TextDecoderStream", async ({ fragment }) => {
+      const httpServer = await startTestHttpServer({ "/fragment": () => new Response(fragment) });
+      try {
+        await expect(
+          replaced("<div>{{x}}</div>", async () => (await fetch(`${httpServer.baseUrl}/fragment`)).body!)
+        ).resolves.toBe("<div><h1>fragment €</h1></div>");
+      } finally {
+        await httpServer.close();
+      }
+    });
+  });
+
+  describe(`${family.adapter} + LookaheadTransformEngine, with nested() replacements that return bytes`, () => {
+    it("re-scans nested() byte content at a depth over 1", async () => {
+      const fragments: Record<string, string> = {
+        "{{outer}}": "<o>€{{inner}}</o>",
+        "{{inner}}": "<i>😀{{leaf}}</i>",
+        "{{leaf}}": "leaf£"
+      };
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match, { depth }) => {
+          const fragment = new Response(fragments[match]).body!;
+          return depth < 2 ? nested(fragment) : fragment;
+        }
+      });
+
+      await expect(text(outputOf("{{outer}}", engine))).resolves.toBe("<o>€<i>😀leaf£</i></o>");
+    });
+
+    it("emits each piece of a replacement within nested() content that reuses its buffer for the next piece as it was", async () => {
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "{{outer}}" ? nested(asyncIterable("<{{leaf}}>")) : reusingOneBuffer("1", "2")
+      });
+
+      await expect(text(outputOf("{{outer}}", engine))).resolves.toBe("<12>");
+    });
+  });
+
+  describe(`${family.adapter} + LookaheadTransformEngine, failing replacement`, () => {
+    it("errors the stream with the replacement's error, leaving no rejection unhandled", async () => {
+      let streamError: unknown;
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement: async () => {
+            throw new Error("fragment failed");
+          }
+        });
+        streamError = await text(outputOf("a{{x}}b", engine)).catch((error: unknown) => error);
+      });
+
+      expect(streamError).toEqual(new Error("fragment failed"));
+      expect(unhandled).toEqual([]);
+    });
+  });
+}
+
 describeWebAdapter(byteWebAdapter);
 describeWebAdapter(textWebAdapter);
+describeByteReplacements(byteWebAdapter);
+describeByteReplacements(textWebAdapter);
 
 describe("ReplaceContentTransformer + SerialTransformEngine + StringAnchorSearchStrategy (bytes)", () => {
   const splits = everyTwoWayByteSplit("a{{£€😀}}b").map((chunks, splitAt) => ({ chunks, splitAt }));
@@ -354,7 +478,36 @@ describe("ReplaceContentTransformer + SerialTransformEngine + StringAnchorSearch
       );
 
       await expect(new Response(replaced).bytes()).resolves.toEqual(
-        new TextEncoder().encode("\uFEFF[0,8]")
+        utf8("\uFEFF[0,8]")
+      );
+    }
+  );
+
+  it.each(byteReplacementEngines)(
+    "drops the byte order mark of a fragment an inner ReplaceContentTransformer re-scans, and keeps the one at the start of the outer input ($engine)",
+    async ({ create }) => {
+      const withByteOrderMark = (text: string) => byteStreamOf([utf8(`\uFEFF${text}`)]);
+      const replaced = withByteOrderMark("a{{include}}b").pipeThrough(
+        new TransformStream(
+          new ReplaceContentTransformer(
+            create(async () =>
+              withByteOrderMark("<i>{{x}}</i>").pipeThrough(
+                new TransformStream(
+                  new ReplaceContentTransformer(
+                    new SerialTransformEngine({
+                      searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+                      replacement: "X"
+                    })
+                  )
+                )
+              )
+            )
+          )
+        )
+      );
+
+      await expect(new Response(replaced).bytes()).resolves.toEqual(
+        utf8("\uFEFFa<i>X</i>b")
       );
     }
   );

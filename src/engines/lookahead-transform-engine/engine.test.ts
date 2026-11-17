@@ -1,18 +1,25 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { setImmediate } from "node:timers/promises";
-import { LookaheadTransformEngine } from "./engine.ts";
+import { LookaheadTransformEngine, type LookaheadReplacementFn } from "./engine.ts";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { SlotTreeNode, IterableSlotNode } from "./slot-tree/types.ts";
-import { nested } from "./nested.ts";
-import type { EngineSink } from "../types.ts";
+import { nested, type Nested } from "./nested.ts";
+import type { EngineSink, Utf8Bytes } from "../types.ts";
 import type { MatchResult } from "../../../test/utilities.ts";
 import {
   abortingOnFirstCall,
   asyncIterable,
   collectEngineSink,
   mockSearchStrategy,
-  mockSearchStrategyFactory
+  mockSearchStrategyFactory,
+  foreignRealmUtf8,
+  inResizableArrayBuffer,
+  refuseResizableBuffersInTextDecoder,
+  sinkKinds,
+  textOfPieces,
+  unhandledRejectionsDuring,
+  utf8
 } from "../../../test/utilities.ts";
 
 function heldSlotCounter(concurrency: number) {
@@ -1275,6 +1282,16 @@ describe("LookaheadTransformEngine", () => {
   });
 
   describe("nested re-scanning", () => {
+    it("types a Nested with no type argument as a source of strings, as it was before nested() took bytes", () => {
+      expectTypeOf<Nested["source"]>().toEqualTypeOf<AsyncIterable<string>>();
+    });
+
+    it("accepts a nested() source typed as yielding strings and bytes from a replacement", () => {
+      expectTypeOf(nested(asyncIterable<string | Utf8Bytes>())).toExtend<
+        Awaited<ReturnType<LookaheadReplacementFn<string>>>
+      >();
+    });
+
     it("spawns a child engine to re-scan nested() content", async () => {
       const { strategy } = mockSearchStrategy({ chunk: (chunk: string) => {
           const steps: MatchResult[] = [];
@@ -1516,10 +1533,6 @@ describe("LookaheadTransformEngine", () => {
 
     it("handles a replacement rejection when next() cancels synchronously", async () => {
       let engine!: LookaheadTransformEngine<object, string>;
-      const unhandledRejections: unknown[] = [];
-      const onUnhandledRejection = (reason: unknown) => {
-        unhandledRejections.push(reason);
-      };
       const replacement: AsyncIterable<string> = {
         [Symbol.asyncIterator]() {
           return {
@@ -1545,16 +1558,13 @@ describe("LookaheadTransformEngine", () => {
         concurrencyStrategy: new SemaphoreStrategy(1)
       });
       engine.start(sink);
-      process.on("unhandledRejection", onUnhandledRejection);
 
-      try {
+      const unhandled = await unhandledRejectionsDuring(async () => {
         await engine.write("M");
         await expect(engine.end()).resolves.toBeUndefined();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(unhandledRejections).toEqual([]);
-      } finally {
-        process.removeListener("unhandledRejection", onUnhandledRejection);
-      }
+      });
+
+      expect(unhandled).toEqual([]);
     });
 
     it("cancel() while write() is suspended on a full queue unblocks write()", async () => {
@@ -2159,6 +2169,233 @@ describe("LookaheadTransformEngine", () => {
       });
       await runEngine(engine, sink, ["d0"]);
       expect(depths).toEqual([0, 1, 2]);
+    });
+  });
+
+  describe("byte replacements", () => {
+    it("passes each byte piece to a sink that accepts bytes as it is, in order with the text around it", async () => {
+      const first = utf8("€");
+      const last = utf8("c");
+      const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async () => asyncIterable<string | Utf8Bytes>(first, "b", last)
+      });
+      await runEngine(engine, sink, ["<{{x}}>"]);
+
+      expect(chunks).toHaveLength(5);
+      expect(chunks[0]).toBe("<");
+      expect(chunks[1]).toBe(first);
+      expect(chunks[2]).toBe("b");
+      expect(chunks[3]).toBe(last);
+      expect(chunks[4]).toBe(">");
+    });
+
+    it("accepts replacements typed as yielding any Uint8Array, such as Node Buffers, plain or nested()", async () => {
+      const buffersOf = async function* (text: string): AsyncGenerator<Uint8Array> {
+        yield Buffer.from(text);
+      };
+      const { sink, chunks } = collectEngineSink();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) => (match === "outer" ? nested(buffersOf("<{{inner}}>")) : buffersOf("€"))
+      });
+      await runEngine(engine, sink, ["{{outer}}"]);
+
+      expect(chunks.join("")).toBe("<€>");
+    });
+
+    it("drops a byte order mark at the start of a replacement's bytes, plain or nested()", async () => {
+      const withByteOrderMark = (text: string) => asyncIterable(utf8(`\uFEFF${text}`));
+      const { sink, chunks } = collectEngineSink();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "outer" ? nested(withByteOrderMark("<{{inner}}>")) : withByteOrderMark("i")
+      });
+      await runEngine(engine, sink, ["a{{outer}}"]);
+
+      expect(chunks.join("")).toBe("a<i>");
+    });
+
+    it.each(sinkKinds)("reads bytes from another realm as bytes, plain or nested(), for $sinkKind, as a fetch body's chunks are by code run in a vm context, such as a Jest test environment", async ({ acceptsBytes }) => {
+      const { sink, chunks } = collectEngineSink({ acceptsBytes });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "outer"
+            ? nested(asyncIterable(foreignRealmUtf8("<{{inner}}>")))
+            : asyncIterable(foreignRealmUtf8("€"))
+      });
+      await runEngine(engine, sink, ["a{{outer}}"]);
+
+      expect(textOfPieces(chunks)).toBe("a<€>");
+    });
+
+    it.each(sinkKinds)("keeps a character whole across an empty string piece, which doesn't end the bytes around it, plain or nested(), for $sinkKind", async ({ acceptsBytes }) => {
+      const euroAround = (...rest: string[]) =>
+        asyncIterable<string | Utf8Bytes>(Uint8Array.of(0xe2), "", Uint8Array.of(0x82, 0xac), ...rest);
+      const { sink, chunks } = collectEngineSink({ acceptsBytes });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) => (match === "outer" ? nested(euroAround("{{inner}}")) : euroAround())
+      });
+      await runEngine(engine, sink, ["a{{outer}}"]);
+
+      expect(textOfPieces(chunks)).toBe("a€€");
+    });
+
+    it.each(sinkKinds)("decodes a replacement that ends part way through a character as U+FFFD at its own end, rather than completing it with the next replacement's bytes, for $sinkKind", async ({ acceptsBytes }) => {
+      const { sink, chunks } = collectEngineSink({ acceptsBytes });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) => asyncIterable(match === "a" ? Uint8Array.of(0xe2, 0x82) : Uint8Array.of(0xac))
+      });
+      await runEngine(engine, sink, ["{{a}}{{b}}"]);
+
+      expect(textOfPieces(chunks)).toBe("\uFFFD\uFFFD");
+    });
+
+    it.each(sinkKinds)("reads bytes in a resizable ArrayBuffer, plain or nested(), though browsers' TextDecoder refuses them, for $sinkKind", async ({ acceptsBytes }) => {
+      refuseResizableBuffersInTextDecoder();
+      const { sink, chunks } = collectEngineSink({ acceptsBytes });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "outer"
+            ? nested(asyncIterable(inResizableArrayBuffer(utf8("<{{inner}}>"))))
+            : asyncIterable(inResizableArrayBuffer(utf8("€")))
+      });
+      await runEngine(engine, sink, ["{{outer}}"]);
+
+      expect(textOfPieces(chunks)).toBe("<€>");
+    });
+
+    it("enqueues nothing once a sink that accepts bytes cancels it on receiving the U+FFFD that ends a run of bytes before a string piece", async () => {
+      const afterCancel: (string | Utf8Bytes)[] = [];
+      let cancelled = false;
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async () => asyncIterable<string | Utf8Bytes>(Uint8Array.of(0xe2), "x")
+      });
+      await runEngine(
+        engine,
+        {
+          enqueue: (chunk: string | Utf8Bytes) => {
+            if (cancelled) afterCancel.push(chunk);
+            else if (typeof chunk === "string" && chunk.includes("\uFFFD")) {
+              cancelled = true;
+              engine.cancel();
+            }
+          },
+          error: () => {},
+          acceptsBytes: true
+        },
+        ["<{{x}}>"]
+      );
+
+      expect(cancelled).toBe(true);
+      expect(afterCancel).toEqual([]);
+    });
+
+    it("keeps byte slots in stream order when a later replacement settles first", async () => {
+      const first = Promise.withResolvers<void>();
+      const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) => {
+          if (match === "a") await first.promise;
+          else first.resolve();
+          return asyncIterable(utf8(match === "a" ? "A€" : "B€"));
+        }
+      });
+      await runEngine(engine, sink, ["{{a}}-{{b}}"]);
+
+      expect(textOfPieces(chunks)).toBe("A€-B€");
+    });
+
+    describe.each(sinkKinds)("with $sinkKind", ({ acceptsBytes }) => {
+      it("decodes nested() byte content to search it, at a depth over 1, keeping a character split across its pieces whole", async () => {
+        const { sink, chunks } = collectEngineSink({ acceptsBytes });
+        const [startOfEuro, restOfEuro] = [utf8("[€").subarray(0, 2), utf8("€{{mid}}]").subarray(1)];
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement: async (match, { depth }) => {
+            if (match === "outer") return nested(asyncIterable(startOfEuro, restOfEuro));
+            if (match === "mid") return nested(asyncIterable(utf8("({{leaf}})")));
+            return asyncIterable(utf8(`${match}@${depth}`));
+          }
+        });
+        await runEngine(engine, sink, ["<{{outer}}>"]);
+
+        expect(textOfPieces(chunks)).toBe("<[€(leaf@2)]>");
+      });
+
+      it("decodes nested() byte content that ends part way through a character as U+FFFD, before the child engine ends", async () => {
+        const { sink, chunks } = collectEngineSink({ acceptsBytes });
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement: async () => nested(asyncIterable(Uint8Array.of(0x61, 0xe2, 0x82)))
+        });
+        await runEngine(engine, sink, ["<{{x}}>"]);
+
+        expect(textOfPieces(chunks)).toBe("<a\uFFFD>");
+      });
+
+      it("keeps a byte order mark in a replacement's bytes within nested() content once it is past their start, as it does any other character", async () => {
+        const { sink, chunks } = collectEngineSink({ acceptsBytes });
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement: async (match) =>
+            match === "outer"
+              ? nested(asyncIterable("<{{inner}}>"))
+              : asyncIterable(utf8("\uFEFF"), utf8("\uFEFFa"))
+        });
+        await runEngine(engine, sink, ["{{outer}}"]);
+
+        expect(textOfPieces(chunks)).toBe("<\uFEFFa>");
+      });
+    });
+
+    it.each(sinkKinds)("decodes a nested replacement that ends part way through a character as U+FFFD at its own end, rather than completing it with the next one's bytes, for $sinkKind", async ({ acceptsBytes }) => {
+      const { sink, chunks } = collectEngineSink({ acceptsBytes });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) => {
+          if (match === "outer") return nested(asyncIterable("{{a}}{{b}}"));
+          return asyncIterable(match === "a" ? Uint8Array.of(0xe2, 0x82) : Uint8Array.of(0xac));
+        }
+      });
+      await runEngine(engine, sink, ["{{outer}}"]);
+
+      expect(textOfPieces(chunks)).toBe("\uFFFD\uFFFD");
+    });
+
+    it("passes the bytes of a nested replacement to a sink that accepts bytes undecoded", async () => {
+      const leaf = utf8("€");
+      const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "outer" ? nested(asyncIterable("[{{leaf}}]")) : asyncIterable(leaf)
+      });
+      await runEngine(engine, sink, ["{{outer}}"]);
+
+      expect(chunks).toContainEqual(leaf);
     });
   });
 });

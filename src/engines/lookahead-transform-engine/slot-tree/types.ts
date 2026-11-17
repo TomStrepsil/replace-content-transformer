@@ -29,6 +29,7 @@ export interface TextSlotNode {
 }
 
 import type { Nested } from "../nested.ts";
+import type { Utf8Bytes } from "../../types.ts";
 
 /**
  * A slot whose content is produced by an async iterable, or by a
@@ -56,7 +57,7 @@ export interface IterableSlotNode extends SlotTreeNode {
    * reference is needed to wire the promise that depends on it). Never
    * read before assignment.
    */
-  iterable: Promise<AsyncIterable<string> | Nested> | undefined;
+  iterable: Promise<AsyncIterable<string | Utf8Bytes> | Nested<string | Utf8Bytes>> | undefined;
 }
 
 export type SlotNode = TextSlotNode | IterableSlotNode;

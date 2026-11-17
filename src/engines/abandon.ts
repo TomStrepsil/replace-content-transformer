@@ -1,6 +1,6 @@
 export function ignore(): void {}
 
-export async function closeAbandoned(replacement: AsyncIterable<string>): Promise<void> {
+export async function closeAbandoned(replacement: AsyncIterable<unknown>): Promise<void> {
   if (replacement instanceof ReadableStream && !replacement.locked) return replacement.cancel();
   const iterator = replacement[Symbol.asyncIterator]();
   await iterator.next();

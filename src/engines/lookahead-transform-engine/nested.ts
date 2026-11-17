@@ -1,12 +1,16 @@
+import type { Utf8Bytes } from "../types.ts";
+
 /**
- * Marker wrapping an `AsyncIterable<string>` whose chunks should be
- * **re-scanned** by a child {@link LookaheadTransformEngine}
+ * Marker wrapping an `AsyncIterable` of strings and UTF-8 bytes whose chunks
+ * should be **re-scanned** by a child {@link LookaheadTransformEngine}
  * sharing the parent's search strategy, concurrency strategy, and
  * replacement function.
  *
- * Returning a plain `AsyncIterable<string>` from the replacement emits
+ * Returning a plain `AsyncIterable` from the replacement emits
  * its chunks verbatim; returning a `Nested` opts in to recursive
- * replacement of the nested content.
+ * replacement of the nested content. Bytes are decoded as UTF-8 to be
+ * searched, as one sequence for the whole source, dropping a byte order
+ * mark at its start, or at the start of bytes that follow a string it yields.
  *
  * The child transformer is constructed internally when the parent's
  * drain loop reaches the slot, and its iterable slots are attached as
@@ -20,24 +24,24 @@
  *   searchStrategy,
  *   concurrencyStrategy,
  *   replacement: async (match) => {
- *     const body = await fetchFragment(match);
- *     return nested(body); // recursively re-scan the fragment
+ *     const { body } = await fetch(urlFrom(match));
+ *     return nested(body!); // recursively re-scan the fragment
  *   }
  * });
  * ```
  */
-export class Nested {
-  readonly source: AsyncIterable<string>;
-  constructor(source: AsyncIterable<string>) {
+export class Nested<T extends string | Utf8Bytes = string> {
+  readonly source: AsyncIterable<T>;
+  constructor(source: AsyncIterable<T>) {
     this.source = source;
   }
 }
 
 /**
- * Convenience constructor for {@link Nested}. Wraps an
- * `AsyncIterable<string>` to signal that it should be re-scanned by a
+ * Convenience constructor for {@link Nested}. Wraps an `AsyncIterable` of
+ * strings and UTF-8 bytes to signal that it should be re-scanned by a
  * child lookahead transformer when emitted.
  */
-export function nested(source: AsyncIterable<string>): Nested {
+export function nested<T extends string | Utf8Bytes>(source: AsyncIterable<T>): Nested<T> {
   return new Nested(source);
 }

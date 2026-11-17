@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Replacements can return UTF-8 bytes (`Uint8Array`), or an iterable or async iterable of them such as a `fetch` response body, with no `TextDecoderStream`, and `ReplaceContentTransformer` and `ReplaceContentTransform` emit bytes from an async replacement without decoding them. See [Async Iterable Replacement](../README.md#async-iterable-replacement)
+- `Nested` and `nested()` take the source's chunk type as a type parameter, defaulting to `string`
+
 ### Changed
 
 - **BREAKING:** `SyncReplacementTransformEngine` and `AsyncSerialReplacementTransformEngine` are replaced by `SerialTransformEngine`, which takes a synchronous or asynchronous replacement, and completes a call synchronously unless a replacement in it is asynchronous. `ReplaceContentTransform` and `ReplaceContentTransformer` take any engine, and `AsyncReplaceContentTransform` and `AsyncReplaceContentTransformer` are removed. `SyncTransformEngine` and `AsyncTransformEngine` are replaced by `TransformEngine`. Unlike `AsyncSerialReplacementTransformEngine`, it calls a replacement before the text in front of its match is enqueued, unless it has a `stopReplacingSignal` and a sink that can react within the call. See [Engines](../README.md#-engines)

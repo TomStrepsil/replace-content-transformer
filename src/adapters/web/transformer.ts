@@ -1,5 +1,6 @@
-import type { TransformEngine } from "../../engines/types.js";
-import { BYTE_ORDER_MARK, ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
+import type { ByteEngineSink, TransformEngine, Utf8Bytes } from "../../engines/types.js";
+import { BYTE_ORDER_MARK } from "../../byte-order-mark.js";
+import { ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
 import { TrailingHighSurrogateHold } from "../trailing-high-surrogate-hold.js";
 
 const encoder = new TextEncoder();
@@ -42,10 +43,7 @@ type EncodedChunk = ReturnType<TextEncoder["encode"]>;
  * const transformer = new ReplaceContentTransformer(
  *   new LookaheadTransformEngine({
  *     searchStrategy,
- *     replacement: async (match) => {
- *       const res = await fetch(`/api/${match}`);
- *       return res.body!.pipeThrough(new TextDecoderStream());
- *     },
+ *     replacement: async (match) => (await fetch(`/api/${match}`)).body!,
  *     concurrencyStrategy: new SemaphoreStrategy(8)
  *   })
  * );
@@ -59,8 +57,13 @@ type EncodedChunk = ReturnType<TextEncoder["encode"]>;
  * text a {@link TextDecoderStream} would decode. Malformed bytes are each
  * decoded as U+FFFD. Output is encoded as UTF-8, holding a
  * trailing high surrogate back until the next chunk so a surrogate pair split
- * across output chunks is encoded as one character. Each chunk the adapter
- * encodes has its own `ArrayBuffer`, so downstream may transfer it.
+ * across output chunks is encoded as one character.
+ *
+ * Bytes a replacement produces asynchronously, such as the chunks of a
+ * `fetch` response body, are emitted without being decoded and encoded
+ * again, once the engine has checked they are valid UTF-8. They are copied,
+ * so a replacement may reuse its buffer for its next chunk. Each chunk has
+ * its own `ArrayBuffer`, so downstream may transfer it.
  *
  * A string chunk errors the stream. For a stream of strings, or one in
  * another encoding (decoded upstream with a {@link TextDecoderStream} for it),
@@ -84,11 +87,16 @@ export class ReplaceContentTransformer implements Transformer<
 
   start(controller: TransformStreamDefaultController<EncodedChunk>): void {
     this.#controller = controller;
-    this.#engine.start({
-      enqueue: (chunk) => this.#enqueueIfAny(this.#hold.wholeCodePoints(chunk)),
+    const sink: ByteEngineSink = {
+      enqueue: (chunk) => {
+        if (typeof chunk === "string") this.#enqueueIfAny(this.#hold.wholeCodePoints(chunk));
+        else this.#enqueueBytes(chunk);
+      },
       error: (err) => controller.error(err),
-      deliveryDeferred: true
-    });
+      deliveryDeferred: true,
+      acceptsBytes: true
+    };
+    this.#engine.start(sink);
   }
 
   transform(chunk: Uint8Array): void | Promise<void> {
@@ -123,6 +131,11 @@ export class ReplaceContentTransformer implements Transformer<
 
   #enqueueHeldHighSurrogate(): void {
     this.#enqueueIfAny(this.#hold.remainder());
+  }
+
+  #enqueueBytes(bytes: Utf8Bytes): void {
+    this.#enqueueHeldHighSurrogate();
+    this.#controller!.enqueue(new Uint8Array(bytes));
   }
 
   #enqueueIfAny(text: string): void {

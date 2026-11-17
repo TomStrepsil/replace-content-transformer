@@ -1,11 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
+import { Buffer } from "node:buffer";
 import { ReplaceContentTransformer } from "./transformer.js";
 import {
   mockAsyncEngine,
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   startedSinkOf,
-  textWrittenTo
+  textWrittenTo,
+  foreignRealmUtf8,
+  inResizableArrayBuffer,
+  utf8
 } from "../../../test/utilities.js";
 import {
   byteStreamOf,
@@ -14,7 +18,14 @@ import {
   type WebAdapterFamily,
   type WebChunk
 } from "../../../test/web-adapters.js";
-import type { EngineSink, TransformEngine } from "../../engines/types.js";
+import type { ByteEngineSink, EngineSink, TransformEngine } from "../../engines/types.js";
+
+function inSharedArrayBuffer(text: string): SharedArrayBuffer {
+  const bytes = utf8(text);
+  const shared = new SharedArrayBuffer(bytes.byteLength);
+  new Uint8Array(shared).set(bytes);
+  return shared;
+}
 
 function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
   describe(`${family.adapter} (web adapter)`, () => {
@@ -131,9 +142,16 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
 describeWebAdapter(byteWebAdapter);
 describeWebAdapter(textWebAdapter);
 
-describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
-  const utf8 = new TextEncoder();
+describe("ReplaceContentTextTransformer (web adapter) bytes", () => {
+  it("leaves acceptsBytes unset, so the engine decodes any bytes a replacement returns before they reach it", () => {
+    const engine = mockSyncEngine();
+    textWebAdapter.create(engine).start(mockTransformStreamDefaultControllerFactory<string>([]));
 
+    expect(startedSinkOf(engine).acceptsBytes).toBeUndefined();
+  });
+});
+
+describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
   function startedTransformer<
     E extends ReturnType<typeof mockSyncEngine> | ReturnType<typeof mockAsyncEngine>
   >(engine: E) {
@@ -150,14 +168,14 @@ describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
     const text = "a£€😀b";
 
     it.each(
-      Array.from({ length: utf8.encode(text).length + 1 }, (_, splitAt) => ({
+      Array.from({ length: utf8(text).length + 1 }, (_, splitAt) => ({
         splitAt
       }))
     )(
       "keeps 2-, 3- and 4-byte characters intact when a chunk boundary falls inside one (split at byte $splitAt)",
       ({ splitAt }) => {
         const { engine, transformer } = startedTransformer(mockSyncEngine());
-        const bytes = utf8.encode(text);
+        const bytes = utf8(text);
 
         transformer.transform(bytes.subarray(0, splitAt));
         transformer.transform(bytes.subarray(splitAt));
@@ -197,7 +215,7 @@ describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
     it("does not write to the engine on flush when no bytes are pending", () => {
       const { engine, transformer } = startedTransformer(mockSyncEngine());
 
-      transformer.transform(utf8.encode("abc"));
+      transformer.transform(utf8("abc"));
       transformer.flush();
 
       expect(engine.write).toHaveBeenCalledExactlyOnceWith("abc");
@@ -232,7 +250,7 @@ describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
     );
 
     it("errors the stream when given a string chunk, as from an unmigrated TextDecoderStream", async () => {
-      const unmigrated = byteStreamOf([utf8.encode("text")])
+      const unmigrated = byteStreamOf([utf8("text")])
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(
           new TransformStream(
@@ -293,6 +311,49 @@ describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
       expect(textOf(outputs).join("")).toBe("a\uFFFD");
     });
 
+    it("accepts bytes from the engine, so a replacement's bytes need not be decoded and encoded again", () => {
+      const { sink } = startedTransformer(mockSyncEngine());
+
+      expect(sink.acceptsBytes).toBe(true);
+    });
+
+    it("enqueues a copy of bytes from the engine, so a replacement that reuses its buffer can't change output already queued", () => {
+      const { transformer, outputs, sink } = startedTransformer(mockSyncEngine());
+      const reused = utf8("a");
+
+      (sink as ByteEngineSink).enqueue(reused);
+      reused.set(utf8("b"));
+      transformer.flush();
+
+      expect(textOf(outputs)).toEqual(["a"]);
+    });
+
+    it.each([
+      { bytes: "a Uint8Array over a SharedArrayBuffer", of: (text: string) => new Uint8Array(inSharedArrayBuffer(text)) },
+      { bytes: "a Node Buffer over a SharedArrayBuffer", of: (text: string) => Buffer.from(inSharedArrayBuffer(text)) },
+      { bytes: "bytes in a resizable ArrayBuffer", of: (text: string) => inResizableArrayBuffer(utf8(text)) },
+      { bytes: "bytes from another realm, as a fetch body's chunks are for code run in a vm context", of: foreignRealmUtf8 }
+    ])("enqueues $bytes from the engine as a copy with a fixed-length ArrayBuffer of its own, which a byte stream can take ownership of and browsers accept as a BufferSource", ({ of }) => {
+      const { transformer, outputs, sink } = startedTransformer(mockSyncEngine());
+
+      (sink as ByteEngineSink).enqueue(of("€"));
+      transformer.flush();
+
+      expect(outputs[0].buffer).toBeInstanceOf(ArrayBuffer);
+      expect((outputs[0].buffer as ArrayBuffer).resizable).toBe(false);
+      expect(textOf(outputs)).toEqual(["€"]);
+    });
+
+    it("enqueues a high surrogate held before bytes from the engine as U+FFFD, once, since bytes can't complete it", () => {
+      const { transformer, outputs, sink } = startedTransformer(mockSyncEngine());
+
+      sink.enqueue("a\uD83D");
+      (sink as ByteEngineSink).enqueue(utf8("€"));
+      transformer.flush();
+
+      expect(textOf(outputs).join("")).toBe("a\uFFFD€");
+    });
+
     it("emits chunks downstream can transfer, such as by enqueueing each on a byte stream", async () => {
       let capturedSink!: EngineSink;
       const engine: TransformEngine = {
@@ -300,7 +361,7 @@ describe("ReplaceContentTransformer (web adapter) UTF-8", () => {
         write: (chunk) => { capturedSink.enqueue(chunk); },
         end: () => {}
       };
-      const reader = byteStreamOf([utf8.encode("one "), utf8.encode("two")])
+      const reader = byteStreamOf([utf8("one "), utf8("two")])
         .pipeThrough(new TransformStream(new ReplaceContentTransformer(engine)))
         .getReader();
       const forwarded = new ReadableStream<Uint8Array>({

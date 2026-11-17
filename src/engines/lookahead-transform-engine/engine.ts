@@ -5,8 +5,10 @@ import type {
 } from "../../search-strategies/types.ts";
 import type {
   TransformEngine,
+  ByteEngineSink,
   EngineSink,
-  ReplacementContext
+  ReplacementContext,
+  Utf8Bytes
 } from "../types.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
 import type { IterableSlotNode, SlotNode, TextSlotNode } from "./slot-tree/types.ts";
@@ -16,6 +18,12 @@ import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 import { closeAbandoned, ignore } from "../abandon.ts";
+import {
+  acceptsBytes,
+  ReplacementPieceDecoder,
+  replacementPieceForwarder,
+  type ReplacementPieceForwarder
+} from "../replacement-pieces.ts";
 
 /**
  * Extension of {@link ReplacementContext} specific to the lookahead engine.
@@ -77,15 +85,24 @@ async function* emptyAsyncIterable(): AsyncGenerator<string> {}
 /**
  * Async function called for each match to produce its replacement content.
  *
- * Return a plain `AsyncIterable<string>` to emit the replacement chunks
- * verbatim, or a {@link Nested} (via the `nested()` helper) to opt in to
- * recursive re-scanning of the replacement content by a child engine
- * that shares this engine's configuration.
+ * Return a plain `AsyncIterable` of strings and UTF-8 bytes (e.g. a `fetch`
+ * response body) to emit the replacement chunks verbatim, or a
+ * {@link Nested} (via the `nested()` helper) to opt in to recursive
+ * re-scanning of the replacement content by a child engine that shares this
+ * engine's configuration.
+ *
+ * Bytes are read as UTF-8, as one sequence for each replacement, so a
+ * character split across its pieces is kept whole, and one it leaves
+ * incomplete becomes U+FFFD, as do malformed bytes. A byte order mark at the
+ * start of a replacement's bytes, or of bytes that follow a string it
+ * yields, is dropped. A sink with `EngineSink.acceptsBytes` receives them
+ * without their being decoded (see `ByteEngineSink`); otherwise they are
+ * decoded.
  */
 export type LookaheadReplacementFn<TMatch> = (
   match: TMatch,
   context: LookaheadReplacementContext
-) => Promise<AsyncIterable<string> | Nested>;
+) => Promise<AsyncIterable<string | Utf8Bytes> | Nested<string | Utf8Bytes>>;
 
 export interface LookaheadTransformEngineOptions<TState, TMatch> {
   /** Search strategy used to locate matches in the input stream. */
@@ -178,6 +195,8 @@ export class LookaheadTransformEngine<TState, TMatch>
   #cancelled = false;
   #paused = false;
   #text = "";
+  #pieces!: ReplacementPieceForwarder;
+  #byteSink: ByteEngineSink | undefined;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
       this.#text += content;
@@ -242,6 +261,8 @@ export class LookaheadTransformEngine<TState, TMatch>
    */
   override start(sink: EngineSink): void {
     super.start(sink);
+    this.#pieces = replacementPieceForwarder(sink);
+    this.#byteSink = acceptsBytes(sink) ? sink : undefined;
     this.#drainDone = this.#drain().catch((err) => {
       this.cancel();
       void this.#abandonRemaining();
@@ -339,7 +360,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     match: TMatch,
     matchIndex: number,
     streamIndices: StreamIndices
-  ): Promise<AsyncIterableIterator<string> | Nested> {
+  ): Promise<AsyncIterableIterator<string | Utf8Bytes> | Nested<string | Utf8Bytes>> {
     const acquired = await this.#options.concurrencyStrategy.acquire(node);
     if (this.#scanStopSignal.aborted) {
       acquired();
@@ -362,7 +383,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       release();
       throw err;
     };
-    let iterator: AsyncIterator<string>;
+    let iterator: AsyncIterator<string | Utf8Bytes>;
     try {
       const result = await this.#options.replacement(match, { matchIndex, streamIndices, depth: this.#depth });
       if (result instanceof Nested) {
@@ -395,7 +416,7 @@ export class LookaheadTransformEngine<TState, TMatch>
           release();
         }
       }
-    } satisfies AsyncIterableIterator<string>;
+    } satisfies AsyncIterableIterator<string | Utf8Bytes>;
   }
 
   async #drain(): Promise<void> {
@@ -428,15 +449,26 @@ export class LookaheadTransformEngine<TState, TMatch>
       }
       return;
     }
-    const iterable =
-      result instanceof Nested ? this.#runNested(result.source, slot) : result;
-    await untilAborted(this.#stream(iterable), this.#cancelAbortController.signal);
+    const emitted =
+      result instanceof Nested
+        ? this.#emitNested(this.#runNested(result.source, slot))
+        : this.#emitReplacement(result);
+    await untilAborted(emitted, this.#cancelAbortController.signal);
   }
 
-  async #stream(iterable: AsyncIterable<string>): Promise<void> {
-    for await (const chunk of iterable) {
+  async #emitReplacement(pieces: AsyncIterable<string | Utf8Bytes>): Promise<void> {
+    for await (const piece of pieces) {
       if (this.#cancelled) return;
-      this._sink.enqueue(chunk);
+      this.#pieces.piece(piece);
+    }
+    if (!this.#cancelled) this.#pieces.end();
+  }
+
+  async #emitNested(output: AsyncIterable<string | Utf8Bytes>): Promise<void> {
+    for await (const chunk of output) {
+      if (this.#cancelled) return;
+      if (typeof chunk === "string") this._sink.enqueue(chunk);
+      else this.#byteSink!.enqueue(chunk);
     }
   }
 
@@ -446,10 +478,10 @@ export class LookaheadTransformEngine<TState, TMatch>
    * can consume in stream order.
    */
   async *#runNested(
-    source: AsyncIterable<string>,
+    source: AsyncIterable<string | Utf8Bytes>,
     parent: IterableSlotNode
-  ): AsyncGenerator<string> {
-    const buffer: string[] = [];
+  ): AsyncGenerator<string | Utf8Bytes> {
+    const buffer: (string | Utf8Bytes)[] = [];
     let childErr: unknown = null;
     let childDone = false;
     let notify: (() => void) | null = null;
@@ -465,15 +497,16 @@ export class LookaheadTransformEngine<TState, TMatch>
       this.#depth + 1
     );
     child.start({
-      enqueue: (c) => {
-        buffer.push(c);
+      enqueue: (c: string | Utf8Bytes) => {
+        buffer.push(typeof c === "string" ? c : new Uint8Array(c));
         wake();
       },
       error: (e) => {
         childErr = e;
         childDone = true;
         wake();
-      }
+      },
+      acceptsBytes: this.#byteSink !== undefined
     });
     void child.#drainDone?.catch(ignore);
 
@@ -481,11 +514,15 @@ export class LookaheadTransformEngine<TState, TMatch>
     this.#cancelAbortController.signal.addEventListener("abort", cancelChild, { once: true });
 
     void (async () => {
+      const decoder = new ReplacementPieceDecoder();
       try {
-        for await (const chunk of source) {
-          await child.write(chunk);
+        for await (const piece of source) {
+          const text = decoder.decode(piece);
+          if (text) await child.write(text);
           if (this.#cancelled || childErr !== null) break;
         }
+        const remainder = decoder.end();
+        if (remainder && !this.#cancelled && childErr === null) await child.write(remainder);
         await child.end();
       } catch (err) {
         child.cancel();

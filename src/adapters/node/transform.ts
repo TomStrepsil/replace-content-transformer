@@ -4,8 +4,9 @@ import {
   type TransformOptions
 } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import type { TransformEngine } from "../../engines/types.js";
-import { BYTE_ORDER_MARK, ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
+import type { TransformEngine, Utf8Bytes } from "../../engines/types.js";
+import { BYTE_ORDER_MARK } from "../../byte-order-mark.js";
+import { ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
 import { TrailingHighSurrogateHold } from "../trailing-high-surrogate-hold.js";
 
 function toError(err: unknown): Error {
@@ -60,10 +61,7 @@ function cancelEngine(engine?: TransformEngine): Error | undefined {
  *   new LookaheadTransformEngine({
  *     searchStrategy,
  *     concurrencyStrategy: new SemaphoreStrategy(8),
- *     replacement: async (match) => {
- *       const res = await fetch(`/api/${match}`);
- *       return res.body!.pipeThrough(new TextDecoderStream());
- *     }
+ *     replacement: async (match) => (await fetch(`/api/${match}`)).body!
  *   })
  * );
  * ```
@@ -78,7 +76,12 @@ function cancelEngine(engine?: TransformEngine): Error | undefined {
  * written with `decodeStrings: false` is searched as written. Output is
  * encoded as UTF-8, holding a trailing high surrogate back until the next
  * chunk so a surrogate pair split across output chunks is encoded as one
- * character.
+ * character. Bytes a replacement produces asynchronously, such as the chunks
+ * of a `fetch` response body, are pushed without being decoded and encoded
+ * again, once the engine has checked they are valid UTF-8. They are copied,
+ * so a replacement may reuse its buffer for its next chunk. With
+ * `readableObjectMode`, output is strings only: bytes a replacement produces
+ * are decoded as UTF-8.
  *
  * @remarks **Stopping on output**: destroying the stream cancels the engine.
  * A consumer that destroys it on receiving some output prevents any later
@@ -100,10 +103,12 @@ export class ReplaceContentTransform extends Transform {
   constructor(engine: TransformEngine, options?: TransformOptions) {
     super(options);
     this.#engine = engine;
-    engine.start({
-      enqueue: (chunk) => this.#pushIfAny(this.#hold.wholeCodePoints(chunk)),
-      error: (err) => this.destroy(toError(err))
-    });
+    const enqueue = (chunk: string | Utf8Bytes) => {
+      if (typeof chunk === "string") this.#pushIfAny(this.#hold.wholeCodePoints(chunk));
+      else this.#pushBytes(chunk);
+    };
+    const error = (err: unknown) => this.destroy(toError(err));
+    engine.start({ enqueue, error, acceptsBytes: !this.readableObjectMode });
     if (this.destroyed) {
       cancelEngine(engine);
       return;
@@ -165,6 +170,11 @@ export class ReplaceContentTransform extends Transform {
     return typeof chunk === "string"
       ? this.#byteOrderMark.textDecodedUpstream(this.#decoder.end() + chunk)
       : this.#byteOrderMark.textForEngine(this.#decoder.write(chunk));
+  }
+
+  #pushBytes(bytes: Utf8Bytes): void {
+    this.#pushIfAny(this.#hold.remainder());
+    this.push(Buffer.from(bytes));
   }
 
   #pushIfAny(text: string): void {

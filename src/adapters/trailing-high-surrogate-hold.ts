@@ -19,6 +19,8 @@ export class TrailingHighSurrogateHold {
   }
 
   remainder(): string {
-    return this.#held;
+    const held = this.#held;
+    this.#held = "";
+    return held;
   }
 }

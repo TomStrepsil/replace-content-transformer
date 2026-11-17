@@ -7,7 +7,9 @@ export type {
 } from "./serial-transform-engine.js";
 export * from "./lookahead-transform-engine/index.js";
 export type {
+  ByteEngineSink,
   EngineSink,
   ReplacementContext,
-  TransformEngine
+  TransformEngine,
+  Utf8Bytes
 } from "./types.js";
