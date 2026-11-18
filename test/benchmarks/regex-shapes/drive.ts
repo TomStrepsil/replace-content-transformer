@@ -18,7 +18,7 @@ export interface EmittedMatch {
 const copySpan = (span: Span): Span => span && [span[0], span[1]];
 
 function spansOf(
-  match: StreamRegexMatch
+  match: Pick<StreamRegexMatch, "indices">
 ): Pick<EmittedMatch, "indices" | "groupIndices"> {
   const { indices } = match;
   if (!indices) return {};

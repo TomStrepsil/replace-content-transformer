@@ -1,8 +1,8 @@
 import type { DEFAULT_OPTIONS } from "./default-options.js";
 import type { BufferGuardOptions, StringBufferState } from "../types.js";
 
-/** A stream-relative regex match without RegExpExecArray.input, which identifies only one scan buffer. */
-export type StreamRegexMatch = Omit<RegExpExecArray, "input">;
+/** A stream-relative regex match. The strategy sets `input` to `undefined`, since a native `input` identifies only one scan buffer. */
+export type StreamRegexMatch = Omit<RegExpExecArray, "input"> & { input: undefined };
 
 /** Per-stream state for `RegexSearchStrategy`. */
 export type RegexSearchState = StringBufferState & {

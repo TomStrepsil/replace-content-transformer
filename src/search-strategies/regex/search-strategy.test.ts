@@ -1340,7 +1340,7 @@ describe("RegexSearchStrategy", () => {
       expect(content.indices?.groups?.name).toEqual([9, 14]);
     });
 
-    it("reports stream offsets and omits match.input for matches in any chunk", () => {
+    it("reports stream offsets and sets match.input to undefined for matches in any chunk", () => {
       const { results, settledResults } = collectSearchStrategyResults(
         new RegexSearchStrategy(/\{\{(?<name>\w+)\}\}/d),
         ["{{first}} and ", "then {{value}}"]
@@ -1350,7 +1350,7 @@ describe("RegexSearchStrategy", () => {
       expect(matches).toHaveLength(2);
       for (const match of matches) {
         expect(match.content.index).toBe(match.content.indices?.[0]?.[0]);
-        expect(match.content).not.toHaveProperty("input");
+        expect(match.content).toHaveProperty("input", undefined);
       }
       expect(matches.map((match) => match.content.index)).toEqual([0, 19]);
     });

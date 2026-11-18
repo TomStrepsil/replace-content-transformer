@@ -590,7 +590,7 @@ The `processChunk` reports the chunk to the sink in stream order: literal conten
 
 The `TState` type is specific to the strategy, managed by the consuming engine / stream, to keep the strategies stateless. This means any construction cost can be reduced, with strategies re-used across multiple streams.
 
-The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data, including capture groups and stream-relative indices. Regex matches use the exported `StreamRegexMatch` type, which omits `RegExpExecArray.input`: that property identifies one scan buffer rather than the complete stream.
+The `TMatch` type (defaulting to `string`) allows strategies like `RegexSearchStrategy` to return richer match data, including capture groups and stream-relative indices. Regex matches use the exported `StreamRegexMatch` type. The native `RegExpExecArray.input` identifies one scan buffer rather than the complete stream, so the strategy sets it to `undefined`.
 
 The `flush` returns anything the strategy is still holding as raw text, without searching it, and re-sets the provided state parameter for re-use. The engine calls it at the end of the stream when the strategy has no `settle`, and once `stopReplacingSignal` has aborted.
 

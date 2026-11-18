@@ -187,7 +187,7 @@ export class LeanRegexSearchStrategy
     }
     const precedingContent = advanceToMatch(match, haystack, cursor);
     if (precedingContent) sink.reportText(precedingContent);
-    return sink.reportMatch(match, takeMatch(match, cursor, baseOffset));
+    return takeMatch(match, cursor, baseOffset, sink);
   }
 
   override flush(state: RegexSearchState): string {
