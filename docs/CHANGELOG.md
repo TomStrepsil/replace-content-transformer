@@ -60,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RegexSearchStrategy`
   - Fixed chunk-dependent matches: premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
   - Fixed lookahead confirmation: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)
-  - Fixed streamed match metadata: `index` and `indices` now use stream-relative offsets, and the unreliable chunk-local `input` property is omitted
+  - Fixed streamed match metadata: `index` and `indices` now use stream-relative offsets, and the unreliable chunk-local `input` property is set to `undefined`
   - Fixed the end-of-stream settle stopping at a zero-length match instead of skipping it, which hid any real match later in the buffer
   - Fixed a skipped zero-length match (e.g. from `/a*/`) splitting an astral character such as an emoji into two output chunks. The skip now advances by one code point. See [Zero-length matches](../src/search-strategies/regex/README.md#️-zero-length-matches)
 - Documented that engines should only be driven by an adapter. See [Engines](../README.md#-engines)
