@@ -24,6 +24,7 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _state: TState;
   protected _sink!: EngineSink;
   protected _matchIndex = 0;
+  protected _sinkFailed = false;
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
@@ -36,6 +37,19 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
 
   start(sink: EngineSink): void {
     this._sink = sink;
+  }
+
+  protected _enqueueTo<TChunk>(sink: { enqueue(chunk: TChunk): void }, chunk: TChunk): void {
+    try {
+      sink.enqueue(chunk);
+    } catch (error) {
+      this._sinkFailed = true;
+      throw error;
+    }
+  }
+
+  protected _failureRecordingSink(sink: EngineSink): Pick<EngineSink, "enqueue" | "acceptsBytes"> {
+    return { enqueue: (chunk) => this._enqueueTo(sink, chunk), acceptsBytes: sink.acceptsBytes };
   }
 
   abstract end(): void | Promise<void>;

@@ -226,7 +226,7 @@ export class SerialTransformEngine<
     super.start(sink);
     this.#enqueueAsProduced =
       this._stopReplacingSignal !== undefined && sink.deliveryDeferred !== true;
-    this.#pieces = replacementPieceForwarder(sink);
+    this.#pieces = replacementPieceForwarder(this._failureRecordingSink(sink));
     this.#awaitedIterablePieces = acceptsBytes(sink)
       ? replacementPieceForwarder({
           enqueue: (chunk: string | Utf8Bytes) => this.#appendOrEnqueueBytes(chunk, sink),
@@ -294,7 +294,7 @@ export class SerialTransformEngine<
         if (this.#cancelled) return;
         this.#pending = undefined;
         if (typeof replacement === "string") {
-          if (replacement) this._sink.enqueue(replacement);
+          if (replacement) this._enqueueTo(this._sink, replacement);
         } else if (Symbol.iterator in replacement) {
           try {
             this.#forwardIterable(replacement, this.#awaitedIterablePieces);
@@ -334,7 +334,7 @@ export class SerialTransformEngine<
   }
 
   #stoppedBy(error: unknown): boolean {
-    return failedFromAbortOf(this._stopReplacingSignal, error);
+    return !this._sinkFailed && failedFromAbortOf(this._stopReplacingSignal, error);
   }
 
   #endStoppedReplacement(error: unknown, pieces: ReplacementPieceForwarder, match: TMatch): void {
@@ -367,7 +367,7 @@ export class SerialTransformEngine<
     }
     this.#enqueueOutput();
     if (this.#cancelled) throw scanCancelled;
-    sink.enqueue(chunk);
+    this._enqueueTo(sink, chunk);
   }
 
   #appendProduced(content: string): void {
@@ -404,6 +404,6 @@ export class SerialTransformEngine<
     const output = this.#output;
     if (!output || this.#cancelled) return;
     this.#output = "";
-    this._sink.enqueue(output);
+    this._enqueueTo(this._sink, output);
   }
 }

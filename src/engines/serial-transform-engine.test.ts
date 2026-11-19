@@ -1582,6 +1582,31 @@ describe("SerialTransformEngine", () => {
       await expect(written).rejects.toThrow("network");
     });
 
+    it.each<[string, () => string | Iterable<string> | AsyncIterable<string> | Promise<Iterable<string>>]>([
+      ["a string", () => "R"],
+      ["an iterable", () => ["R", "S"]],
+      ["an iterable a Promise resolves to", async () => ["R", "S"]],
+      ["an async iterable", () => asyncIterable("R", "S")]
+    ])("rejects with the reason when the sink throws it on the output of %s", async (_, replacement) => {
+      const ac = new AbortController();
+      const reason = new Error("stop");
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundMatch(),
+        replacement,
+        stopReplacingSignal: ac.signal
+      });
+      engine.start({
+        enqueue: (chunk: string) => {
+          if (!chunk.includes("R")) return;
+          ac.abort(reason);
+          throw ac.signal.reason;
+        },
+        error: () => {}
+      });
+
+      await expect((async () => engine.write("aMb"))()).rejects.toBe(reason);
+    });
+
     it("still rejects with an error whose cause chain loops back to itself without reaching the reason", async () => {
       const ac = new AbortController();
       const looping = new Error("network");

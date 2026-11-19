@@ -1068,6 +1068,26 @@ describe("LookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("afirstb");
     });
 
+    it.each<[string, LookaheadReplacementFn<string>]>([
+      ["an async iterable", async () => asyncIterable("R", "S")],
+      ["a nested() replacement", async () => nested(asyncIterable("R", "S"))]
+    ])("rejects with the reason when the sink throws it on the output of %s", async (_, replacement) => {
+      const ac = new AbortController();
+      const reason = new Error("stop");
+      const engine = engineReplacingWith(ac, replacement);
+      engine.start({
+        enqueue: (chunk: string) => {
+          if (!chunk.includes("R")) return;
+          ac.abort(reason);
+          throw ac.signal.reason;
+        },
+        error: () => {}
+      });
+      await engine.write("a{{x}}b");
+
+      await expect(engine.end()).rejects.toBe(reason);
+    });
+
     it.each<[string, (reason: unknown) => unknown]>([
       ["an AbortError other than the reason, as browsers' fetch bodies do", () => new DOMException("aborted", "AbortError")],
       ["an error whose cause is the reason", (reason) => new Error("fragment failed", { cause: reason })]

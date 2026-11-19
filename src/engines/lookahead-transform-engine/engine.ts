@@ -265,7 +265,7 @@ export class LookaheadTransformEngine<TState, TMatch>
    */
   override start(sink: EngineSink): void {
     super.start(sink);
-    this.#pieces = replacementPieceForwarder(sink);
+    this.#pieces = replacementPieceForwarder(this._failureRecordingSink(sink));
     this.#byteSink = acceptsBytes(sink) ? sink : undefined;
     this.#drainDone = this.#drain().catch((err) => {
       this.cancel();
@@ -438,7 +438,7 @@ export class LookaheadTransformEngine<TState, TMatch>
 
   async #emitSlot(slot: SlotNode): Promise<void> {
     if (slot.kind === SLOT_KIND.text) {
-      if (!this.#cancelled) this._sink.enqueue(slot.value);
+      if (!this.#cancelled) this._enqueueTo(this._sink, slot.value);
       return;
     }
     try {
@@ -451,7 +451,7 @@ export class LookaheadTransformEngine<TState, TMatch>
           .then((result) => closeAbandoned(result instanceof Nested ? result.source : result))
           .catch(ignore);
         if (slot.getOriginalContent !== undefined && !this.#cancelled) {
-          this._sink.enqueue(slot.getOriginalContent());
+          this._enqueueTo(this._sink, slot.getOriginalContent());
         }
         return;
       }
@@ -475,14 +475,14 @@ export class LookaheadTransformEngine<TState, TMatch>
   }
 
   #stoppedBy(error: unknown): boolean {
-    return failedFromAbortOf(this.#options.stopReplacingSignal, error);
+    return !this._sinkFailed && failedFromAbortOf(this.#options.stopReplacingSignal, error);
   }
 
   async #emitNested(output: AsyncIterable<string | Utf8Bytes>): Promise<void> {
     for await (const chunk of output) {
       if (this.#cancelled) return;
-      if (typeof chunk === "string") this._sink.enqueue(chunk);
-      else this.#byteSink!.enqueue(chunk);
+      if (typeof chunk === "string") this._enqueueTo(this._sink, chunk);
+      else this._enqueueTo(this.#byteSink!, chunk);
     }
   }
 
