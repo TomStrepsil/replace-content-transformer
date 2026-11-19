@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed corrupting a multi-byte UTF-8 character split across `Buffer` chunks: each half was decoded on its own as U+FFFD. See [Node Transform](../README.md#node-transform)
   - Fixed corrupting an astral character, such as an emoji, when an output chunk ends between the two halves of its surrogate pair (e.g. a match for `/a./` in `"a😀"`): each half was encoded on its own as U+FFFD. A trailing high surrogate is now held back until the next chunk, as `TextEncoderStream` does
   - Fixed not calling `engine.cancel()` when the stream is destroyed before it ends, so `LookaheadTransformEngine` kept consuming scheduled replacements after a client disconnected or a `pipeline()` failed
+  - Fixed encoding the output text with the stream's `defaultEncoding`, such as `"latin1"` or `"utf16le"`, rather than UTF-8. See [Node Transform](../README.md#node-transform)
 - `RegexSearchStrategy`
   - Fixed chunk-dependent matches: premature starts, extents and alternatives, so `/[A-Z]+/` over `"MAT"` + `"CH"` yields `MATCH`, not `MAT` and `CH`. See [Scanning with the Partial Regex](../src/search-strategies/regex/README.md#scanning-with-the-partial-regex)
   - Fixed lookahead confirmation: captures are compared as well as extent, zero-length candidates are confirmed, and a capture inside a lookahead is no longer cut at the chunk edge. See [Lookahead Confirmation](../src/search-strategies/regex/README.md#lookahead-confirmation)

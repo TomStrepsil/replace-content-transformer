@@ -549,6 +549,20 @@ describe.each(byteReplacementEngines)("ReplaceContentTransform + $engine, with r
       replaced("a{{x}}b", async () => Readable.from([Buffer.from("£€"), Buffer.from("😀")]))
     ).resolves.toBe("a£€😀b");
   });
+
+  describe.each(["latin1", "utf16le"] as const)("with defaultEncoding %s", (defaultEncoding) => {
+    it.each(everyTwoWayByteSplit("\uFEFFé {{x}} €").map((chunks, splitAt) => ({ chunks, splitAt })))(
+      "emits UTF-8 text, a leading byte order mark included, around a replacement's bytes, since defaultEncoding describes strings written to the stream, not what it emits, wherever the input is split (at byte $splitAt)",
+      async ({ chunks }) => {
+        const transform = new ReplaceContentTransform(create(async () => asyncIterable(utf8("£"))), {
+          defaultEncoding
+        });
+
+        const out = await buffer(Readable.from(chunks).pipe(transform));
+        expect(out).toEqual(Buffer.from("\uFEFFé £ €"));
+      }
+    );
+  });
 });
 
 describe("ReplaceContentTransform + LookaheadTransformEngine, with nested() replacements that return bytes", () => {
