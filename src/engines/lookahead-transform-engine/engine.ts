@@ -18,9 +18,9 @@ import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 import { closeAbandoned, ignore } from "../abandon.ts";
+import { failedWithReasonOf } from "../abort-reason.ts";
 import {
   acceptsBytes,
-  ReplacementPieceDecoder,
   replacementPieceForwarder,
   type ReplacementPieceForwarder
 } from "../replacement-pieces.ts";
@@ -133,7 +133,11 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
    * signal has fired: a match scheduled earlier whose replacement has not
    * been called, such as one still waiting for a concurrency slot, is
    * emitted verbatim in its place, without waiting for the slot. Replacements
-   * already called run to completion. The content of a {@link nested}
+   * already called run to completion. One that fails with the signal's
+   * `reason`, or an error with the `reason` in its `cause` chain, as a
+   * `fetch` passed the signal does, ends there instead of erroring the
+   * stream: its match is emitted verbatim if it had produced nothing, and
+   * otherwise only what it produced. The content of a {@link nested}
    * replacement is re-scanned under the same signal, so its own matches
    * follow these rules too. Pair with {@link abandonPendingSignal} to also
    * abandon replacements already called.
@@ -352,6 +356,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       iterable: undefined
     };
     node.iterable = this.#runSlot(node, match, matchIndex, streamIndices);
+    void node.iterable.catch(ignore);
     return node;
   }
 
@@ -436,24 +441,29 @@ export class LookaheadTransformEngine<TState, TMatch>
       if (!this.#cancelled) this._sink.enqueue(slot.value);
       return;
     }
-    let result = await untilAborted(slot.iterable!, this.#scanStopSignal);
-    if (result === ABANDONED && !this.#abandonSignal.aborted && this.#replacementCalled.has(slot)) {
-      result = await untilAborted(slot.iterable!, this.#abandonSignal);
-    }
-    if (result === ABANDONED || this.#abandonSignal.aborted) {
-      void slot.iterable!
-        .then((result) => closeAbandoned(result instanceof Nested ? result.source : result))
-        .catch(ignore);
-      if (slot.getOriginalContent !== undefined && !this.#cancelled) {
-        this._sink.enqueue(slot.getOriginalContent());
+    try {
+      let result = await untilAborted(slot.iterable!, this.#scanStopSignal);
+      if (result === ABANDONED && !this.#abandonSignal.aborted && this.#replacementCalled.has(slot)) {
+        result = await untilAborted(slot.iterable!, this.#abandonSignal);
       }
-      return;
+      if (result === ABANDONED || this.#abandonSignal.aborted) {
+        void slot.iterable!
+          .then((result) => closeAbandoned(result instanceof Nested ? result.source : result))
+          .catch(ignore);
+        if (slot.getOriginalContent !== undefined && !this.#cancelled) {
+          this._sink.enqueue(slot.getOriginalContent());
+        }
+        return;
+      }
+      const emitted =
+        result instanceof Nested
+          ? this.#emitNested(this.#runNested(result.source, slot))
+          : this.#emitReplacement(result);
+      await untilAborted(emitted, this.#cancelAbortController.signal);
+    } catch (error) {
+      if (!this.#stoppedBy(error)) throw error;
+      if (!this.#cancelled) this.#pieces.end(slot.getOriginalContent!());
     }
-    const emitted =
-      result instanceof Nested
-        ? this.#emitNested(this.#runNested(result.source, slot))
-        : this.#emitReplacement(result);
-    await untilAborted(emitted, this.#cancelAbortController.signal);
   }
 
   async #emitReplacement(pieces: AsyncIterable<string | Utf8Bytes>): Promise<void> {
@@ -462,6 +472,10 @@ export class LookaheadTransformEngine<TState, TMatch>
       this.#pieces.piece(piece);
     }
     if (!this.#cancelled) this.#pieces.end();
+  }
+
+  #stoppedBy(error: unknown): boolean {
+    return failedWithReasonOf(this.#options.stopReplacingSignal, error);
   }
 
   async #emitNested(output: AsyncIterable<string | Utf8Bytes>): Promise<void> {
@@ -514,15 +528,31 @@ export class LookaheadTransformEngine<TState, TMatch>
     this.#cancelAbortController.signal.addEventListener("abort", cancelChild, { once: true });
 
     void (async () => {
-      const decoder = new ReplacementPieceDecoder();
-      try {
-        for await (const piece of source) {
-          const text = decoder.decode(piece);
-          if (text) await child.write(text);
-          if (this.#cancelled || childErr !== null) break;
+      let decoded = "";
+      const pieces = replacementPieceForwarder({
+        enqueue: (text: string) => {
+          decoded += text;
         }
-        const remainder = decoder.end();
-        if (remainder && !this.#cancelled && childErr === null) await child.write(remainder);
+      });
+      const writeDecoded = async () => {
+        const text = decoded;
+        decoded = "";
+        if (text && !this.#cancelled && childErr === null) await child.write(text);
+      };
+      try {
+        let original = "";
+        try {
+          for await (const piece of source) {
+            pieces.piece(piece);
+            await writeDecoded();
+            if (this.#cancelled || childErr !== null) break;
+          }
+        } catch (err) {
+          if (!this.#stoppedBy(err)) throw err;
+          original = parent.getOriginalContent!();
+        }
+        pieces.end(original);
+        await writeDecoded();
         await child.end();
       } catch (err) {
         child.cancel();

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { text } from "node:stream/consumers";
+import { setImmediate } from "node:timers/promises";
 import { ReplaceContentTransformer } from "./transformer.js";
 import { SerialTransformEngine } from "../../engines/serial-transform-engine.js";
 import { LookaheadTransformEngine, SemaphoreStrategy } from "../../engines/index.js";
@@ -24,9 +25,11 @@ import {
   everyTwoWayByteSplit,
   midCharacterSplits,
   textWebAdapter,
+  type Bytes,
   type WebAdapterFamily,
   type WebChunk
 } from "../../../test/web-adapters.js";
+import { everySplitOf } from "../../../test/splits.js";
 
 const replacementKinds = [
   { kind: "synchronous", replacement: (match: string) => match.toUpperCase() },
@@ -428,6 +431,141 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
 
       expect(streamError).toEqual(new Error("fragment failed"));
       expect(unhandled).toEqual([]);
+    });
+  });
+
+  describe.each([
+    {
+      engine: "SerialTransformEngine",
+      engineFor: (replacement: () => Promise<ReadableStream<Utf8Bytes>>, signal: AbortSignal): TransformEngine =>
+        new SerialTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement,
+          stopReplacingSignal: signal
+        })
+    },
+    {
+      engine: "LookaheadTransformEngine",
+      engineFor: (replacement: () => Promise<ReadableStream<Utf8Bytes>>, signal: AbortSignal): TransformEngine =>
+        new LookaheadTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement,
+          stopReplacingSignal: signal
+        })
+    }
+  ])(`${family.adapter} + $engine, with a replacement body that fails with the stopReplacingSignal's reason`, ({ engineFor }) => {
+    const bodyAbortingOnceRead = (abortController: AbortController) =>
+      new ReadableStream<Utf8Bytes>({
+        start(controller) {
+          controller.enqueue(utf8("first"));
+        },
+        pull(controller) {
+          abortController.abort();
+          controller.error(abortController.signal.reason);
+        }
+      });
+
+    it.each(everySplitOf("a{{x}}b").map((chunks) => ({ chunks })))(
+      "ends the body after what it produced and passes the rest of the input through, split as $chunks",
+      async ({ chunks }) => {
+        const abortController = new AbortController();
+        const engine = engineFor(async () => bodyAbortingOnceRead(abortController), abortController.signal);
+
+        const transformed = family
+          .fromBytes(byteStreamOf(chunks.map(utf8)))
+          .pipeThrough(new TransformStream<C, C>(family.create(engine)));
+
+        await expect(text(transformed)).resolves.toBe("afirstb");
+      }
+    );
+  });
+
+  describe(`${family.adapter} + LookaheadTransformEngine, with a replacement that rejects with the stopReplacingSignal's reason`, () => {
+    it.each(Array.from({ length: 8 }, (_, hops) => ({ hops })))(
+      "enqueues nothing and leaves nothing unhandled when the stream is cancelled $hops microtasks after the abort",
+      async ({ hops }) => {
+        const abortController = new AbortController();
+        const transformer = family.create(
+          new LookaheadTransformEngine({
+            searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+            concurrencyStrategy: new SemaphoreStrategy(2),
+            replacement: () =>
+              new Promise<AsyncIterable<string>>((_, reject) =>
+                abortController.signal.addEventListener("abort", () => reject(abortController.signal.reason), {
+                  once: true
+                })
+              ),
+            stopReplacingSignal: abortController.signal
+          })
+        );
+        const unendedInput = new ReadableStream<Bytes>({
+          start(controller) {
+            controller.enqueue(utf8("a{{x}}b"));
+          }
+        });
+        const reader = family
+          .fromBytes(unendedInput)
+          .pipeThrough(new TransformStream<C, C>(transformer))
+          .getReader();
+        await reader.read();
+        await setImmediate();
+
+        const unhandled = await unhandledRejectionsDuring(async () => {
+          abortController.abort();
+          for (let hop = 0; hop < hops; hop++) await Promise.resolve();
+          await reader.cancel();
+          await setImmediate();
+        });
+
+        expect(unhandled).toEqual([]);
+      }
+    );
+  });
+
+  describe(`${family.adapter} + SerialTransformEngine, with a fetch passed the stopReplacingSignal`, () => {
+    it("ends the replacement after the part of the body it received when the signal aborts, without a try/catch", async () => {
+      const abortController = new AbortController();
+      const httpServer = await startTestHttpServer({
+        "/fragment": () =>
+          new Response(
+            new ReadableStream<Utf8Bytes>({
+              start(controller) {
+                controller.enqueue(utf8("first"));
+              }
+            })
+          )
+      });
+
+      try {
+        const transformer = family.create(
+          new SerialTransformEngine({
+            searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+            replacement: async () => {
+              const response = await fetch(`${httpServer.baseUrl}/fragment`, {
+                signal: abortController.signal
+              });
+              return response.body!;
+            },
+            stopReplacingSignal: abortController.signal
+          })
+        );
+        const reader = family
+          .fromBytes(byteStreamOf([utf8("a{{x}}b")]))
+          .pipeThrough(new TransformStream<C, C>(transformer))
+          .getReader();
+
+        let output = "";
+        while (!output.endsWith("first")) output += family.textOf((await reader.read()).value!);
+        abortController.abort();
+        for (let read = await reader.read(); !read.done; read = await reader.read()) {
+          output += family.textOf(read.value);
+        }
+
+        expect(output).toBe("afirstb");
+      } finally {
+        await httpServer.close();
+      }
     });
   });
 }

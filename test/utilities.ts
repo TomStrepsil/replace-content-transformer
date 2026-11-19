@@ -35,6 +35,18 @@ async function handleTestHttpRequest(
   return await handler(request);
 }
 
+function drainedOrClosed(outgoing: Writable): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      outgoing.off("drain", done);
+      outgoing.off("close", done);
+      resolve();
+    };
+    outgoing.once("drain", done);
+    outgoing.once("close", done);
+  });
+}
+
 async function startTestHttpServer(
   handlers: Record<string, TestHttpHandler>
 ): Promise<StartedTestHttpServer> {
@@ -95,9 +107,17 @@ async function startTestHttpServer(
         outgoing.setHeader(key, value);
       });
 
-      const body = new Uint8Array(await response.arrayBuffer());
-      outgoing.end(Buffer.from(body));
+      const reader = response.body?.getReader();
+      outgoing.once("close", () => void reader?.cancel().catch(() => {}));
+      for (let read = await reader?.read(); read && !read.done; read = await reader!.read()) {
+        if (!outgoing.write(read.value) && !outgoing.destroyed) await drainedOrClosed(outgoing);
+      }
+      outgoing.end();
     } catch (error) {
+      if (outgoing.headersSent) {
+        outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
       outgoing.statusCode = 500;
       outgoing.end(String(error));
     }
@@ -373,6 +393,11 @@ function textOfPieces(chunks: (string | Utf8Bytes)[]): string {
   return chunks.map((chunk) => (typeof chunk === "string" ? chunk : decoder.decode(new Uint8Array(chunk)))).join("");
 }
 
+/** An `AbortError` whose `cause` is `reason`, as Node's `stream.addAbortSignal` fails with. */
+function abortErrorCausedBy(reason: unknown): Error {
+  return Object.assign(new Error("The operation was aborted", { cause: reason }), { name: "AbortError" });
+}
+
 /** The reasons of rejections left unhandled while `run` ran, or by the turn after it. */
 async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
   const reasons: unknown[] = [];
@@ -472,6 +497,7 @@ export {
 } from "./search-strategy-results.ts";
 
 export {
+  abortErrorCausedBy,
   abortingOnFirstCall,
   byteReplacementEngines,
   collectEngineSink,

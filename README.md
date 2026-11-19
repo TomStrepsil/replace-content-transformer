@@ -121,7 +121,9 @@ The output is strings. A `TextEncoderStream` can only encode them as UTF-8, so i
 >       const last = text.charCodeAt(text.length - 1);
 >       const splitsPair = last >= 0xd800 && last <= 0xdbff;
 >       pending = splitsPair ? text.slice(-1) : "";
->       controller.enqueue(encoder.encode(splitsPair ? text.slice(0, -1) : text));
+>       controller.enqueue(
+>         encoder.encode(splitsPair ? text.slice(0, -1) : text)
+>       );
 >     },
 >     flush(controller) {
 >       if (pending) controller.enqueue(encoder.encode(pending));
@@ -179,16 +181,14 @@ import { SerialTransformEngine } from "replace-content-transformer";
 const transformer = new ReplaceContentTransformer(
   new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["{{", "}}"]),
-    replacement: (
-      match: string,
-      { matchIndex }: { matchIndex: number }
-    ) =>
+    replacement: (match: string, { matchIndex }: { matchIndex: number }) =>
       `${match.slice(2, -2)} was match ${matchIndex}`
   })
 );
 ```
 
 Access the character indices of the match, relative to the start of the stream:
+
 ```typescript
 // "here's {{this}}" becomes "here's this, found from 7 to 15"
 const transformer = new ReplaceContentTransformer(
@@ -210,7 +210,7 @@ const transformer = new ReplaceContentTransformer(
 > [!NOTE]
 > `streamIndices[1]` (endIndex) is exclusive, following the same convention as [`String.prototype.slice(startIndex, endIndex)`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/slice) [^2]
 
-[^2]: See [half-open intervals](https://en.wikipedia.org/wiki/Interval_(mathematics)#Half-open_intervals)
+[^2]: See [half-open intervals](<https://en.wikipedia.org/wiki/Interval_(mathematics)#Half-open_intervals>)
 
 #### Replacing a Regular Expression
 
@@ -318,7 +318,7 @@ const transformer = new ReplaceContentTransformer(
 );
 ```
 
-> [!TIP] 
+> [!TIP]
 > For **pipelined** async replacement — where later matches should be discovered and their async work started while earlier replacements are still in flight, without sacrificing in-order output or letting concurrency run away — use [`LookaheadTransformEngine`](#pipelined-async-replacement-with-lookaheadtransformengine) (see below).
 
 #### Iterable Replacement
@@ -395,7 +395,9 @@ const transformer = new ReplaceContentTransformer(
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     concurrencyStrategy: new SemaphoreStrategy(8),
     replacement: async (match) => {
-      const { groups: { url } } = /src="(?<url>[^"]+)"/.exec(match)!;
+      const {
+        groups: { url }
+      } = /src="(?<url>[^"]+)"/.exec(match)!;
       return (await fetch(url)).body!;
     }
   })
@@ -448,16 +450,14 @@ const transformer = new ReplaceContentTransformer(
   new SerialTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
     replacement: async (match, { matchIndex }) => {
+      if (matchIndex === 1) {
+        abortController.abort(); // after two replacements, stop replacing
+      }
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
       const response = await fetch(url);
-      if (response.ok) {
-        return response.body!;
-      }
-      if (matchIndex === 1) {
-        abortController.abort(); // after two replacements, stop replacing
-      }
+      return response.ok ? response.body! : match;
     },
     stopReplacingSignal: abortController.signal
   })
@@ -466,9 +466,9 @@ const transformer = new ReplaceContentTransformer(
 
 This will ensure the transform is ["pass through"](https://en.wikipedia.org/wiki/Identity_transform) once the abort is signalled.
 
-With either engine, no replacement is called once the signal has aborted, and one already called runs to completion. To end an iterable replacement early, have it check the signal between pieces. A consumer can abort it, or cancel the stream, on seeing some output: WHATWG readers, `pipeTo()` and `for await` receive output once the engine has finished with a chunk or is awaiting a replacement, so that takes effect from the next chunk, or straight after an awaited replacement that settles after the abort. For a Node consumer, see [Stopping on output](#stopping-on-output).
+With either engine, no replacement is called once the signal has aborted, and one already called runs to completion. To end an iterable replacement early, have it check the signal between pieces, returning or calling `signal.throwIfAborted()`. A consumer can abort it, or cancel the stream, on seeing some output: WHATWG readers, `pipeTo()` and `for await` receive output once the engine has finished with a chunk or is awaiting a replacement, so that takes effect from the next chunk, or straight after an awaited replacement that settles after the abort. For a Node consumer, see [Stopping on output](#stopping-on-output).
 
-For `fetch` uses cases, with cancellation external to the replacement function, consider sharing the abort signal:
+To also stop requests already in flight, pass the signal to `fetch`. A replacement that fails with the signal's `reason`, as `fetch` and its body do once it aborts, ends there instead of erroring the stream: its match is emitted verbatim if it had produced nothing, and otherwise only what it produced, even part way through a body:
 
 ```ts
 const abortController = new AbortController();
@@ -479,17 +479,8 @@ const transformer = new ReplaceContentTransformer(
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      try {
-        const response = await fetch(url, { signal: abortController.signal });
-        if (response.ok) {
-          return response.body!;
-        }
-      } catch (error: unknown) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return "<!-- cancelled -->";
-        }
-        throw error;
-      }
+      const response = await fetch(url, { signal: abortController.signal });
+      return response.ok ? response.body! : match;
     },
     stopReplacingSignal: abortController.signal
   })
@@ -497,7 +488,7 @@ const transformer = new ReplaceContentTransformer(
 someEventBus.once("someEvent", () => abortController.abort());
 ```
 
-This should ensure in-flight requests are cancelled along with ongoing replacement.
+So does a replacement that fails with an error with the `reason` in its `cause` chain, such as the error Node's `stream.addAbortSignal` fails with, or an error wrapping that one. A Node `http.get` given the signal fails that way only until its response arrives, and not on Deno, whose `node:http` rejects without the `cause`. To end the response part way through too, return `addAbortSignal(signal, response)`.
 
 ### Node Transform
 
@@ -577,7 +568,11 @@ interface MatchSink<TMatch = string> {
 
 interface SearchStrategy<TState, TMatch = string> {
   createState(): TState;
-  processChunk(haystack: string, state: TState, sink: MatchSink<TMatch>): undefined;
+  processChunk(
+    haystack: string,
+    state: TState,
+    sink: MatchSink<TMatch>
+  ): undefined;
   flush(state: TState): string;
   settle?(state: TState, sink: MatchSink<TMatch>): undefined;
   matchToString(match: TMatch): string;
@@ -619,7 +614,8 @@ A match can span chunks, so a strategy holds back content that could still becom
 ```ts
 new StringAnchorSearchStrategy(["<esi:include", "/>"], {
   maxBufferLength: 16 * 1024,
-  onGuardExceeded: () => console.warn("an <esi:include> passed through unreplaced")
+  onGuardExceeded: () =>
+    console.warn("an <esi:include> passed through unreplaced")
 });
 ```
 
@@ -796,7 +792,7 @@ For each pattern in a curated table, the regex search strategy is driven over **
 - **Chunk invariance** - the match sequence is identical however the input was split, and equal to the non-streaming result
 - **Lossless output** - concatenating every reported result plus `flush()` reproduces the input exactly
 
-The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, a terminator the pattern's own body can consume, and lookaheads whose assertion reaches past the text the match consumes — so invariance is verified rather than assumed. What varies legitimately is *buffering*, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced, except where a chunk ends more than 64 characters into the text a backreference repeats (see [Backreferences](./src/search-strategies/regex/README.md#️-backreferences)).
+The table deliberately includes the shapes most exposed to chunk boundaries — eager quantifiers, alternation branches that could still grow, a terminator the pattern's own body can consume, and lookaheads whose assertion reaches past the text the match consumes — so invariance is verified rather than assumed. What varies legitimately is _buffering_, documented under [Unbounded Quantifiers](./src/search-strategies/regex/README.md#️-unbounded-quantifiers), not the matches produced, except where a chunk ends more than 64 characters into the text a backreference repeats (see [Backreferences](./src/search-strategies/regex/README.md#️-backreferences)).
 
 ### Functional Validation Tests
 

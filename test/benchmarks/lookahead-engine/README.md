@@ -1,4 +1,3 @@
-
 # Lookahead Engine Benchmarks
 
 Compare concurrency strategies for `LookaheadTransformEngine` against the `SerialTransformEngine` baseline:
@@ -20,32 +19,32 @@ npm run bench:lookahead-engine:scenario -- Nested-wide
 
 ## Subjects
 
-| ID | Label | Description |
-|----|-------|-------------|
-| A  | Serial (A) | `SerialTransformEngine` — sequential, manual nesting via recursive child transformers |
-| A' | Lookahead serial c=1 (A') | `LookaheadTransformEngine` with `SemaphoreStrategy(1)` — lookahead scanner, serial dispatch |
-| B  | Lookahead semaphore c=N (B) | `LookaheadTransformEngine` with `SemaphoreStrategy(N)` — FIFO concurrent dispatch |
-| C  | Lookahead streamOrder c=N (C) | `LookaheadTransformEngine` with `PriorityQueueStrategy(N, streamOrder)` — prioritises slots that are earlier in the output stream |
-| D  | Lookahead breadthFirst c=N (D) | `LookaheadTransformEngine` with `PriorityQueueStrategy(N, breadthFirst)` — dispatches shallower tree nodes before deeper ones |
+| ID  | Label                          | Description                                                                                                                       |
+| --- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| A   | Serial (A)                     | `SerialTransformEngine` — sequential, manual nesting via recursive child transformers                                             |
+| A'  | Lookahead serial c=1 (A')      | `LookaheadTransformEngine` with `SemaphoreStrategy(1)` — lookahead scanner, serial dispatch                                       |
+| B   | Lookahead semaphore c=N (B)    | `LookaheadTransformEngine` with `SemaphoreStrategy(N)` — FIFO concurrent dispatch                                                 |
+| C   | Lookahead streamOrder c=N (C)  | `LookaheadTransformEngine` with `PriorityQueueStrategy(N, streamOrder)` — prioritises slots that are earlier in the output stream |
+| D   | Lookahead breadthFirst c=N (D) | `LookaheadTransformEngine` with `PriorityQueueStrategy(N, breadthFirst)` — dispatches shallower tree nodes before deeper ones     |
 
 A' vs A isolates the lookahead scanner's effect at serial concurrency: both produce identical output order, but A' pre-scans ahead while a replacement is in flight. On flat scenarios they are equivalent; the advantage of serial subject A is simpler nesting (no engine overhead), while A' reveals the cost of the lookahead scanner itself.
 
 ## Scenarios
 
-| Name | Description | Key insight |
-|------|-------------|-------------|
-| Uniform | 20 matches × 50 ms | B/C/D ≈ 4× faster than A/A' at c=4 |
-| Slow-head | Match 0: 500 ms; matches 1–19: 20 ms | Head blocks output for all strategies; B/C/D still win on total time |
-| Jittered | 40 matches, log-normal latency (median 40 ms) | Parallel dispatch absorbs tail latencies; CV of inter-chunk gaps reveals burstiness |
-| Nested-wide | 8 outer × 4 inner matches; `Nested` re-scanning | A uses recursive child transformers; B/C/D use the engine's native nesting; C shows lower maxGap by draining inner slots of section-0 before later outer slots |
-| Nested-streaming | 8 outer × 6 inner with slow input chunks (chunkDelay 30 ms); pinned c=3 | Forces B vs D divergence: B (FIFO) dispatches queued inner children before later-arriving outer slots; D (breadthFirst) promotes the shallower outer — same totalMs, lower maxGap for D |
+| Name              | Description                                                                                        | Key insight                                                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Uniform           | 20 matches × 50 ms                                                                                 | B/C/D ≈ 4× faster than A/A' at c=4                                                                                                                                                                                                                |
+| Slow-head         | Match 0: 500 ms; matches 1–19: 20 ms                                                               | Head blocks output for all strategies; B/C/D still win on total time                                                                                                                                                                              |
+| Jittered          | 40 matches, log-normal latency (median 40 ms)                                                      | Parallel dispatch absorbs tail latencies; CV of inter-chunk gaps reveals burstiness                                                                                                                                                               |
+| Nested-wide       | 8 outer × 4 inner matches; `Nested` re-scanning                                                    | A uses recursive child transformers; B/C/D use the engine's native nesting; C shows lower maxGap by draining inner slots of section-0 before later outer slots                                                                                    |
+| Nested-streaming  | 8 outer × 6 inner with slow input chunks (chunkDelay 30 ms); pinned c=3                            | Forces B vs D divergence: B (FIFO) dispatches queued inner children before later-arriving outer slots; D (breadthFirst) promotes the shallower outer — same totalMs, lower maxGap for D                                                           |
 | `*-body` variants | TTFB + streaming-body split (10% / 90%, 5 chunks) for Uniform / Slow-head / Jittered / Nested-wide | Stretches slot occupancy across body emission. `inFlight` confirms the bound is honoured. totalMs typically rises (drain serialisation erodes parallelism); maxGap falls (output smeared across body chunks rather than burst at iterable-return) |
 
 ## Streaming-body variants
 
 Each base scenario has a `*-body` companion that moves 90% of the per-match latency from the pre-iterable `await delay()` (TTFB) into per-chunk awaits inside the returned generator. Total per-match work is unchanged; the slot is held for the full body emission rather than released the moment the iterable is returned.
 
-Counter-intuitively, totalMs typically *increases* under streaming bodies because the in-order drainer pulls one slot's iterable at a time — body emission pace becomes drain pace, eroding the parallelism gains visible in the base scenario. The `inFlight` column verifies the bound is enforced (≤ N at all times).
+Counter-intuitively, totalMs typically _increases_ under streaming bodies because the in-order drainer pulls one slot's iterable at a time — body emission pace becomes drain pace, eroding the parallelism gains visible in the base scenario. The `inFlight` column verifies the bound is enforced (≤ N at all times).
 
 ## When do C and D differ from B?
 
@@ -95,6 +94,7 @@ Drift-corrected ratios vs Serial (A) (within-block, 95% bootstrap CI on median r
 ```
 
 Key observations:
+
 - `total`: A and A' both take 1000 ms (20 × 50 ms serial); B/C/D take 250 ms (ceil(20/4) × 50 ms).
 - `maxGap`: All subjects show 50 ms — the worst gap between output chunks equals one replacement delay regardless of concurrency, since the in-order drainer is gated by the slowest slot in each wave.
 - `CV`: Higher for B/C/D (3.31 vs 1.41) — bursts of 4 chunks arrive together at the end of each wave, then silence while the next wave runs, producing a spiky gap distribution.
@@ -125,6 +125,7 @@ Drift-corrected ratios vs Serial (A) (within-block, 95% bootstrap CI on median r
 ```
 
 Key observations:
+
 - **C has the lowest `maxGap` (114 ms)**: `streamOrder` dispatches section-0's inner slots before outer-4..7, so section-0's output drains in a smooth wave. B and D treat inner and later-outer slots identically, producing 214 ms stalls while the drainer waits for whichever queued slot arrives first in the wrong position.
 - **C is also fastest (1580 ms)**: Earlier dispatch of inner slots means they complete and unblock the drain loop sooner.
 - **B and D are identical here**: The lookahead scanner queues all 8 outer slots before any inner slots exist, so both strategies see the same queue state at the moment inner slots are created — depth ordering (D) and FIFO (B) make the same choices.
