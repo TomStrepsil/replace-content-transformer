@@ -96,7 +96,7 @@ export class ReplaceContentTransform extends Transform {
   readonly #decoder = new StringDecoder("utf8");
   readonly #hold = new TrailingHighSurrogateHold();
   readonly #byteOrderMark = new ByteOrderMarkBypass(() =>
-    this.push(BYTE_ORDER_MARK)
+    this.push(BYTE_ORDER_MARK, "utf8")
   );
   private _engineRunning?: boolean;
 
@@ -178,6 +178,6 @@ export class ReplaceContentTransform extends Transform {
   }
 
   #pushIfAny(text: string): void {
-    if (text) this.push(text);
+    if (text) this.push(text, "utf8");
   }
 }
