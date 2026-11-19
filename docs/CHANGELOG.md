@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Bun 1.4.0 is the minimum supported version, up from 1.0. See [Compatibility](../README.md#-compatibility)
 - **BREAKING:** `ReplaceContentTransformer` takes and emits UTF-8 `Uint8Array`, so a byte stream such as `Response.body` needs no `TextDecoderStream` or `TextEncoderStream`, and a string chunk errors the stream. A byte order mark at the start of the input is kept in the output but not searched. For a stream of strings, use `ReplaceContentTextTransformer`. See [WHATWG Transformer](../README.md#whatwg-transformer)
 - **BREAKING:** `AsyncLookaheadTransformEngine` is renamed `LookaheadTransformEngine`, its options `LookaheadTransformEngineOptions`, and its `ReplacementFn` `LookaheadReplacementFn`
-- **BREAKING:** `regex-partial-match` is a peer dependency rather than a dependency, so a `PartialMatchRegExp` you build and the one this package checks for come from the same copy. 
+- **BREAKING:** `regex-partial-match` is a peer dependency rather than a dependency, so a `PartialMatchRegExp` you build and the one this package checks for come from the same copy.
   - npm 7+, pnpm 8+, Bun and Deno install it automatically; with Yarn, Classic or Berry, add it yourself. See [Installation](../README.md#-installation)
 - **BREAKING:** every search strategy limits the content it holds back awaiting a decision to `maxBufferLength`, 65,536 code units by default. A match still incomplete that far from its start no longer matches: its text up to there passes through, and the search restarts after it, so a match after it can still match. Pass `maxBufferLength: Infinity` for the previous behaviour. See [Buffer limit](../README.md#buffer-limit)
 - `SearchStrategy` implementations:
@@ -43,14 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `ReplaceContentTransform` no longer searches a byte order mark at the start of the input it decodes. It is kept at the start of the output, and `streamIndices` count from the text after it, as with a `TextDecoder`. See [Node Transform](../README.md#node-transform)
 - `LookaheadTransformEngine`
   - Fixed calling the replacement, after `stopReplacingSignal` aborts, for a match scheduled earlier whose replacement had not yet been called, such as one waiting for a concurrency slot. That match is now emitted verbatim without waiting for the slot. This also applies to a match scanned just before an abort in the same tick, which may now be emitted verbatim even when a slot was free, and to the matches in a `nested()` replacement's content. Replacements already called still run to completion. See [Stopping new replacements](../src/engines/lookahead-transform-engine/README.md#stopping-new-replacements-stopreplacingsignal)
-  - Fixed `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away and an abandoned replacement is closed in the background, so `end()` no longer waits for that cleanup. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
+  - Fixed `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away, and `end()` no longer waits for an abandoned replacement to close: a `ReadableStream` is cancelled, and any other async iterable is closed in the background once it next settles. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
   - Fixed leaking concurrency slots after an error or `cancel()`, which could stall later replacements or hang `write()`
   - Fixed a child engine retaining its concurrency permit when reading a nested source fails
   - Fixed an unhandled rejection, which ends a Node process by default, when a replacement fails while an earlier one is still being read. The stream errors with it as before
-  - Fixed never closing the source of an abandoned `nested()` replacement, so a source such as a `fetch` body was left open when `cancel()` or `abandonPendingSignal` abandoned its slot. It is now closed in the background, like a plain replacement
+  - Fixed never closing the source of an abandoned `nested()` replacement, so a source such as a `fetch` body was left open when `cancel()` or `abandonPendingSignal` abandoned its slot. It is now closed once the drain loop reaches its slot, like a plain replacement
   - Fixed an unread `nested()` source that is a `ReadableStream` and never yields being left open when abandoned. It is now cancelled directly, rather than read first
 - Fixed `SerialTransformEngine` searching on after `cancel()`, such as from a stream destroyed by a `data` listener, as `AsyncSerialReplacementTransformEngine` did. It searches no further, calls no further replacement, reads no further from one, and enqueues nothing more, and with a `stopReplacingSignal` stops straight after the output the listener received, so a throwing `onGuardExceeded` can no longer reject `write()`
-- Fixed `SerialTransformEngine` leaving open an async iterable replacement, or one a `Promise` resolves to, that it had called but not read when cancelled, as `AsyncSerialReplacementTransformEngine` did. It is now closed in the background, and a `ReadableStream` is cancelled without being read first, so a `fetch` body is no longer left open
+- Fixed `SerialTransformEngine` leaving open an async iterable replacement, or one a `Promise` resolves to, that it had called but not read when cancelled, as `AsyncSerialReplacementTransformEngine` did. A `ReadableStream`, such as a `fetch` body, is now cancelled without being read first, and any other async iterable is closed in the background once it next settles
+- Fixed `cancel()` leaving open a `ReadableStream` replacement in either engine, or a `LookaheadTransformEngine` `nested()` source, whose read was pending, such as a stalled `fetch` body. It is now cancelled, which ends the read
+- Fixed `write()` or `end()` never settling when the sink, such as a Node `data` listener, throws on a piece of a `ReadableStream` replacement whose `cancel` never settles, in either engine. The engine no longer waits for the stream to finish cancelling
 - Fixed `SerialTransformEngine` cutting an async iterable replacement short when `stopReplacingSignal` aborts partway through it, as `AsyncSerialReplacementTransformEngine` did. A replacement already called now runs to completion, as with an iterable one and with `LookaheadTransformEngine`
 - Fixed a replacement that fails with the `stopReplacingSignal`'s `reason` or an `AbortError`, or an error with either in its `cause` chain, such as a `fetch` passed the signal and aborted part way through its body, erroring the stream. It now ends there, and its match is emitted verbatim if it had produced nothing. See [Limit replacements](../README.md#limit-replacements)
 - `ReplaceContentTransform`
@@ -108,7 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed an infinite loop when a regex pattern could produce a zero-length match (e.g. `/a?/`, `/a*/`, `/(?=a)/`). Zero-length matches are now skipped rather than emitted, so a nullable pattern matches only where it matches something — `/\d*/` behaves as `/\d+/`. See [limitations](../src/search-strategies/regex/README.md#limitations).
   - Fixed the same loop in the string anchor search strategy: empty anchors (`searchStrategyFactory("")`, `["", ""]`) are now rejected at construction
-     - Also covers `BalancedPairSearchStrategy`, which delegates to it
+    - Also covers `BalancedPairSearchStrategy`, which delegates to it
 - Ensured Dependabot can raise PRs without being blocked by CI
 
 ### Changed
@@ -272,7 +274,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Note in regex JSDoc that lookahead support is positive only
   - Clarify in the benchmarking [`README.md`](../test/benchmarks/README.md) that `--experimental-strip-types` is a Node thing
   - Update a `NOTE` in the main [`README.md`](../README.md) to be a `CAUTION` and move under the example
-- No longer exporting internal use only types.  Not publicly documented, so not considering this a breaking change
+- No longer exporting internal use only types. Not publicly documented, so not considering this a breaking change
 - Ensure the `BufferedIndexOfAnchoredSearchState`, `IndexOfKnuthMorrisPrattSearchStrategy` and `LoopedIndexOfCancellableSearchStrategy` benchmark comparison strategies properly resets their state
 
 ## [1.0.0] - 2026-01-23

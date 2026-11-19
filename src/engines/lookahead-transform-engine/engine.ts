@@ -19,6 +19,7 @@ import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 import { closeAbandoned, ignore } from "../abandon.ts";
 import { failedFromAbortOf } from "../abort-reason.ts";
+import { cancellableForAwait, cancellableRead, type CancellableRead } from "../cancellable-read.ts";
 import {
   acceptsBytes,
   replacementPieceForwarder,
@@ -81,6 +82,13 @@ function untilAborted<T>(
 }
 
 async function* emptyAsyncIterable(): AsyncGenerator<string> {}
+
+interface SlotPermit {
+  streaming: boolean;
+  released: boolean;
+  reading: CancellableRead<string | Utf8Bytes> | undefined;
+  release(): void;
+}
 
 /**
  * Async function called for each match to produce its replacement content.
@@ -192,7 +200,7 @@ export class LookaheadTransformEngine<TState, TMatch>
   readonly #cancelAbortController: AbortController;
   readonly #abandonSignal: AbortSignal;
   readonly #scanStopSignal: AbortSignal;
-  readonly #replacementCalled = new WeakSet<IterableSlotNode>();
+  readonly #permits = new WeakMap<IterableSlotNode, SlotPermit>();
 
   #siblingIndex = 0;
   #drainDone: Promise<void> | null = null;
@@ -250,6 +258,8 @@ export class LookaheadTransformEngine<TState, TMatch>
   /**
    * Abort all in-flight work and close the engine without emitting further
    * output. Any write() suspended on backpressure is unblocked immediately.
+   * A `ReadableStream` replacement or `nested()` source is cancelled,
+   * whether or not it is being read.
    * Original match text is not emitted even when `abandonPendingSignal` is configured.
    * After `cancel()`, `end()` resolves cleanly without hanging.
    */
@@ -365,63 +375,39 @@ export class LookaheadTransformEngine<TState, TMatch>
     match: TMatch,
     matchIndex: number,
     streamIndices: StreamIndices
-  ): Promise<AsyncIterableIterator<string | Utf8Bytes> | Nested<string | Utf8Bytes>> {
+  ): Promise<AsyncIterable<string | Utf8Bytes> | Nested<string | Utf8Bytes>> {
     const acquired = await this.#options.concurrencyStrategy.acquire(node);
     if (this.#scanStopSignal.aborted) {
       acquired();
       return emptyAsyncIterable();
     }
-    this.#replacementCalled.add(node);
-    let streaming = false;
+    const cancelSignal = this.#cancelAbortController.signal;
     const release = () => {
+      if (permit.released) return;
+      permit.released = true;
       this.#abandonSignal.removeEventListener("abort", releaseWhenAbandoned);
-      this.#cancelAbortController.signal.removeEventListener("abort", release);
+      cancelSignal.removeEventListener("abort", cancelReading);
       acquired();
     };
+    const permit: SlotPermit = { streaming: false, released: false, reading: undefined, release };
     const releaseWhenAbandoned = () => {
-      if (!streaming) release();
+      if (!permit.streaming) release();
     };
-    const cancelSignal = this.#cancelAbortController.signal;
-    this.#abandonSignal.addEventListener("abort", releaseWhenAbandoned);
-    cancelSignal.addEventListener("abort", release);
-    const releaseAndThrow = (err: unknown): never => {
+    const cancelReading = () => {
+      permit.reading?.cancel();
       release();
-      throw err;
     };
-    let iterator: AsyncIterator<string | Utf8Bytes>;
+    this.#permits.set(node, permit);
+    this.#abandonSignal.addEventListener("abort", releaseWhenAbandoned);
+    cancelSignal.addEventListener("abort", cancelReading);
     try {
       const result = await this.#options.replacement(match, { matchIndex, streamIndices, depth: this.#depth });
-      if (result instanceof Nested) {
-        release();
-        return result;
-      }
-      iterator = result[Symbol.asyncIterator]();
+      if (result instanceof Nested) release();
+      return result;
     } catch (err) {
-      return releaseAndThrow(err);
+      release();
+      throw err;
     }
-    return {
-      [Symbol.asyncIterator]() {
-        return this;
-      },
-      next() {
-        streaming = true;
-        try {
-          return iterator.next().then((step) => {
-            if (step.done) release();
-            return step;
-          }, releaseAndThrow);
-        } catch (err) {
-          return releaseAndThrow(err);
-        }
-      },
-      async return(value?: unknown) {
-        try {
-          return (await iterator.return?.(value)) ?? { done: true, value };
-        } finally {
-          release();
-        }
-      }
-    } satisfies AsyncIterableIterator<string | Utf8Bytes>;
   }
 
   async #drain(): Promise<void> {
@@ -443,7 +429,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     }
     try {
       let result = await untilAborted(slot.iterable!, this.#scanStopSignal);
-      if (result === ABANDONED && !this.#abandonSignal.aborted && this.#replacementCalled.has(slot)) {
+      if (result === ABANDONED && !this.#abandonSignal.aborted && this.#replacementCalled(slot)) {
         result = await untilAborted(slot.iterable!, this.#abandonSignal);
       }
       if (result === ABANDONED || this.#abandonSignal.aborted) {
@@ -458,7 +444,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       const emitted =
         result instanceof Nested
           ? this.#emitNested(this.#runNested(result.source, slot))
-          : this.#emitReplacement(result);
+          : this.#emitReplacement(result, slot);
       await untilAborted(emitted, this.#cancelAbortController.signal);
     } catch (error) {
       if (!this.#stoppedBy(error)) throw error;
@@ -466,16 +452,27 @@ export class LookaheadTransformEngine<TState, TMatch>
     }
   }
 
-  async #emitReplacement(pieces: AsyncIterable<string | Utf8Bytes>): Promise<void> {
-    for await (const piece of pieces) {
-      if (this.#cancelled) return;
-      this.#pieces.piece(piece);
+  async #emitReplacement(source: AsyncIterable<string | Utf8Bytes>, slot: IterableSlotNode): Promise<void> {
+    const permit = this.#permits.get(slot)!;
+    permit.streaming = true;
+    try {
+      permit.reading = cancellableRead(source);
+      for await (const piece of permit.reading.pieces) {
+        if (this.#cancelled) return;
+        this.#pieces.piece(piece);
+      }
+    } finally {
+      permit.release();
     }
     if (!this.#cancelled) this.#pieces.end();
   }
 
   #stoppedBy(error: unknown): boolean {
     return !this._sinkFailed && failedFromAbortOf(this.#options.stopReplacingSignal, error);
+  }
+
+  #replacementCalled(slot: IterableSlotNode): boolean {
+    return this.#permits.has(slot);
   }
 
   async #emitNested(output: AsyncIterable<string | Utf8Bytes>): Promise<void> {
@@ -524,7 +521,11 @@ export class LookaheadTransformEngine<TState, TMatch>
     });
     void child.#drainDone?.catch(ignore);
 
-    const cancelChild = () => child.cancel();
+    let reading: CancellableRead<string | Utf8Bytes> | undefined;
+    const cancelChild = () => {
+      child.cancel();
+      reading?.cancel();
+    };
     this.#cancelAbortController.signal.addEventListener("abort", cancelChild, { once: true });
 
     void (async () => {
@@ -542,7 +543,8 @@ export class LookaheadTransformEngine<TState, TMatch>
       try {
         let original = "";
         try {
-          for await (const piece of source) {
+          reading = cancellableForAwait(source);
+          for await (const piece of reading.pieces) {
             pieces.piece(piece);
             await writeDecoded();
             if (this.#cancelled || childErr !== null) break;

@@ -13,6 +13,7 @@ import {
   mockSearchStrategyFactory,
   mockTransformStreamDefaultControllerFactory,
   reusingOneBuffer,
+  stalledStreamReplacementEngines,
   startTestHttpServer,
   textOfPieces,
   unhandledRejectionsDuring,
@@ -29,7 +30,7 @@ import {
   type WebAdapterFamily,
   type WebChunk
 } from "../../../test/web-adapters.js";
-import { everySplitOf } from "../../../test/splits.js";
+import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
 const replacementKinds = [
   { kind: "synchronous", replacement: (match: string) => match.toUpperCase() },
@@ -566,6 +567,34 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       } finally {
         await httpServer.close();
       }
+    });
+  });
+
+  describe(`${family.adapter}, with ReadableStream replacements that never yield, once the stream is cancelled`, () => {
+    const splits = everyTwoWaySplit("a{{x}}b{{y}}c").map((chunks) => ({ chunks }));
+
+    describe.each(stalledStreamReplacementEngines)("$engine", ({ called, create }) => {
+      it.each(splits)("cancels each one it has called, whether or not it was being read, for $chunks", async ({ chunks }) => {
+        const cancelled: string[] = [];
+        const lastCall = Promise.withResolvers<void>();
+        const engine = create(cancelled, (match) => {
+          if (match === called.at(-1)) lastCall.resolve();
+        });
+        const stream = new TransformStream<C, C>(family.create(engine));
+        const writer = stream.writable.getWriter();
+        const reader = stream.readable.getReader();
+        void (async () => {
+          while (!(await reader.read()).done);
+        })();
+        for (const chunk of chunks) writer.write(family.chunkOf(chunk)).catch(() => {});
+        await lastCall.promise;
+        await setImmediate();
+
+        await reader.cancel();
+        await setImmediate();
+
+        expect(cancelled.toSorted()).toEqual(called);
+      });
     });
   });
 }

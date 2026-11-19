@@ -41,11 +41,13 @@ import type { Utf8Bytes } from "../../types.ts";
  * projection; `iterable` and `getOriginalContent` are not part of the
  * scheduling contract.
  *
- * The `iterable` promise is resolved by the engine once the
- * `ConcurrencyStrategy` has granted a slot and the replacement function
- * has returned. The slot itself is held through the iterable's
- * production (released when the producer pulls `done: true`), or
- * released immediately on `Nested` handoff or replacement-fn rejection.
+ * The `iterable` promise is resolved by the engine, to the replacement
+ * itself, unread, once the `ConcurrencyStrategy` has granted a slot and the
+ * replacement function has returned. The slot is held while the drain loop
+ * reads the replacement, and released when that read ends, however it ends:
+ * `done`, an error, an early exit or `cancel()`. It is released immediately
+ * on `Nested` handoff, replacement-fn rejection, `cancel()`, or an
+ * `abandonPendingSignal` abort before the drain loop reaches the slot.
  */
 export interface IterableSlotNode extends SlotTreeNode {
   readonly kind: typeof SLOT_KIND.iterable;

@@ -1,7 +1,7 @@
 import type { MatchSink, SearchStrategy } from "../src/search-strategies/types.ts";
 import type { MatchResult } from "./search-strategy-results.ts";
 import type { IterableSlotNode } from "../src/engines/lookahead-transform-engine/slot-tree/types.ts";
-import type { Nested } from "../src/engines/lookahead-transform-engine/nested.ts";
+import { nested, type Nested } from "../src/engines/lookahead-transform-engine/nested.ts";
 import type {
   EngineSink,
   TransformEngine,
@@ -313,6 +313,57 @@ const byteReplacementEngines = [
   }
 ];
 
+function stalledStream(match: string, cancelled: string[]): ReadableStream<string> {
+  return new ReadableStream<string>({ cancel: () => void cancelled.push(match) });
+}
+
+/**
+ * Engines that replace each `{{…}}` match with a `ReadableStream` that never
+ * yields, calling `onCall` with each match as they call its replacement and
+ * pushing to `cancelled` each match whose stream is cancelled. `called` lists
+ * the matches of `a{{x}}b{{y}}c` each calls a replacement for before stalling.
+ */
+const stalledStreamReplacementEngines = [
+  {
+    engine: "SerialTransformEngine",
+    called: ["{{x}}"],
+    create: (cancelled: string[], onCall: (match: string) => void): TransformEngine =>
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async (match) => {
+          onCall(match);
+          return stalledStream(match, cancelled);
+        }
+      })
+  },
+  {
+    engine: "LookaheadTransformEngine",
+    called: ["{{x}}", "{{y}}"],
+    create: (cancelled: string[], onCall: (match: string) => void): TransformEngine =>
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(2),
+        replacement: async (match) => {
+          onCall(match);
+          return stalledStream(match, cancelled);
+        }
+      })
+  },
+  {
+    engine: "LookaheadTransformEngine, with nested() sources",
+    called: ["{{x}}", "{{y}}"],
+    create: (cancelled: string[], onCall: (match: string) => void): TransformEngine =>
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(2),
+        replacement: async (match) => {
+          onCall(match);
+          return nested(stalledStream(match, cancelled));
+        }
+      })
+  }
+];
+
 const sinkKinds = [
   { sinkKind: "a sink that accepts bytes", acceptsBytes: true },
   { sinkKind: "a sink that receives only strings", acceptsBytes: false }
@@ -511,6 +562,7 @@ export {
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   sinkKinds,
+  stalledStreamReplacementEngines,
   startTestHttpServer,
   startedSinkOf,
   streamToString,
