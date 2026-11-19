@@ -8,6 +8,7 @@ import { nested, type Nested } from "./nested.ts";
 import type { EngineSink, Utf8Bytes } from "../types.ts";
 import type { MatchResult } from "../../../test/utilities.ts";
 import {
+  abortErrorCausedBy,
   abortingOnFirstCall,
   asyncIterable,
   collectEngineSink,
@@ -21,6 +22,7 @@ import {
   unhandledRejectionsDuring,
   utf8
 } from "../../../test/utilities.ts";
+import { StringAnchorSearchStrategy } from "../../search-strategies/index.ts";
 
 function heldSlotCounter(concurrency: number) {
   const inner = new SemaphoreStrategy(concurrency);
@@ -726,6 +728,33 @@ describe("LookaheadTransformEngine", () => {
       expect(errors).toHaveLength(1);
       await vi.waitFor(() => expect(held()).toBe(0));
     });
+
+    it("leaves no rejection unhandled when a later replacement rejects while an earlier one is still being read", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: true, content: "B", streamIndices: [1, 2] }
+      );
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async (match) =>
+          match === "A"
+            ? (async function* () {
+                yield "first";
+                await setImmediate();
+                await setImmediate();
+              })()
+            : Promise.reject(new Error("network")),
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      });
+      engine.start(collectEngineSink().sink);
+
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        await engine.write("AB");
+        await engine.end().catch(() => {});
+      });
+
+      expect(unhandled).toEqual([]);
+    });
   });
 
   describe("stopReplacingSignal", () => {
@@ -978,6 +1007,380 @@ describe("LookaheadTransformEngine", () => {
 
       expect(chunks).toEqual(["first", "second", "B"]);
       expect(replacement).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("a replacement failing with stopReplacingSignal's reason once it aborts", () => {
+    const bodyFailingOnAbort = (
+      signal: AbortSignal,
+      { produced = [] as Utf8Bytes[], reason = (): unknown => signal.reason } = {}
+    ) =>
+      new ReadableStream<Utf8Bytes>({
+        start(controller) {
+          for (const piece of produced) controller.enqueue(piece);
+          signal.addEventListener("abort", () => controller.error(reason()), { once: true });
+        }
+      });
+    const engineReplacingWith = (
+      ac: AbortController,
+      replacement: LookaheadReplacementFn<string>
+    ) =>
+      new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement,
+        concurrencyStrategy: new SemaphoreStrategy(2),
+        stopReplacingSignal: ac.signal
+      });
+
+    it("ends a body that fails part way through, after what it produced, and passes the rest of the stream through", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, { produced: [utf8("first")] })
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort();
+      await engine.write("next");
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstbnext");
+    });
+
+    it("ends a body that fails with an AbortError whose cause is the reason, as Node's stream and http APIs do", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, {
+          produced: [utf8("first")],
+          reason: () => abortErrorCausedBy(ac.signal.reason)
+        })
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+
+    it.each<[string, LookaheadReplacementFn<string>]>([
+      ["an async iterable", async () => asyncIterable("R", "S")],
+      ["a nested() replacement", async () => nested(asyncIterable("R", "S"))]
+    ])("rejects with the reason when the sink throws it on the output of %s", async (_, replacement) => {
+      const ac = new AbortController();
+      const reason = new Error("stop");
+      const engine = engineReplacingWith(ac, replacement);
+      engine.start({
+        enqueue: (chunk: string) => {
+          if (!chunk.includes("R")) return;
+          ac.abort(reason);
+          throw ac.signal.reason;
+        },
+        error: () => {}
+      });
+      await engine.write("a{{x}}b");
+
+      await expect(engine.end()).rejects.toBe(reason);
+    });
+
+    it.each<[string, (reason: unknown) => unknown]>([
+      ["an AbortError other than the reason, as browsers' fetch bodies do", () => new DOMException("aborted", "AbortError")],
+      ["an error whose cause is the reason", (reason) => new Error("fragment failed", { cause: reason })]
+    ])("ends a body that fails with %s", async (_, failure) => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, { produced: [utf8("first")], reason: () => failure(ac.signal.reason) })
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort(new Error("enough"));
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+
+    it("ends a body that fails with an error wrapping an AbortError whose cause is the reason", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, {
+          produced: [utf8("first")],
+          reason: () => new Error("fragment failed", { cause: abortErrorCausedBy(ac.signal.reason) })
+        })
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+
+    it("emits the match verbatim when the replacement's Promise rejects", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, () =>
+        new Promise<AsyncIterable<string>>((_, reject) =>
+          ac.signal.addEventListener("abort", () => reject(ac.signal.reason), { once: true })
+        )
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("a{{x}}b");
+    });
+
+    it.each([
+      { produced: "nothing", pieces: [] },
+      { produced: "only a zero-length piece", pieces: [new Uint8Array(0)] },
+      { produced: "only a byte order mark, which is dropped", pieces: [utf8("\uFEFF")] }
+    ].flatMap((testCase) => sinkKinds.map((kind) => ({ ...testCase, ...kind }))))(
+      "emits the match verbatim when its body fails having produced $produced, for $sinkKind",
+      async ({ pieces, acceptsBytes }) => {
+        const ac = new AbortController();
+        const engine = engineReplacingWith(ac, async () => bodyFailingOnAbort(ac.signal, { produced: pieces }));
+        const { sink, chunks } = collectEngineSink({ acceptsBytes });
+        engine.start(sink);
+        await engine.write("a{{x}}b");
+        await setImmediate();
+
+        ac.abort();
+        await engine.end();
+
+        expect(textOfPieces(chunks)).toBe("a{{x}}b");
+      }
+    );
+
+    it("emits the match verbatim when an async iterable fails having yielded only an empty string", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        (async function* () {
+          yield "";
+          ac.abort();
+          ac.signal.throwIfAborted();
+        })()
+      );
+      const { sink, chunks } = collectEngineSink();
+
+      await runEngine(engine, sink, ["a{{x}}b"]);
+
+      expect(chunks.join("")).toBe("a{{x}}b");
+    });
+
+    it("emits the match verbatim when a body fails with a reason of NaN having produced nothing", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () => bodyFailingOnAbort(ac.signal));
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await setImmediate();
+
+      ac.abort(NaN);
+      await engine.end();
+
+      expect(textOfPieces(chunks)).toBe("a{{x}}b");
+    });
+
+    it("emits a later match verbatim when its body fails having produced nothing, after an earlier body produced output", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async (match) =>
+        match === "x" ? asyncIterable("R") : bodyFailingOnAbort(ac.signal)
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b{{y}}c");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("aRb"));
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("aRb{{y}}c");
+    });
+
+    it("emits each match verbatim when two bodies already called fail having produced nothing", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () => bodyFailingOnAbort(ac.signal));
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b{{y}}c");
+      await setImmediate();
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("a{{x}}b{{y}}c");
+    });
+
+    it("leaves no rejection unhandled when a later replacement rejects while an earlier one is still being read", async () => {
+      const ac = new AbortController();
+      const { sink } = collectEngineSink();
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        const engine = engineReplacingWith(ac, (match) =>
+          match === "x"
+            ? Promise.resolve(
+                (async function* () {
+                  yield "first";
+                  await setImmediate();
+                  await setImmediate();
+                  yield "-more";
+                })()
+              )
+            : new Promise<AsyncIterable<string>>((_, reject) =>
+                ac.signal.addEventListener("abort", () => reject(ac.signal.reason), { once: true })
+              )
+        );
+        engine.start(sink);
+        await engine.write("a{{x}}b{{y}}c");
+
+        ac.abort();
+        await engine.end();
+      });
+
+      expect(unhandled).toEqual([]);
+    });
+
+    it("emits U+FFFD for an incomplete character a body produced before failing", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, { produced: [utf8("€").subarray(0, 1)] })
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await setImmediate();
+
+      ac.abort();
+      await engine.end();
+
+      expect(chunks.join("")).toBe("a�b");
+    });
+
+    it("enqueues nothing more once cancelled, when its body then fails with the reason", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () => bodyFailingOnAbort(ac.signal));
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await setImmediate();
+
+      engine.cancel();
+      ac.abort();
+      await setImmediate();
+
+      expect(chunks.join("")).toBe("a");
+    });
+
+    it("still errors the stream with any other error the replacement fails with", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, { reason: () => new Error("network") })
+      );
+      const error = vi.fn();
+      engine.start({ enqueue: () => {}, error });
+      await engine.write("a{{x}}b");
+      await setImmediate();
+
+      ac.abort();
+      await engine.end().catch(() => {});
+
+      expect(error).toHaveBeenCalledExactlyOnceWith(new Error("network"));
+    });
+
+    describe("from a nested() source", () => {
+      const untilAbortedBy = (signal: AbortSignal) =>
+        new Promise<void>((resolve) => {
+          if (signal.aborted) resolve();
+          else signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      const anchoredEngine = (ac: AbortController, replacement: LookaheadReplacementFn<string>) =>
+        new LookaheadTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement,
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          stopReplacingSignal: ac.signal
+        });
+
+      it("ends the child engine, which emits the text already written to it, the partial match it holds and the output of replacements already called", async () => {
+        const ac = new AbortController();
+        const inner = Promise.withResolvers<AsyncIterable<string>>();
+        const innerCalled = Promise.withResolvers<void>();
+        const engine = anchoredEngine(ac, async (match) => {
+          if (match === "{{y}}") {
+            innerCalled.resolve();
+            return inner.promise;
+          }
+          return nested(
+            (async function* () {
+              yield "hello {{y}} tail {";
+              await untilAbortedBy(ac.signal);
+              ac.signal.throwIfAborted();
+            })()
+          );
+        });
+        const { sink, chunks } = collectEngineSink();
+        engine.start(sink);
+        await engine.write("a{{x}}b");
+        await innerCalled.promise;
+
+        ac.abort();
+        inner.resolve(asyncIterable("INNER"));
+        await engine.end();
+
+        expect(chunks.join("")).toBe("ahello INNER tail {b");
+      });
+
+      it("emits nothing in place of a source that ends without producing anything and without failing", async () => {
+        const ac = new AbortController();
+        const engine = anchoredEngine(ac, async () => nested(asyncIterable()));
+        const { sink, chunks } = collectEngineSink();
+
+        await runEngine(engine, sink, ["a{{x}}b"]);
+
+        expect(chunks.join("")).toBe("ab");
+      });
+
+      it("emits the match verbatim when the source fails before producing anything", async () => {
+        const ac = new AbortController();
+        const engine = anchoredEngine(ac, async () => nested(bodyFailingOnAbort(ac.signal)));
+        const { sink, chunks } = collectEngineSink();
+        engine.start(sink);
+        await engine.write("a{{x}}b");
+        await setImmediate();
+
+        ac.abort();
+        await engine.end();
+
+        expect(chunks.join("")).toBe("a{{x}}b");
+      });
+
+      it("still errors the stream with any other error the source fails with", async () => {
+        const ac = new AbortController();
+        const engine = anchoredEngine(ac, async () =>
+          nested(bodyFailingOnAbort(ac.signal, { produced: [utf8("first")], reason: () => new Error("network") }))
+        );
+        const error = vi.fn();
+        engine.start({ enqueue: () => {}, error });
+        await engine.write("a{{x}}b");
+        await setImmediate();
+
+        ac.abort();
+        await engine.end().catch(() => {});
+
+        expect(error).toHaveBeenCalledExactlyOnceWith(new Error("network"));
+      });
     });
   });
 

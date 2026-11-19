@@ -7,6 +7,7 @@ import type {
 } from "./types.ts";
 import { TransformEngineBase } from "./transform-engine-base.ts";
 import { closeAbandoned, ignore } from "./abandon.ts";
+import { failedFromAbortOf } from "./abort-reason.ts";
 import type { MatchSink, SearchStrategy } from "../search-strategies/types.ts";
 import {
   acceptsBytes,
@@ -91,8 +92,12 @@ export interface SerialTransformEngineOptions<
    * what is left of the current chunk and what the strategy holds are
    * emitted verbatim as one chunk. A replacement already called runs to
    * completion: an iterable or async iterable one is read to its end, so
-   * to end one early, have it check the signal itself. Available
-   * symmetrically on both Node and web adapters.
+   * to end one early, have it check the signal itself. One that fails with
+   * the signal's `reason` or an `AbortError`, or an error with either in its
+   * `cause` chain, as a `fetch` passed the signal does, ends there instead of
+   * erroring the stream: its match is emitted verbatim if it had produced
+   * nothing, and otherwise only what it produced. Available symmetrically
+   * on both Node and web adapters.
    *
    * When given, synchronous output is sent to the sink as it is produced:
    * each run of text, each replacement, and each piece of an iterable one.
@@ -168,6 +173,7 @@ export class SerialTransformEngine<
   });
   #awaitedIterablePieces!: ReplacementPieceForwarder;
   #pending: Promise<ReplacementValue> | AsyncIterable<string | Utf8Bytes> | undefined;
+  #pendingMatch: TMatch | undefined;
   #cancelled = false;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
@@ -180,17 +186,22 @@ export class SerialTransformEngine<
         this.#stoppedAt = this._searchStrategy.matchToString(content);
         return false;
       }
-      const replacement = this.#replacement(content, {
-        matchIndex: this._matchIndex++,
-        streamIndices
-      });
-      if (typeof replacement === "string") {
-        this.#appendProduced(replacement);
-      } else if (Symbol.iterator in replacement) {
-        this.#forwardIterable(replacement, this.#producedPieces);
-      } else {
-        this.#pending = isPromiseLike(replacement) ? Promise.resolve(replacement) : replacement;
-        return false;
+      try {
+        const replacement = this.#replacement(content, {
+          matchIndex: this._matchIndex++,
+          streamIndices
+        });
+        if (typeof replacement === "string") {
+          this.#appendProduced(replacement);
+        } else if (Symbol.iterator in replacement) {
+          this.#forwardIterable(replacement, this.#producedPieces);
+        } else {
+          this.#pending = isPromiseLike(replacement) ? Promise.resolve(replacement) : replacement;
+          this.#pendingMatch = content;
+          return false;
+        }
+      } catch (error) {
+        this.#endStoppedReplacement(error, this.#producedPieces, content);
       }
       if (this.#cancelled) throw scanCancelled;
       if (!this._stopReplacingSignal?.aborted) return true;
@@ -215,7 +226,7 @@ export class SerialTransformEngine<
     super.start(sink);
     this.#enqueueAsProduced =
       this._stopReplacingSignal !== undefined && sink.deliveryDeferred !== true;
-    this.#pieces = replacementPieceForwarder(sink);
+    this.#pieces = replacementPieceForwarder(this._failureRecordingSink(sink));
     this.#awaitedIterablePieces = acceptsBytes(sink)
       ? replacementPieceForwarder({
           enqueue: (chunk: string | Utf8Bytes) => this.#appendOrEnqueueBytes(chunk, sink),
@@ -273,24 +284,38 @@ export class SerialTransformEngine<
       this.#enqueueOutput();
       while (this.#pending !== undefined && !this.#cancelled) {
         const pending = this.#pending;
-        const awaited = pending instanceof Promise;
-        const replacement = awaited ? await pending : pending;
+        let replacement: ReplacementValue;
+        try {
+          replacement = pending instanceof Promise ? await pending : pending;
+        } catch (error) {
+          if (!this.#stoppedBy(error)) throw error;
+          replacement = this._searchStrategy.matchToString(this.#pendingMatch!);
+        }
         if (this.#cancelled) return;
         this.#pending = undefined;
         if (typeof replacement === "string") {
-          if (replacement) this._sink.enqueue(replacement);
+          if (replacement) this._enqueueTo(this._sink, replacement);
         } else if (Symbol.iterator in replacement) {
-          this.#forwardIterable(replacement, this.#awaitedIterablePieces);
+          try {
+            this.#forwardIterable(replacement, this.#awaitedIterablePieces);
+          } catch (error) {
+            this.#endStoppedReplacement(error, this.#awaitedIterablePieces, this.#pendingMatch!);
+          }
           this.#enqueueOutput();
         } else {
-          for await (const piece of replacement) {
+          try {
+            for await (const piece of replacement) {
+              if (this.#cancelled) return;
+              this.#pieces.piece(piece);
+              if (this.#cancelled) return;
+            }
             if (this.#cancelled) return;
-            this.#pieces.piece(piece);
-            if (this.#cancelled) return;
+            this.#pieces.end();
+          } catch (error) {
+            this.#endStoppedReplacement(error, this.#pieces, this.#pendingMatch!);
           }
-          if (this.#cancelled) return;
-          this.#pieces.end();
         }
+        this.#pendingMatch = undefined;
         if (this.#cancelled) return;
         if (this._stopReplacingSignal?.aborted) {
           this.#appendHeld();
@@ -308,10 +333,21 @@ export class SerialTransformEngine<
     }
   }
 
+  #stoppedBy(error: unknown): boolean {
+    return !this._sinkFailed && failedFromAbortOf(this._stopReplacingSignal, error);
+  }
+
+  #endStoppedReplacement(error: unknown, pieces: ReplacementPieceForwarder, match: TMatch): void {
+    if (!this.#stoppedBy(error)) throw error;
+    if (this.#cancelled) throw scanCancelled;
+    pieces.end(this._searchStrategy.matchToString(match));
+  }
+
   #abandonPending(): void {
     const abandoned = this.#pending;
     if (abandoned === undefined) return;
     this.#pending = undefined;
+    this.#pendingMatch = undefined;
     void Promise.resolve(abandoned).then(closeIfAsyncIterable).catch(ignore);
   }
 
@@ -331,7 +367,7 @@ export class SerialTransformEngine<
     }
     this.#enqueueOutput();
     if (this.#cancelled) throw scanCancelled;
-    sink.enqueue(chunk);
+    this._enqueueTo(sink, chunk);
   }
 
   #appendProduced(content: string): void {
@@ -368,6 +404,6 @@ export class SerialTransformEngine<
     const output = this.#output;
     if (!output || this.#cancelled) return;
     this.#output = "";
-    this._sink.enqueue(output);
+    this._enqueueTo(this._sink, output);
   }
 }

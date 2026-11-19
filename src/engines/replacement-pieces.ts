@@ -88,10 +88,10 @@ function wholeCharactersLength(bytes: Utf8Bytes): number {
 
 export interface ReplacementPieceForwarder {
   piece(piece: string | Utf8Bytes): void;
-  end(): void;
+  end(original?: string): void;
 }
 
-export class ReplacementPieceDecoder {
+class ReplacementPieceDecoder {
   readonly #keepsByteOrderMark: boolean;
   #decoder: TextDecoder | undefined;
   #decoding = false;
@@ -130,45 +130,56 @@ export class ReplacementPieceDecoder {
   }
 }
 
-class TextPieceForwarder implements ReplacementPieceForwarder {
-  readonly #sink: PieceSink;
-  readonly #decoder = new ReplacementPieceDecoder();
+abstract class ProducedTrackingForwarder<TBytes extends Utf8Bytes = never> implements ReplacementPieceForwarder {
+  #produced = false;
+  readonly #sink: { enqueue(chunk: string | TBytes): void };
 
-  constructor(sink: PieceSink) {
+  constructor(sink: { enqueue(chunk: string | TBytes): void }) {
     this.#sink = sink;
   }
 
-  piece(piece: string | Utf8Bytes): void {
-    this.#enqueue(this.#decoder.decode(piece));
+  abstract piece(piece: string | Utf8Bytes): void;
+
+  protected abstract endRun(): string;
+
+  end(original = ""): void {
+    this.enqueue(this.endRun());
+    if (!this.#produced && original) this.#sink.enqueue(original);
+    this.#produced = false;
   }
 
-  end(): void {
-    this.#enqueue(this.#decoder.end());
-  }
-
-  #enqueue(text: string): void {
-    if (text) this.#sink.enqueue(text);
+  protected enqueue(chunk: string | TBytes): void {
+    if (chunk.length === 0) return;
+    this.#produced = true;
+    this.#sink.enqueue(chunk);
   }
 }
 
-class BytePieceForwarder implements ReplacementPieceForwarder {
-  readonly #sink: BytePieceSink;
+class TextPieceForwarder extends ProducedTrackingForwarder {
+  readonly #decoder = new ReplacementPieceDecoder();
+
+  piece(piece: string | Utf8Bytes): void {
+    this.enqueue(this.#decoder.decode(piece));
+  }
+
+  protected endRun(): string {
+    return this.#decoder.end();
+  }
+}
+
+class BytePieceForwarder extends ProducedTrackingForwarder<Utf8Bytes> {
   readonly #malformedRun = new ReplacementPieceDecoder({ ignoreBOM: true });
   #held: Utf8Bytes = noBytes;
   #runStarting = true;
 
-  constructor(sink: BytePieceSink) {
-    this.#sink = sink;
-  }
-
   piece(piece: string | Utf8Bytes): void {
     if (!isUtf8Bytes(piece)) {
       const text = textOf(piece);
-      if (text) this.#sink.enqueue(this.#endRun() + text);
+      if (text) this.enqueue(this.endRun() + text);
       return;
     }
     if (this.#malformedRun.decoding) {
-      this.#enqueueText(this.#malformedRun.decode(piece));
+      this.enqueue(this.#malformedRun.decode(piece));
       return;
     }
     let bytes = this.#held.byteLength === 0 ? piece : joined(this.#held, piece);
@@ -180,26 +191,18 @@ class BytePieceForwarder implements ReplacementPieceForwarder {
     const whole = length === bytes.byteLength ? bytes : bytes.subarray(0, length);
     if (!isUtf8(whole)) {
       this.#held = noBytes;
-      this.#enqueueText(this.#malformedRun.decode(bytes));
+      this.enqueue(this.#malformedRun.decode(bytes));
       return;
     }
     this.#held = length === bytes.byteLength ? noBytes : new Uint8Array(bytes.subarray(length));
-    if (length !== 0) this.#sink.enqueue(whole);
+    this.enqueue(whole);
   }
 
-  end(): void {
-    this.#enqueueText(this.#endRun());
-  }
-
-  #endRun(): string {
+  protected endRun(): string {
     const text = this.#malformedRun.end() + heldBytesDecoder.decode(this.#held);
     this.#held = noBytes;
     this.#runStarting = true;
     return text;
-  }
-
-  #enqueueText(text: string): void {
-    if (text) this.#sink.enqueue(text);
   }
 }
 

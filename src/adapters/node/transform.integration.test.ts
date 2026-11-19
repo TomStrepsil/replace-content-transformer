@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { Readable } from "node:stream";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { Readable, addAbortSignal } from "node:stream";
+import { createServer, get, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { finished } from "node:stream/promises";
 import { buffer, text } from "node:stream/consumers";
 import { setImmediate } from "node:timers/promises";
@@ -619,5 +621,117 @@ describe("ReplaceContentTransform + LookaheadTransformEngine, failing replacemen
 
     expect(streamError).toEqual(new Error("fragment failed"));
     expect(unhandled).toEqual([]);
+  });
+});
+
+const unfinishedReadableGiven = (signal: AbortSignal, produced: string) => {
+  const readable = new Readable({ read() {} });
+  readable.push(produced);
+  return addAbortSignal(signal, readable);
+};
+
+function abortingOnOutput(transform: ReplaceContentTransform, abortController: AbortController, seen: string): string[] {
+  const chunks: string[] = [];
+  transform.on("data", (chunk: Buffer) => {
+    chunks.push(chunk.toString());
+    if (chunks.join("").endsWith(seen)) abortController.abort();
+  });
+  return chunks;
+}
+
+const nodeHttpRejectsAbortedRequestWithoutCause = typeof Deno !== "undefined";
+
+describe("ReplaceContentTransform + SerialTransformEngine, with a replacement that fails with an AbortError whose cause is the stopReplacingSignal's reason", () => {
+  const transformReplacingWith = (abortController: AbortController, replacement: () => Promise<Readable>) =>
+    new ReplaceContentTransform(
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement,
+        stopReplacingSignal: abortController.signal
+      })
+    );
+
+  it("ends a Readable given the signal through addAbortSignal after what it produced", async () => {
+    const abortController = new AbortController();
+    const transform = transformReplacingWith(abortController, async () =>
+      unfinishedReadableGiven(abortController.signal, "first")
+    );
+    const chunks = abortingOnOutput(transform, abortController, "first");
+
+    transform.end("a{{x}}b");
+    await finished(transform);
+
+    expect(chunks.join("")).toBe("afirstb");
+  });
+
+  describe("from an http.get request given the signal", () => {
+    let server: Server;
+    let baseUrl: string;
+    let onRequest: () => void = () => {};
+    beforeEach(async () => {
+      server = createServer((request, response) => {
+        if (request.url === "/unanswered") onRequest();
+        else response.write("first");
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+    afterEach(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const requestGiven = (signal: AbortSignal, path: string, responseOf = (response: IncomingMessage): Readable => response) =>
+      new Promise<Readable>((resolve, reject) =>
+        get(`${baseUrl}${path}`, { signal }, (response) => resolve(responseOf(response))).on("error", reject)
+      );
+
+    it.skipIf(nodeHttpRejectsAbortedRequestWithoutCause)(
+      "emits the match verbatim when the signal aborts before the response arrives (not on Deno, whose node:http rejects without the cause)",
+      async () => {
+        const abortController = new AbortController();
+        onRequest = () => abortController.abort();
+        const transform = transformReplacingWith(abortController, () =>
+          requestGiven(abortController.signal, "/unanswered")
+        );
+
+        await expect(text(sourceOf("a{{x}}b").pipe(transform))).resolves.toBe("a{{x}}b");
+      }
+    );
+
+    it("ends its response part way through when the response is given the signal through addAbortSignal", async () => {
+      const abortController = new AbortController();
+      const transform = transformReplacingWith(abortController, () =>
+        requestGiven(abortController.signal, "/body", (response) => addAbortSignal(abortController.signal, response))
+      );
+      const chunks = abortingOnOutput(transform, abortController, "first");
+
+      transform.end("a{{x}}b");
+      await finished(transform);
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+  });
+});
+
+describe("ReplaceContentTransform + LookaheadTransformEngine, with a nested() Readable given the stopReplacingSignal through addAbortSignal", () => {
+  it("ends the source after what it produced, and the child engine emits the output of its replacements", async () => {
+    const abortController = new AbortController();
+    const transform = new ReplaceContentTransform(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) =>
+          match === "{{y}}"
+            ? asyncIterable("INNER")
+            : nested(unfinishedReadableGiven(abortController.signal, "first {{y}} {")),
+        stopReplacingSignal: abortController.signal
+      })
+    );
+    const chunks = abortingOnOutput(transform, abortController, "INNER");
+
+    transform.end("a{{x}}b");
+    await finished(transform);
+
+    expect(chunks.join("")).toBe("afirst INNER {b");
   });
 });
