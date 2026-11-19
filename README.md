@@ -468,7 +468,7 @@ This will ensure the transform is ["pass through"](https://en.wikipedia.org/wiki
 
 With either engine, no replacement is called once the signal has aborted, and one already called runs to completion. To end an iterable replacement early, have it check the signal between pieces, returning or calling `signal.throwIfAborted()`. A consumer can abort it, or cancel the stream, on seeing some output: WHATWG readers, `pipeTo()` and `for await` receive output once the engine has finished with a chunk or is awaiting a replacement, so that takes effect from the next chunk, or straight after an awaited replacement that settles after the abort. For a Node consumer, see [Stopping on output](#stopping-on-output).
 
-To also stop requests already in flight, pass the signal to `fetch`. A replacement that fails with the signal's `reason`, as `fetch` and its body do once it aborts, ends there instead of erroring the stream: its match is emitted verbatim if it had produced nothing, and otherwise only what it produced, even part way through a body:
+To also stop requests already in flight, pass the signal to `fetch`. A replacement that fails with the signal's `reason` or an `AbortError`, as `fetch` and its body do once it aborts, ends there instead of erroring the stream: its match is emitted verbatim if it had produced nothing, and otherwise only what it produced, even part way through a body:
 
 ```ts
 const abortController = new AbortController();
@@ -488,7 +488,7 @@ const transformer = new ReplaceContentTransformer(
 someEventBus.once("someEvent", () => abortController.abort());
 ```
 
-So does a replacement that fails with an error with the `reason` in its `cause` chain, such as the error Node's `stream.addAbortSignal` fails with, or an error wrapping that one. A Node `http.get` given the signal fails that way only until its response arrives, and not on Deno, whose `node:http` rejects without the `cause`. To end the response part way through too, return `addAbortSignal(signal, response)`.
+So does a replacement that fails with an error with either of those in its `cause` chain, such as the error Node's `stream.addAbortSignal` fails with, or an error wrapping that one. A Node `http.get` given the signal fails that way only until its response arrives, and not on Deno, whose `node:http` rejects without the `cause`. To end the response part way through too, return `addAbortSignal(signal, response)`.
 
 ### Node Transform
 
@@ -825,6 +825,8 @@ This library uses the [WHATWG Streams API](https://streams.spec.whatwg.org/) and
   - Vercel Edge Functions
   - Akamai EdgeWorkers
   - Fastly Compute
+
+Some browsers fail an aborted `fetch` or its body with an `AbortError` of their own rather than the `stopReplacingSignal`'s reason, as do those without [`AbortSignal.reason`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/reason) (Chrome and Edge before 98, Safari before 15.4). A replacement failing with an `AbortError` ends cleanly too, so these work the same. A replacement that checks the signal itself where [`throwIfAborted()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/throwIfAborted) is missing (Chrome and Edge before 100, Safari before 15.4) can throw `new DOMException("Aborted", "AbortError")`.
 
 `LookaheadTransformEngine` also needs [`AbortSignal.any()`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static): Chrome and Edge 116+, Firefox 124+, Safari 17.4+ and Deno 1.39+.
 

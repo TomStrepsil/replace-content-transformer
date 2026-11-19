@@ -1345,6 +1345,25 @@ describe("SerialTransformEngine", () => {
       expect((await runEngineAsync(engine, ["aMb"])).join("")).toBe("aMb");
     });
 
+    it("emits the match verbatim when a body fails with a reason of NaN having produced nothing", async () => {
+      const ac = new AbortController();
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundMatch(),
+        replacement: async () => bodyFailingOnAbort(ac.signal),
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      const written = engine.write("aMb");
+      await setImmediate();
+
+      ac.abort(NaN);
+      await written;
+      await engine.end();
+
+      expect(textOfPieces(chunks)).toBe("aMb");
+    });
+
     it("ends a body that fails with an AbortError whose cause is the reason, as Node's stream and http APIs do", async () => {
       const ac = new AbortController();
       const engine = new SerialTransformEngine({
@@ -1353,6 +1372,53 @@ describe("SerialTransformEngine", () => {
           bodyFailingOnAbort(ac.signal, {
             produced: [utf8("first")],
             reason: () => abortErrorCausedBy(ac.signal.reason)
+          }),
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      const written = engine.write("aMb");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort();
+      await written;
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+
+    it.each<[string, (reason: unknown) => unknown]>([
+      ["an AbortError other than the reason, as browsers' fetch bodies do", () => new DOMException("aborted", "AbortError")],
+      ["an error whose cause is the reason", (reason) => new Error("fragment failed", { cause: reason })]
+    ])("ends a body that fails with %s", async (_, failure) => {
+      const ac = new AbortController();
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundMatch(),
+        replacement: async () =>
+          bodyFailingOnAbort(ac.signal, { produced: [utf8("first")], reason: () => failure(ac.signal.reason) }),
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      const written = engine.write("aMb");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort(new Error("enough"));
+      await written;
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+
+    it("ends a body that fails with an AbortError when the signal has no reason, as before browsers added AbortSignal.reason", async () => {
+      const ac = new AbortController();
+      Object.defineProperty(ac.signal, "reason", { value: undefined });
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundMatch(),
+        replacement: async () =>
+          bodyFailingOnAbort(ac.signal, {
+            produced: [utf8("first")],
+            reason: () => new DOMException("aborted", "AbortError")
           }),
         stopReplacingSignal: ac.signal
       });
@@ -1485,6 +1551,23 @@ describe("SerialTransformEngine", () => {
 
     it("still rejects with any other error the replacement fails with", async () => {
       const ac = new AbortController();
+      const engine = new SerialTransformEngine({
+        searchStrategy: aroundMatch(),
+        replacement: async () => bodyFailingOnAbort(ac.signal, { reason: () => new Error("network") }),
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(collectEngineSink().sink);
+      const written = engine.write("aMb");
+      await setImmediate();
+
+      ac.abort();
+
+      await expect(written).rejects.toThrow("network");
+    });
+
+    it("still rejects with any other error when the signal has no reason, as before browsers added AbortSignal.reason", async () => {
+      const ac = new AbortController();
+      Object.defineProperty(ac.signal, "reason", { value: undefined });
       const engine = new SerialTransformEngine({
         searchStrategy: aroundMatch(),
         replacement: async () => bodyFailingOnAbort(ac.signal, { reason: () => new Error("network") }),

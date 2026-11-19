@@ -7,7 +7,7 @@ import type {
 } from "./types.ts";
 import { TransformEngineBase } from "./transform-engine-base.ts";
 import { closeAbandoned, ignore } from "./abandon.ts";
-import { failedWithReasonOf } from "./abort-reason.ts";
+import { failedFromAbortOf } from "./abort-reason.ts";
 import type { MatchSink, SearchStrategy } from "../search-strategies/types.ts";
 import {
   acceptsBytes,
@@ -93,8 +93,8 @@ export interface SerialTransformEngineOptions<
    * emitted verbatim as one chunk. A replacement already called runs to
    * completion: an iterable or async iterable one is read to its end, so
    * to end one early, have it check the signal itself. One that fails with
-   * the signal's `reason`, or an error with the `reason` in its `cause`
-   * chain, as a `fetch` passed the signal does, ends there instead of
+   * the signal's `reason` or an `AbortError`, or an error with either in its
+   * `cause` chain, as a `fetch` passed the signal does, ends there instead of
    * erroring the stream: its match is emitted verbatim if it had produced
    * nothing, and otherwise only what it produced. Available symmetrically
    * on both Node and web adapters.
@@ -334,7 +334,7 @@ export class SerialTransformEngine<
   }
 
   #stoppedBy(error: unknown): boolean {
-    return failedWithReasonOf(this._stopReplacingSignal, error);
+    return failedFromAbortOf(this._stopReplacingSignal, error);
   }
 
   #endStoppedReplacement(error: unknown, pieces: ReplacementPieceForwarder, match: TMatch): void {

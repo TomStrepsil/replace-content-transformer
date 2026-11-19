@@ -1068,6 +1068,25 @@ describe("LookaheadTransformEngine", () => {
       expect(chunks.join("")).toBe("afirstb");
     });
 
+    it.each<[string, (reason: unknown) => unknown]>([
+      ["an AbortError other than the reason, as browsers' fetch bodies do", () => new DOMException("aborted", "AbortError")],
+      ["an error whose cause is the reason", (reason) => new Error("fragment failed", { cause: reason })]
+    ])("ends a body that fails with %s", async (_, failure) => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () =>
+        bodyFailingOnAbort(ac.signal, { produced: [utf8("first")], reason: () => failure(ac.signal.reason) })
+      );
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort(new Error("enough"));
+      await engine.end();
+
+      expect(chunks.join("")).toBe("afirstb");
+    });
+
     it("ends a body that fails with an error wrapping an AbortError whose cause is the reason", async () => {
       const ac = new AbortController();
       const engine = engineReplacingWith(ac, async () =>
@@ -1139,6 +1158,20 @@ describe("LookaheadTransformEngine", () => {
       await runEngine(engine, sink, ["a{{x}}b"]);
 
       expect(chunks.join("")).toBe("a{{x}}b");
+    });
+
+    it("emits the match verbatim when a body fails with a reason of NaN having produced nothing", async () => {
+      const ac = new AbortController();
+      const engine = engineReplacingWith(ac, async () => bodyFailingOnAbort(ac.signal));
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await setImmediate();
+
+      ac.abort(NaN);
+      await engine.end();
+
+      expect(textOfPieces(chunks)).toBe("a{{x}}b");
     });
 
     it("emits a later match verbatim when its body fails having produced nothing, after an earlier body produced output", async () => {

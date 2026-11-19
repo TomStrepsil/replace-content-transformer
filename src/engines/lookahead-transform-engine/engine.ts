@@ -18,7 +18,7 @@ import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 import { closeAbandoned, ignore } from "../abandon.ts";
-import { failedWithReasonOf } from "../abort-reason.ts";
+import { failedFromAbortOf } from "../abort-reason.ts";
 import {
   acceptsBytes,
   replacementPieceForwarder,
@@ -134,10 +134,10 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
    * been called, such as one still waiting for a concurrency slot, is
    * emitted verbatim in its place, without waiting for the slot. Replacements
    * already called run to completion. One that fails with the signal's
-   * `reason`, or an error with the `reason` in its `cause` chain, as a
-   * `fetch` passed the signal does, ends there instead of erroring the
-   * stream: its match is emitted verbatim if it had produced nothing, and
-   * otherwise only what it produced. The content of a {@link nested}
+   * `reason` or an `AbortError`, or an error with either in its `cause`
+   * chain, as a `fetch` passed the signal does, ends there instead of
+   * erroring the stream: its match is emitted verbatim if it had produced
+   * nothing, and otherwise only what it produced. The content of a {@link nested}
    * replacement is re-scanned under the same signal, so its own matches
    * follow these rules too. Pair with {@link abandonPendingSignal} to also
    * abandon replacements already called.
@@ -475,7 +475,7 @@ export class LookaheadTransformEngine<TState, TMatch>
   }
 
   #stoppedBy(error: unknown): boolean {
-    return failedWithReasonOf(this.#options.stopReplacingSignal, error);
+    return failedFromAbortOf(this.#options.stopReplacingSignal, error);
   }
 
   async #emitNested(output: AsyncIterable<string | Utf8Bytes>): Promise<void> {
