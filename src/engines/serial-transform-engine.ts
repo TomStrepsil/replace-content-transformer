@@ -177,6 +177,8 @@ export class SerialTransformEngine<
   #pendingMatch: TMatch | undefined;
   #reading: CancellableRead<string | Utf8Bytes> | undefined;
   #cancelled = false;
+  readonly #cancelController = new AbortController();
+  readonly #signal = this.#cancelController.signal;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
       if (this.#cancelled) throw scanCancelled;
@@ -191,7 +193,8 @@ export class SerialTransformEngine<
       try {
         const replacement = this.#replacement(content, {
           matchIndex: this._matchIndex++,
-          streamIndices
+          streamIndices,
+          signal: this.#signal
         });
         if (typeof replacement === "string") {
           this.#appendProduced(replacement);
@@ -256,12 +259,16 @@ export class SerialTransformEngine<
    * replacement. A `ReadableStream` replacement being read is cancelled
    * straight away, which ends its pending read. A replacement it has
    * called but not read is left to settle, its rejection ignored, and then
-   * closed if it is an async iterable. Called by the adapter when the
-   * stream is cancelled or destroyed before it ends.
+   * closed if it is an async iterable. Aborts the `signal` passed to
+   * replacements, and a call under way then neither throws nor rejects
+   * with an error the abort caused, such as a `fetch` passed that signal
+   * fails with. Called by the adapter when the stream is cancelled or
+   * destroyed before it ends.
    */
   cancel(): void {
     this.#cancelled = true;
     this.#reading?.cancel();
+    this.#cancelController.abort();
   }
 
   #run(chunk: string, settling: boolean): void | Promise<void> {
@@ -277,7 +284,7 @@ export class SerialTransformEngine<
       if (this.#pending !== undefined) return this.#replaceAsync(settling);
       this.#appendStopped();
     } catch (error) {
-      if (error !== scanCancelled) throw error;
+      if (!this.#endedByCancel(error)) throw error;
     } finally {
       this.#enqueueOutput();
     }
@@ -333,11 +340,15 @@ export class SerialTransformEngine<
         this.#enqueueOutput();
       }
     } catch (error) {
-      if (error !== scanCancelled) throw error;
+      if (!this.#endedByCancel(error)) throw error;
     } finally {
       this.#abandonPending();
       this.#enqueueOutput();
     }
+  }
+
+  #endedByCancel(error: unknown): boolean {
+    return error === scanCancelled || (!this._sinkFailed && failedFromAbortOf(this.#signal, error));
   }
 
   #stoppedBy(error: unknown): boolean {

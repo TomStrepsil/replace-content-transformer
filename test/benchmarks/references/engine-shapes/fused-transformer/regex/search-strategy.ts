@@ -1,4 +1,5 @@
 import type { ReplacementContext } from "../../../../../../src/engines/types.ts";
+import { neverAborted } from "../../never-aborted.ts";
 
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
 export class RegexReplaceContentTransformer {
@@ -66,6 +67,7 @@ export class RegexReplaceContentTransformer {
 
     let replacement = this.replacement(match, {
       matchIndex: this.matchIndex++,
+      signal: neverAborted,
       streamIndices: [
         this.currentChunkBaseOffset + numericOffset,
         this.currentChunkBaseOffset + numericOffset + match.length

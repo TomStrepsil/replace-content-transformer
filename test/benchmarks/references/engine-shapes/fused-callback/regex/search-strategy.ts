@@ -1,5 +1,6 @@
 import type { ReplacementContext } from "../../../../../../src/engines/types.ts";
 import PartialMatchRegExp from "regex-partial-match";
+import { neverAborted } from "../../never-aborted.ts";
 
 export class RegexCallbackSearchStrategy {
   private partialChunk: string;
@@ -56,6 +57,7 @@ export class RegexCallbackSearchStrategy {
 
     let replacement = this.replacement(match, {
       matchIndex: this.matchIndex++,
+      signal: neverAborted,
       streamIndices: [
         this.currentChunkBaseOffset + numericOffset,
         this.currentChunkBaseOffset + numericOffset + match.length

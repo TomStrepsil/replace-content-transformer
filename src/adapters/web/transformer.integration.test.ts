@@ -383,6 +383,34 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
         await httpServer.close();
       }
     });
+
+    it("aborts the replacement's signal when the output is cancelled while the input is still being received, so a generator awaiting it stops straight away, where the engine could close it only at its next piece", async () => {
+      let closed = false;
+      const inputStillOpen = new ReadableStream<Uint8Array<ArrayBuffer>>({
+        start(controller) {
+          controller.enqueue(utf8("a{{x}}b"));
+        }
+      });
+      const reader = outputOf(
+        inputStillOpen,
+        create(async (_match, { signal }) =>
+          (async function* () {
+            try {
+              yield utf8("first");
+              await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
+            } finally {
+              closed = true;
+            }
+          })()
+        )
+      ).getReader();
+      let received = "";
+      while (!received.includes("first")) received += family.textOf((await reader.read()).value!);
+
+      await reader.cancel();
+
+      await vi.waitFor(() => expect(closed).toBe(true));
+    });
   });
 
   describe(`${family.adapter} + LookaheadTransformEngine, with nested() replacements that return bytes`, () => {

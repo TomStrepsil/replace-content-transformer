@@ -1,4 +1,5 @@
 import type { ReplacementContext } from "../../../../../../src/engines/types.ts";
+import { neverAborted } from "../../never-aborted.ts";
 
 // based on https://streams.spec.whatwg.org/#example-ts-lipfuzz
 export class BufferedIndexOfReplaceContentTransformer {
@@ -61,6 +62,7 @@ export class BufferedIndexOfReplaceContentTransformer {
           const match = chunk.substring(index, this.lastIndex);
           const replacement = this.replacement(match, {
             matchIndex: this.matchIndex++,
+            signal: neverAborted,
             streamIndices: [baseOffset + index, baseOffset + this.lastIndex]
           });
           controller.enqueue(replacement);

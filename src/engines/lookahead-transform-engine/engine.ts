@@ -83,11 +83,50 @@ function untilAborted<T>(
 
 async function* emptyAsyncIterable(): AsyncGenerator<string> {}
 
-interface SlotPermit {
-  streaming: boolean;
-  released: boolean;
-  reading: CancellableRead<string | Utf8Bytes> | undefined;
-  release(): void;
+class SlotPermit implements EventListenerObject {
+  streaming = false;
+  reading: CancellableRead<string | Utf8Bytes> | undefined = undefined;
+  readonly signal: AbortSignal;
+  #acquired: (() => void) | undefined;
+  readonly #controller: AbortController | undefined;
+  readonly #cancelSignal: AbortSignal;
+  readonly #abandonSignal: AbortSignal;
+
+  constructor(
+    acquired: () => void,
+    cancelSignal: AbortSignal,
+    abandonSignal: AbortSignal,
+    controller: AbortController | undefined
+  ) {
+    this.#acquired = acquired;
+    this.#cancelSignal = cancelSignal;
+    this.#abandonSignal = abandonSignal;
+    this.#controller = controller;
+    this.signal = controller === undefined ? cancelSignal : controller.signal;
+    abandonSignal.addEventListener("abort", this);
+    cancelSignal.addEventListener("abort", this);
+  }
+
+  handleEvent(event: Event): void {
+    const cancelled = event.target === this.#cancelSignal;
+    if (!cancelled && this.streaming) return;
+    if (cancelled) this.reading?.cancel();
+    this.#controller?.abort();
+    this.finish();
+  }
+
+  releaseSlot(): void {
+    const acquired = this.#acquired;
+    if (acquired === undefined) return;
+    this.#acquired = undefined;
+    acquired();
+  }
+
+  finish(): void {
+    this.#abandonSignal.removeEventListener("abort", this);
+    this.#cancelSignal.removeEventListener("abort", this);
+    this.releaseSlot();
+  }
 }
 
 /**
@@ -161,6 +200,11 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
    * through as raw text — there is no useful combination where pending work
    * is abandoned but new replacements continue to be scheduled. Internally
    * the engine combines both signals via `AbortSignal.any()`.
+   *
+   * The `signal` in the context of an abandoned replacement aborts with it,
+   * including a {@link nested} replacement whose source has not begun to be
+   * read, so a `fetch` passed that signal stops straight away. That of a
+   * replacement whose output is being emitted does not.
    */
   abandonPendingSignal?: AbortSignal;
 }
@@ -259,7 +303,8 @@ export class LookaheadTransformEngine<TState, TMatch>
    * Abort all in-flight work and close the engine without emitting further
    * output. Any write() suspended on backpressure is unblocked immediately.
    * A `ReadableStream` replacement or `nested()` source is cancelled,
-   * whether or not it is being read.
+   * whether or not it is being read, and the `signal` in the context of
+   * each replacement not yet read to its end is aborted.
    * Original match text is not emitted even when `abandonPendingSignal` is configured.
    * After `cancel()`, `end()` resolves cleanly without hanging.
    */
@@ -283,6 +328,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       this._sink.error(err);
       throw err;
     });
+    void this.#drainDone.catch(ignore);
   }
 
   /**
@@ -381,31 +427,24 @@ export class LookaheadTransformEngine<TState, TMatch>
       acquired();
       return emptyAsyncIterable();
     }
-    const cancelSignal = this.#cancelAbortController.signal;
-    const release = () => {
-      if (permit.released) return;
-      permit.released = true;
-      this.#abandonSignal.removeEventListener("abort", releaseWhenAbandoned);
-      cancelSignal.removeEventListener("abort", cancelReading);
-      acquired();
-    };
-    const permit: SlotPermit = { streaming: false, released: false, reading: undefined, release };
-    const releaseWhenAbandoned = () => {
-      if (!permit.streaming) release();
-    };
-    const cancelReading = () => {
-      permit.reading?.cancel();
-      release();
-    };
+    const permit = new SlotPermit(
+      acquired,
+      this.#cancelAbortController.signal,
+      this.#abandonSignal,
+      this.#options.abandonPendingSignal === undefined ? undefined : new AbortController()
+    );
     this.#permits.set(node, permit);
-    this.#abandonSignal.addEventListener("abort", releaseWhenAbandoned);
-    cancelSignal.addEventListener("abort", cancelReading);
     try {
-      const result = await this.#options.replacement(match, { matchIndex, streamIndices, depth: this.#depth });
-      if (result instanceof Nested) release();
+      const result = await this.#options.replacement(match, {
+        matchIndex,
+        streamIndices,
+        depth: this.#depth,
+        signal: permit.signal
+      });
+      if (result instanceof Nested) permit.releaseSlot();
       return result;
     } catch (err) {
-      release();
+      permit.finish();
       throw err;
     }
   }
@@ -443,8 +482,8 @@ export class LookaheadTransformEngine<TState, TMatch>
       }
       const emitted =
         result instanceof Nested
-          ? this.#emitNested(this.#runNested(result.source, slot))
-          : this.#emitReplacement(result, slot);
+          ? this.#emitNested(this.#runNested(result.source, slot, this.#streamingPermit(slot)))
+          : this.#emitReplacement(result, this.#streamingPermit(slot));
       await untilAborted(emitted, this.#cancelAbortController.signal);
     } catch (error) {
       if (!this.#stoppedBy(error)) throw error;
@@ -452,9 +491,13 @@ export class LookaheadTransformEngine<TState, TMatch>
     }
   }
 
-  async #emitReplacement(source: AsyncIterable<string | Utf8Bytes>, slot: IterableSlotNode): Promise<void> {
+  #streamingPermit(slot: IterableSlotNode): SlotPermit {
     const permit = this.#permits.get(slot)!;
     permit.streaming = true;
+    return permit;
+  }
+
+  async #emitReplacement(source: AsyncIterable<string | Utf8Bytes>, permit: SlotPermit): Promise<void> {
     try {
       permit.reading = cancellableRead(source);
       for await (const piece of permit.reading.pieces) {
@@ -462,7 +505,7 @@ export class LookaheadTransformEngine<TState, TMatch>
         this.#pieces.piece(piece);
       }
     } finally {
-      permit.release();
+      permit.finish();
     }
     if (!this.#cancelled) this.#pieces.end();
   }
@@ -490,7 +533,8 @@ export class LookaheadTransformEngine<TState, TMatch>
    */
   async *#runNested(
     source: AsyncIterable<string | Utf8Bytes>,
-    parent: IterableSlotNode
+    parent: IterableSlotNode,
+    permit: SlotPermit
   ): AsyncGenerator<string | Utf8Bytes> {
     const buffer: (string | Utf8Bytes)[] = [];
     let childErr: unknown = null;
@@ -519,7 +563,6 @@ export class LookaheadTransformEngine<TState, TMatch>
       },
       acceptsBytes: this.#byteSink !== undefined
     });
-    void child.#drainDone?.catch(ignore);
 
     let reading: CancellableRead<string | Utf8Bytes> | undefined;
     const cancelChild = () => {
@@ -552,6 +595,8 @@ export class LookaheadTransformEngine<TState, TMatch>
         } catch (err) {
           if (!this.#stoppedBy(err)) throw err;
           original = parent.getOriginalContent!();
+        } finally {
+          permit.finish();
         }
         pieces.end(original);
         await writeDecoded();

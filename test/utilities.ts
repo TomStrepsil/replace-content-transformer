@@ -293,7 +293,10 @@ function mockTransformStreamDefaultControllerFactory<T = string>(
 
 type CollectedEngineSink<TChunk> = { sink: EngineSink; chunks: TChunk[]; errors: unknown[] };
 
-type ByteReplacement = (match: string) => Promise<AsyncIterable<string | Utf8Bytes>>;
+type ByteReplacement = (
+  match: string,
+  context: { signal: AbortSignal }
+) => Promise<AsyncIterable<string | Utf8Bytes>>;
 
 /** Each engine, built to replace `{{…}}` matches with a replacement that may return bytes. */
 const byteReplacementEngines = [
@@ -449,6 +452,20 @@ function abortErrorCausedBy(reason: unknown): Error {
   return Object.assign(new Error("The operation was aborted", { cause: reason }), { name: "AbortError" });
 }
 
+/**
+ * A response body that, like a `fetch` body, errors with the signal's reason
+ * once `signal` aborts, even while a read is pending; otherwise it stalls
+ * after its first chunk.
+ */
+function stalledBodyAbortedBy(signal: AbortSignal, first: string): ReadableStream<EncodedBytes> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(utf8(first));
+      signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+    }
+  });
+}
+
 /** The reasons of rejections left unhandled while `run` ran, or by the turn after it. */
 async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
   const reasons: unknown[] = [];
@@ -562,6 +579,7 @@ export {
   mockSyncEngine,
   mockTransformStreamDefaultControllerFactory,
   sinkKinds,
+  stalledBodyAbortedBy,
   stalledStreamReplacementEngines,
   startTestHttpServer,
   startedSinkOf,

@@ -14,6 +14,7 @@ import {
   mockSearchStrategy,
   mockSearchStrategyFactory,
   sinkKinds,
+  stalledBodyAbortedBy,
   textOfPieces,
   unhandledRejectionsDuring,
   utf8
@@ -99,7 +100,8 @@ describe("SerialTransformEngine", () => {
       runEngine(engine, ["X"]);
       expect(fn).toHaveBeenCalledWith("X", {
         matchIndex: 0,
-        streamIndices: [0, 1]
+        streamIndices: [0, 1],
+        signal: expect.any(AbortSignal)
       });
     });
 
@@ -1001,7 +1003,7 @@ describe("SerialTransformEngine", () => {
         replacement: fn
       });
       await runEngineAsync(engine, ["X"]);
-      expect(fn).toHaveBeenCalledWith("X", { matchIndex: 0, streamIndices: [0, 1] });
+      expect(fn).toHaveBeenCalledWith("X", { matchIndex: 0, streamIndices: [0, 1], signal: expect.any(AbortSignal) });
     });
 
     it("increments matchIndex across chunks", async () => {
@@ -2813,6 +2815,175 @@ describe("SerialTransformEngine", () => {
       });
 
       expect((await runEngineAsync(engine, ["input"])).join("")).toBe("pre € post");
+    });
+  });
+  describe("replacement signal", () => {
+    const oneMatch = () => mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+
+    function rejectingOnAbort(signal: AbortSignal): Promise<never> {
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }
+
+    it("passes a signal that aborts when the engine is cancelled", () => {
+      let signal!: AbortSignal;
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: (_match, context) => {
+          signal = context.signal;
+          return "R";
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      engine.write("M");
+      const abortedBeforeCancel = signal.aborted;
+
+      engine.cancel();
+
+      expect(abortedBeforeCancel).toBe(false);
+      expect(signal.aborted).toBe(true);
+    });
+
+    it("leaves the signal unaborted when stopReplacingSignal aborts", () => {
+      const stop = new AbortController();
+      let signal!: AbortSignal;
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        stopReplacingSignal: stop.signal,
+        replacement: (_match, context) => {
+          signal = context.signal;
+          stop.abort();
+          return "R";
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      engine.write("M");
+
+      expect(signal.aborted).toBe(false);
+    });
+
+    it("passes a context whose signal is kept when the context is spread", () => {
+      let spread: { signal?: AbortSignal } = {};
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: (_match, context) => {
+          spread = { ...context };
+          return "R";
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      engine.write("M");
+
+      expect(spread.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it("passes a signal already aborted when first read after the engine is cancelled", async () => {
+      const gate = Promise.withResolvers<void>();
+      let abortedWhenRead: boolean | undefined;
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: async (_match, context) => {
+          await gate.promise;
+          abortedWhenRead = context.signal.aborted;
+          return "R";
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      const written = engine.write("M");
+
+      engine.cancel();
+      gate.resolve();
+      await written;
+
+      expect(abortedWhenRead).toBe(true);
+    });
+
+    it.each([
+      { kind: "a Promise that rejects with the signal's reason", replacement: rejectingOnAbort },
+      {
+        kind: "an async iterable that fails with an AbortError caused by the reason",
+        replacement: (signal: AbortSignal) =>
+          (async function* () {
+            yield "first";
+            await rejectingOnAbort(signal).catch((reason) => {
+              throw abortErrorCausedBy(reason);
+            });
+          })()
+      }
+    ])("settles a call awaiting $kind, rather than rejecting it, once cancelling aborts the signal", async ({ replacement }) => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: (_match, { signal }) => replacement(signal)
+      });
+      engine.start(collectEngineSink().sink);
+      const written = engine.write("M");
+      await setImmediate();
+
+      engine.cancel();
+
+      await expect(written).resolves.toBeUndefined();
+    });
+
+    it("settles a call part way through a replacement's body, rather than rejecting it, once cancelling aborts the body through the signal", async () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: (_match, { signal }) => stalledBodyAbortedBy(signal, "first")
+      });
+      const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
+      engine.start(sink);
+      const written = engine.write("M");
+      await vi.waitFor(() => expect(chunks).toHaveLength(1));
+
+      engine.cancel();
+
+      await expect(written).resolves.toBeUndefined();
+    });
+
+    it("returns normally when a synchronous replacement cancels the engine and then fails with the signal's reason", () => {
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: (_match, { signal }) => {
+          engine.cancel();
+          signal.throwIfAborted();
+          return "R";
+        }
+      });
+      engine.start(collectEngineSink().sink);
+
+      expect(() => engine.write("M")).not.toThrow();
+    });
+
+    it("rejects with the sink's failure when a sink that cancels the engine throws an AbortError", async () => {
+      const sinkFailure = new DOMException("taken", "AbortError");
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: () => asyncIterable("R")
+      });
+      engine.start({
+        enqueue: () => {
+          engine.cancel();
+          throw sinkFailure;
+        },
+        error: () => {}
+      });
+
+      await expect(engine.write("M")).rejects.toBe(sinkFailure);
+    });
+
+    it("still rejects a call with an error the replacement fails with after cancel() that the abort did not cause", async () => {
+      const failure = new Error("failed");
+      const engine = new SerialTransformEngine({
+        searchStrategy: oneMatch(),
+        replacement: (_match, { signal }) => rejectingOnAbort(signal).catch(() => Promise.reject(failure))
+      });
+      engine.start(collectEngineSink().sink);
+      const written = engine.write("M");
+      await setImmediate();
+
+      engine.cancel();
+
+      await expect(written).rejects.toBe(failure);
     });
   });
 });

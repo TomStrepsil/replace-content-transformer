@@ -1,4 +1,5 @@
 import type { ReplacementContext } from "../../../../../../src/engines/types.ts";
+import { neverAborted } from "../../never-aborted.ts";
 
 export class BufferedIndexOfAnchoredCallbackSearchStrategy {
   private partialChunk: string;
@@ -61,6 +62,7 @@ export class BufferedIndexOfAnchoredCallbackSearchStrategy {
         const match = chunk.substring(startIndex, matchEnd);
         const replacement = this.replacement(match, {
           matchIndex: this.matchIndex++,
+          signal: neverAborted,
           streamIndices: [baseOffset + startIndex, baseOffset + matchEnd]
         });
         enqueue(replacement);

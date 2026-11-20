@@ -1,6 +1,7 @@
 import type { StringBufferState } from "../../../../../../src/search-strategies/types.ts";
 import StringBufferStrategyBase from "../../../../../../src/search-strategies/string-buffer-strategy-base.ts";
 import type { ReplacementContext } from "../../../../../../src/engines/types.ts";
+import { neverAborted } from "../../never-aborted.ts";
 
 export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
   extends StringBufferStrategyBase
@@ -61,6 +62,7 @@ export class BufferedIndexOfCanonicalAsGeneratorSearchStrategy
           const match = chunk.substring(index, this.lastIndex);
           const replacement = this.replacement(match, {
             matchIndex: this.matchIndex++,
+            signal: neverAborted,
             streamIndices: [baseOffset + index, baseOffset + this.lastIndex]
           });
           yield replacement;
