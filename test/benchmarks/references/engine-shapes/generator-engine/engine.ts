@@ -4,6 +4,7 @@ import type {
   TransformEngine
 } from "../../../../../src/engines/types.ts";
 import type { GeneratorSearchStrategy } from "./types.ts";
+import { neverAborted } from "../never-aborted.ts";
 
 export class GeneratorTransformEngine<TState, TMatch = string>
   implements TransformEngine
@@ -37,6 +38,7 @@ export class GeneratorTransformEngine<TState, TMatch = string>
       sink.enqueue(
         this.#replacement(result.content, {
           matchIndex: this.#matchIndex++,
+          signal: neverAborted,
           streamIndices: result.streamIndices
         })
       );

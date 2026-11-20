@@ -351,11 +351,11 @@ It can yield strings, UTF-8 bytes (`Uint8Array`), or both, so a `fetch` response
 const transformer = new ReplaceContentTransformer(
   new SerialTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
-    replacement: async (match: string) => {
+    replacement: async (match, { signal }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      return (await fetch(url)).body!;
+      return (await fetch(url, { signal })).body!;
     }
   })
 );
@@ -394,11 +394,11 @@ const transformer = new ReplaceContentTransformer(
   new LookaheadTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     concurrencyStrategy: new SemaphoreStrategy(8),
-    replacement: async (match) => {
+    replacement: async (match, { signal }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      return (await fetch(url)).body!;
+      return (await fetch(url, { signal })).body!;
     }
   })
 );
@@ -416,11 +416,11 @@ const maxDepth = 3;
 function engineFor(currentDepth: number): TransformEngine {
   return new SerialTransformEngine({
     searchStrategy,
-    replacement: async (match: string) => {
+    replacement: async (match, { signal }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const { body } = await fetch(url);
+      const { body } = await fetch(url, { signal });
       return currentDepth < maxDepth
         ? body!.pipeThrough(
             new TransformStream(
@@ -449,14 +449,14 @@ const abortController = new AbortController();
 const transformer = new ReplaceContentTransformer(
   new SerialTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match, { matchIndex }) => {
+    replacement: async (match, { matchIndex, signal }) => {
       if (matchIndex === 1) {
         abortController.abort(); // after two replacements, stop replacing
       }
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const response = await fetch(url);
+      const response = await fetch(url, { signal });
       return response.ok ? response.body! : match;
     },
     stopReplacingSignal: abortController.signal
@@ -468,18 +468,20 @@ This will ensure the transform is ["pass through"](https://en.wikipedia.org/wiki
 
 With either engine, no replacement is called once the signal has aborted, and one already called runs to completion. To end an iterable replacement early, have it check the signal between pieces, returning or calling `signal.throwIfAborted()`. A consumer can abort it, or cancel the stream, on seeing some output: WHATWG readers, `pipeTo()` and `for await` receive output once the engine has finished with a chunk or is awaiting a replacement, so that takes effect from the next chunk, or straight after an awaited replacement that settles after the abort. For a Node consumer, see [Stopping on output](#stopping-on-output).
 
-To also stop requests already in flight, pass the signal to `fetch`. A replacement that fails with the signal's `reason` or an `AbortError`, as `fetch` and its body do once it aborts, ends there instead of erroring the stream: its match is emitted verbatim if it had produced nothing, and otherwise only what it produced, even part way through a body:
+To also stop requests already in flight, pass the signal to `fetch`, combined with the context's own `signal` (see [Stream cancellation](#stream-cancellation)). A replacement that fails with the signal's `reason` or an `AbortError`, as `fetch` and its body do once it aborts, ends there instead of erroring the stream: its match is emitted verbatim if it had produced nothing, and otherwise only what it produced, even part way through a body:
 
 ```ts
 const abortController = new AbortController();
 const transformer = new ReplaceContentTransformer(
   new SerialTransformEngine({
     searchStrategy: new StringAnchorSearchStrategy(["<esi:include", ">"]),
-    replacement: async (match) => {
+    replacement: async (match, { signal }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const response = await fetch(url, { signal: abortController.signal });
+      const response = await fetch(url, {
+        signal: AbortSignal.any([signal, abortController.signal])
+      });
       return response.ok ? response.body! : match;
     },
     stopReplacingSignal: abortController.signal
@@ -489,6 +491,13 @@ someEventBus.once("someEvent", () => abortController.abort());
 ```
 
 So does a replacement that fails with an error with either of those in its `cause` chain, such as the error Node's `stream.addAbortSignal` fails with, or an error wrapping that one. A Node `http.get` given the signal fails that way only until its response arrives, and not on Deno, whose `node:http` rejects without the `cause`. To end the response part way through too, return `addAbortSignal(signal, response)`.
+
+#### Stream cancellation
+
+The replacement context's `signal` belongs to the engine, and is separate from `stopReplacingSignal`. It aborts once the replacement's output is no longer wanted: when the stream is cancelled or destroyed before it ends, and, with `LookaheadTransformEngine`, when `abandonPendingSignal` abandons the replacement before its output has begun. The engine cancels a `ReadableStream` it has been given, such as a `fetch` body, whether or not the signal is passed. What the signal adds: pass it to `fetch`, as the recipes above do, so a request whose response hasn't arrived yet stops straight away, and pass it to a source the engine can't cancel itself, such as a Node `Readable` through `addAbortSignal`, or a generator waiting on other work, which the engine could otherwise close only at its next chunk. A replacement that fails because of the abort, with the signal's `reason` or an `AbortError`, doesn't error the stream.
+
+> [!NOTE]
+> A WHATWG stream passes a cancel of its output on to the transformer only until its input has ended and the last chunk has been transformed. A fragment still being read after that, as `LookaheadTransformEngine` reads those not yet emitted when the input ends, isn't cancelled then, and with `ReplaceContentTransformer` or `ReplaceContentTextTransformer` the signal doesn't abort. It is read on until its next piece, which the cancelled stream can't take, so the engine stops there, and with `LookaheadTransformEngine` the signal aborts. A stalled `fetch` stays open. Where your server aborts a signal when the client disconnects, such as a `request.signal`, combine the two: `AbortSignal.any([signal, request.signal])`. Bun passes the cancel on from 1.4.0, the minimum this package supports. `ReplaceContentTransform` cancels the engine whenever the stream is destroyed before it ends.
 
 ### Node Transform
 

@@ -65,10 +65,15 @@ export interface ByteEngineSink extends EngineSink {
  *
  * @property matchIndex - Zero-based ordinal for the current match in the stream.
  * @property streamIndices - Absolute stream offsets as [startIndex, endIndex], where endIndex is exclusive.
+ * @property signal - Aborts when the replacement's output is no longer wanted:
+ * the stream is cancelled or destroyed before it ends, or
+ * `LookaheadTransformEngine`'s `abandonPendingSignal` abandons it (not on
+ * `stopReplacingSignal`).
  */
 export type ReplacementContext = {
   matchIndex: number;
   streamIndices: StreamIndices;
+  readonly signal: AbortSignal;
 };
 
 /**

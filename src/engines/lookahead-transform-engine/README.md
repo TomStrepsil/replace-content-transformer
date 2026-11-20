@@ -20,7 +20,7 @@ See the [main README](../../../README.md#pipelined-async-replacement-with-lookah
 
 Replacements whose output may itself contain further matches can be re-scanned recursively by returning `nested(source)` instead of the raw source. The engine spawns a child sharing the same search strategy, concurrency strategy, and replacement function — so nested work competes for the same budget and is ordered across nesting levels by the scheduler.
 
-The `replacement` callback receives a `LookaheadReplacementContext` as its second argument: `{ matchIndex, streamIndices, depth }`. `depth` is `0` for top-level matches and increments by `1` per `nested()` level — the natural place to guard against unbounded recursion or vary behaviour by nesting level:
+The `replacement` callback receives a `LookaheadReplacementContext` as its second argument: `{ matchIndex, streamIndices, signal, depth }`. `depth` is `0` for top-level matches and increments by `1` per `nested()` level — the natural place to guard against unbounded recursion or vary behaviour by nesting level:
 
 ```typescript
 import { ReplaceContentTransformer } from "replace-content-transformer/web";
@@ -38,11 +38,11 @@ const transformer = new ReplaceContentTransformer(
   new LookaheadTransformEngine({
     searchStrategy: searchStrategyFactory(["<esi:include", "/>"]),
     concurrencyStrategy: new PriorityQueueStrategy(8, streamOrder),
-    replacement: async (match, { depth }) => {
+    replacement: async (match, { depth, signal }) => {
       const {
         groups: { url }
       } = /src="(?<url>[^"]+)"/.exec(match)!;
-      const { body } = await fetch(url);
+      const { body } = await fetch(url, { signal });
       // Re-scan one level deep; emit verbatim beyond that.
       return depth === 0 ? nested(body!) : body!;
     }
@@ -113,7 +113,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stream teardown
 
-`ReplaceContentTransformer` and `ReplaceContentTextTransformer` honour WHATWG `Transformer.cancel()` through the normal stream-teardown path — each forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). The engine then cancels each `ReadableStream` replacement or `nested()` source it has called, such as a `fetch` body, whether or not it is being read, and closes any other async iterable once it next settles. For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
+`ReplaceContentTransformer` and `ReplaceContentTextTransformer` honour WHATWG `Transformer.cancel()` through the normal stream-teardown path — each forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). The engine then cancels each `ReadableStream` replacement or `nested()` source it has called, such as a `fetch` body, whether or not it is being read, and closes any other async iterable once it next settles. `cancel()` also aborts the `signal` in each replacement's context. Pass it to `fetch` to stop a request whose response hasn't arrived yet, and to a source the engine can't cancel itself, such as a Node `Readable` through `addAbortSignal`, which it could otherwise close only at its next chunk. See [Stream cancellation](../../../README.md#stream-cancellation) for when a WHATWG stream passes a cancel on.
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
@@ -138,8 +138,8 @@ const engine = new LookaheadTransformEngine({
 When aborted, **both the scanner and the drain loop** switch mode:
 
 - **Scanner** — stops calling `replacement()` and stops searching, the same as `stopReplacingSignal`. The rest of the input passes through as raw text.
-- **Drain loop, queued slot** — the drain loop hasn't started consuming the slot's output, whether or not the replacement function has returned. The raw matched text is emitted in its place straight away and the slot's concurrency permit is released. Once the replacement function has returned, a `ReadableStream` replacement is cancelled, and any other async iterable is closed in the background once it next settles, so a `finally` in a replacement generator still runs.
-- **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
+- **Drain loop, queued slot** — the drain loop hasn't started consuming the slot's output, whether or not the replacement function has returned. The raw matched text is emitted in its place straight away and the slot's concurrency permit is released. Once the replacement function has returned, a `ReadableStream` replacement is cancelled, and any other async iterable is closed in the background once it next settles, so a `finally` in a replacement generator still runs. The `signal` in the replacement's context aborts, including for a `nested()` replacement whose source hasn't begun to be read.
+- **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally, and the `signal` in its context doesn't abort. No partial output, no substitution.
 
 ```typescript
 const abortController = new AbortController();

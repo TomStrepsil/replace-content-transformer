@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Replacements can return UTF-8 bytes (`Uint8Array`), or an iterable or async iterable of them such as a `fetch` response body, with no `TextDecoderStream`, and `ReplaceContentTransformer` and `ReplaceContentTransform` emit bytes from an async replacement without decoding them. See [Async Iterable Replacement](../README.md#async-iterable-replacement)
 - `Nested` and `nested()` take the source's chunk type as a type parameter, defaulting to `string`
+- **BREAKING:** the replacement context has a `signal` that aborts when the engine is cancelled, as when the stream is cancelled or destroyed before it ends, or with `LookaheadTransformEngine` when `abandonPendingSignal` abandons the replacement, so a `fetch` passed it stops straight away. Code that builds a `ReplacementContext` itself, such as a custom engine, must now include one. See [Stream cancellation](../README.md#stream-cancellation)
 
 ### Changed
 
@@ -46,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed `cancel()` and `end()` hanging when a replacement never settles, never yields its first item, or stalls mid-stream. The slot's concurrency permit is released straight away, and `end()` no longer waits for an abandoned replacement to close: a `ReadableStream` is cancelled, and any other async iterable is closed in the background once it next settles. A `nested()` source is no longer read after `cancel()`, and its child engine is cancelled with it
   - Fixed leaking concurrency slots after an error or `cancel()`, which could stall later replacements or hang `write()`
   - Fixed a child engine retaining its concurrency permit when reading a nested source fails
-  - Fixed an unhandled rejection, which ends a Node process by default, when a replacement fails while an earlier one is still being read. The stream errors with it as before
+  - Fixed an unhandled rejection, which ends a Node process by default, when a replacement fails while an earlier one is still being read, or before the input ends. The stream errors with it as before
   - Fixed never closing the source of an abandoned `nested()` replacement, so a source such as a `fetch` body was left open when `cancel()` or `abandonPendingSignal` abandoned its slot. It is now closed once the drain loop reaches its slot, like a plain replacement
   - Fixed an unread `nested()` source that is a `ReadableStream` and never yields being left open when abandoned. It is now cancelled directly, rather than read first
 - Fixed `SerialTransformEngine` searching on after `cancel()`, such as from a stream destroyed by a `data` listener, as `AsyncSerialReplacementTransformEngine` did. It searches no further, calls no further replacement, reads no further from one, and enqueues nothing more, and with a `stopReplacingSignal` stops straight after the output the listener received, so a throwing `onGuardExceeded` can no longer reject `write()`

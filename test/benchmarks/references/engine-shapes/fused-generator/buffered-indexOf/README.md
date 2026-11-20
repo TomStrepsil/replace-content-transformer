@@ -28,9 +28,11 @@ This variant is a fused generator: it takes the replacement function at construc
 ```typescript
 *processChunk(chunk: string): Generator<string, void, undefined> {
   yield "text before the match";
-  yield this.replacement(match, { matchIndex, streamIndices });
+  yield this.replacement(match, { matchIndex, streamIndices, signal: neverAborted });
 }
 ```
+
+`ReplacementContext` requires a `signal`, but this variant can't be cancelled, so it has nothing to abort. It passes `neverAborted` instead, a signal that never aborts, from [never-aborted.ts](../../never-aborted.ts). The engine-shape references all share that one signal, so the benchmarks don't pay for an `AbortController` per stream or match.
 
 It is not a `SearchStrategy`, so it runs through none of the engines. It measures what a generator costs when nothing separates search from replacement; compare it with [buffered-indexOf-callback](../../fused-callback/buffered-indexOf), the same fusion through a callback.
 

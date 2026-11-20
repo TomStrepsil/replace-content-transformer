@@ -536,6 +536,24 @@ describe.each(byteReplacementEngines)("ReplaceContentTransform + $engine, with r
     ).resolves.toBe("a12b");
   });
 
+  it("aborts the replacement's signal when the stream is destroyed, so a Readable given it stops straight away, where the engine could close it only at its next chunk", async () => {
+    let readable!: Readable;
+    const transform = new ReplaceContentTransform(
+      create(async (_match, { signal }) => {
+        readable = unfinishedReadableGiven(signal, "first");
+        return readable;
+      })
+    );
+    sourceOf("a{{x}}b").pipe(transform);
+    let received = "";
+    for await (const chunk of transform) {
+      received += String(chunk);
+      if (received.includes("first")) break;
+    }
+
+    await vi.waitFor(() => expect(readable.destroyed).toBe(true));
+  });
+
   it("pushes only strings when readableObjectMode is set, decoding a replacement's bytes", async () => {
     const transform = new ReplaceContentTransform(
       create(async () => asyncIterable(utf8("£€"))),
