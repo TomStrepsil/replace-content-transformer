@@ -412,8 +412,7 @@ const guardedEngines = [
   {
     engine: "SerialTransformEngine",
     earlierMatchOnceStopped: { outcome: "is still replaced", replaced: true },
-    create: (onGuardExceeded: () => void, stopReplacingSignal?: AbortSignal): TransformEngine =>
-      guardedSerial(onGuardExceeded, stopReplacingSignal)
+    create: guardedSerial
   },
   {
     engine: "LookaheadTransformEngine",

@@ -1,14 +1,25 @@
 import type { TransformEngine } from "../../engines/types.js";
 
+function cancelled(engine: TransformEngine): boolean {
+  if (!engine.cancel) return false;
+  try {
+    engine.cancel();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function enqueueOrCancel<TChunk>(
   controller: TransformStreamDefaultController<TChunk>,
   engine: TransformEngine,
   chunk: TChunk
-): void {
+): boolean {
   try {
     controller.enqueue(chunk);
-  } catch (error) {
-    if (!engine.cancel) throw error;
-    engine.cancel();
+    return true;
+  } catch (refusal) {
+    if (!cancelled(engine)) throw refusal;
+    return false;
   }
 }

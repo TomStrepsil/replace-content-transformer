@@ -431,13 +431,8 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
 
     it("aborts the replacement's signal when the output is cancelled while the input is still being received, so a generator awaiting it stops straight away, where the engine could close it only at its next piece", async () => {
       let closed = false;
-      const inputStillOpen = new ReadableStream<Uint8Array<ArrayBuffer>>({
-        start(controller) {
-          controller.enqueue(utf8("a{{x}}b"));
-        }
-      });
       const reader = outputOf(
-        inputStillOpen,
+        unendedByteStreamOf([utf8("a{{x}}b")]),
         create(async (_match, { signal }) =>
           (async function* () {
             try {
@@ -595,10 +590,37 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
 
       expect(reading.pastRefusedChunk).toBe(false);
     });
+
+    it("cancels the engine once when the output refuses both a held high surrogate and the bytes that follow it", async () => {
+      const lastRead = Promise.withResolvers<void>();
+      const engine = create(async () =>
+        (async function* () {
+          yield "first\uD83D";
+          await lastRead.promise;
+          yield utf8("second");
+        })()
+      );
+      const cancel = vi.spyOn(engine as Required<TransformEngine>, "cancel");
+      const reader = family
+        .fromBytes(byteStreamOf([utf8("ax")]))
+        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .getReader();
+      await reader.read();
+      await setImmediate();
+
+      const cancelled = reader.cancel("stop");
+      lastRead.resolve();
+      await cancelled;
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
   });
 
-  describe(`${family.adapter}, driving an engine that has no cancel(), with its output cancelled while it flushes`, () => {
-    it("throws from the sink's enqueue, so the engine learns the output refused the chunk", async () => {
+  describe.each([
+    { engine: "has no cancel()", cancel: undefined },
+    { engine: "has a cancel() that throws", cancel: throwing(new Error("cancel failed")) }
+  ])(`${family.adapter}, driving an engine that $engine, with its output cancelled while it flushes`, ({ cancel }) => {
+    it("throws the output's refusal from the sink's enqueue, so the engine learns the output refused the chunk", async () => {
       let sink!: EngineSink;
       const flushing = Promise.withResolvers<void>();
       const engine: TransformEngine = {
@@ -606,7 +628,8 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
           sink = started;
         },
         write: (chunk) => sink.enqueue(chunk),
-        end: () => flushing.promise
+        end: () => flushing.promise,
+        cancel
       };
       const reader = family
         .fromBytes(byteStreamOf([utf8("a")]))
@@ -617,7 +640,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       const cancelled = reader.cancel("stop");
       await setImmediate();
 
-      expect(() => sink.enqueue("late")).toThrow();
+      expect(() => sink.enqueue("late")).toThrow(TypeError);
       flushing.resolve();
       await cancelled;
     });

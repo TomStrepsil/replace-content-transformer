@@ -135,15 +135,14 @@ export class ReplaceContentTransformer implements Transformer<
   }
 
   #enqueueBytes(bytes: Utf8Bytes): void {
-    this.#enqueueHeldHighSurrogate();
-    this.#enqueue(new Uint8Array(bytes));
+    if (this.#enqueueIfAny(this.#hold.remainder())) this.#enqueue(new Uint8Array(bytes));
   }
 
-  #enqueueIfAny(text: string): void {
-    if (text) this.#enqueue(encoder.encode(text));
+  #enqueueIfAny(text: string): boolean {
+    return !text || this.#enqueue(encoder.encode(text));
   }
 
-  #enqueue(chunk: EncodedChunk): void {
-    enqueueOrCancel(this.#controller!, this.#engine, chunk);
+  #enqueue(chunk: EncodedChunk): boolean {
+    return enqueueOrCancel(this.#controller!, this.#engine, chunk);
   }
 }

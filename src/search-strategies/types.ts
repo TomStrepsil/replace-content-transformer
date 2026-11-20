@@ -115,7 +115,7 @@ export type BufferGuardOptions = {
    * replacements `LookaheadTransformEngine` has already called.
    * Throw from here to error the stream, losing that text and any output not
    * yet read. See
-   * [What `onGuardExceeded` can do](./README.md#what-onguardexceeded-can-do).
+   * [What `onGuardExceeded` can do](../../README.md#what-onguardexceeded-can-do).
    */
   onGuardExceeded?: () => void;
 };

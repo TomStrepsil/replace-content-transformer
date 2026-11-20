@@ -37,37 +37,7 @@ Matches opening/closing delimiters where nesting is meaningful: the match only c
 - **Use Case**: Complex patterns, wildcards, character classes
 - **Exports**: `RegexSearchStrategy`, and `LeanRegexSearchStrategy` for a smaller bundle (see [Lean Bundles](./regex/README.md#lean-bundles))
 
-## 🚧 Buffer limit
-
-Every strategy holds back no more than `maxBufferLength` code units (65,536 by default) awaiting a decision. See [Buffer limit](../../README.md#buffer-limit).
-
-### What `onGuardExceeded` can do
-
-`onGuardExceeded` is called synchronously, before the text it releases is emitted, from the search that takes a held match past the limit. That search usually runs in a `write()`, but can also run as the stream closes or, for [`nested()`](../engines/lookahead-transform-engine/README.md#recursive-replacement) content, as output drains. The callback can:
-
-- **Notify:** the match passes through as text, and replacing carries on.
-- **Stop replacing:** abort the engine's [`stopReplacingSignal`](../../README.md#limit-replacements). The released text, and the rest of the stream, pass through verbatim, except that `LookaheadTransformEngine` still runs a replacement it has already called, such as one for an outer match found after the `nested()` content in which the limit was crossed. It also passes through an earlier match whose replacement it hasn't called yet, even one in the same `write()`, [as for any abort](../engines/lookahead-transform-engine/README.md#stopping-new-replacements-stopreplacingsignal). The callback may run again later in the same chunk, so make it safe to repeat.
-
-  ```ts
-  const stopReplacing = new AbortController();
-  new SerialTransformEngine({
-    searchStrategy: new StringAnchorSearchStrategy(["<esi:include", "/>"], {
-      onGuardExceeded: () => stopReplacing.abort()
-    }),
-    replacement,
-    stopReplacingSignal: stopReplacing.signal
-  });
-  ```
-
-- **Fail closed:** throw. The stream errors with what was thrown (`ReplaceContentTransform` wraps a non-`Error` in one). What was held is lost, as is output the consumer hasn't read yet. `LookaheadTransformEngine` also loses anything it hadn't emitted, such as a replacement still in flight, the text after it, or text found earlier in the same `write()`.
-
-  ```ts
-  new StringAnchorSearchStrategy(["<esi:include", "/>"], {
-    onGuardExceeded: () => {
-      throw new Error("an <esi:include> was not closed");
-    }
-  });
-  ```
+Every strategy holds back no more than `maxBufferLength` code units (65,536 by default) awaiting a decision. See [Buffer limit](../../README.md#buffer-limit), including [what `onGuardExceeded` can do](../../README.md#what-onguardexceeded-can-do).
 
 ## 📊 Benchmark Strategies
 

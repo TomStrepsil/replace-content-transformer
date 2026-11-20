@@ -258,7 +258,10 @@ export class LookaheadTransformEngine<TState, TMatch>
       this.#text += content;
     },
     reportMatch: (match, streamIndices) => {
-      if (this.#cancelled) return false;
+      if (this._stopReplacingSignal?.aborted) {
+        this.#text += this._searchStrategy.matchToString(match);
+        return false;
+      }
       this.#offerText();
       this.#queue.offer(this.#scheduleMatch(match, streamIndices));
       if (!this.#queue.full) return true;
@@ -337,18 +340,23 @@ export class LookaheadTransformEngine<TState, TMatch>
    * queue is full (backpressure). Rejects with what the search throws, such
    * as from `onGuardExceeded`, cancelling the engine.
    */
-  async write(chunk: string): Promise<void> {
-    if (this.#cancelled) return;
-    if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld();
-      if (this.#cancelled) return;
-      await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
-      return;
-    }
+  write(chunk: string): Promise<void> {
+    if (this.#cancelled) return Promise.resolve();
+    if (this._stopReplacingSignal?.aborted) return this.#passThrough(chunk);
+    return this.#search(chunk, false);
+  }
 
+  async #passThrough(chunk: string): Promise<void> {
+    await this.#enqueueHeld();
+    if (this.#cancelled) return;
+    await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
+  }
+
+  async #search(chunk: string, settling: boolean): Promise<void> {
     try {
-      this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
-      await this.#enqueue(false);
+      if (settling) this._settle(this.#matchSink);
+      else this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
+      await this.#enqueue(settling);
     } catch (error) {
       this.cancel();
       throw error;
@@ -356,9 +364,14 @@ export class LookaheadTransformEngine<TState, TMatch>
   }
 
   #offerText(): void {
-    if (!this.#text || this.#cancelled) return;
+    if (!this.#text) return;
     this.#queue.offer(textSlot(this.#siblingIndex++, this.#text));
     this.#text = "";
+  }
+
+  #offerSearched(): void {
+    if (this._stopReplacingSignal?.aborted) this.#text += this._searchStrategy.flush(this._state);
+    this.#offerText();
   }
 
   async #enqueueHeld(): Promise<void> {
@@ -367,7 +380,7 @@ export class LookaheadTransformEngine<TState, TMatch>
   }
 
   async #enqueue(settling: boolean): Promise<void> {
-    this.#offerText();
+    this.#offerSearched();
     while (this.#queue.full) {
       await this.#queue.room();
       if (this.#cancelled) return;
@@ -375,7 +388,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       if (this.#paused) {
         this.#paused = false;
         this._resume(settling, this.#matchSink);
-        this.#offerText();
+        this.#offerSearched();
       }
     }
   }
@@ -392,17 +405,8 @@ export class LookaheadTransformEngine<TState, TMatch>
       await this.#drainDone;
       return;
     }
-    if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld();
-    } else {
-      try {
-        this._settle(this.#matchSink);
-        await this.#enqueue(true);
-      } catch (error) {
-        this.cancel();
-        throw error;
-      }
-    }
+    if (this._stopReplacingSignal?.aborted) await this.#enqueueHeld();
+    else await this.#search("", true);
     this.#queue.close();
     await this.#drainDone;
   }
