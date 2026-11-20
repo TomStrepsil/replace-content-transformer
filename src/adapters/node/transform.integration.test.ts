@@ -10,6 +10,11 @@ import {
   asyncIterable,
   byteReplacementEngines,
   collectWritable,
+  guardedEngines,
+  guardedSerial,
+  lookaheadFailure,
+  lookaheadFailures,
+  throwing,
   reusingOneBuffer,
   stalledStreamReplacementEngines,
   textOfPieces,
@@ -94,16 +99,9 @@ describe("ReplaceContentTransform + SerialTransformEngine + StringAnchorSearchSt
     const abortController = new AbortController();
     const signalAbortedAtGuard: boolean[] = [];
     const transform = new ReplaceContentTransform(
-      new SerialTransformEngine({
-        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"], {
-          maxBufferLength: 6,
-          onGuardExceeded: () => {
-            signalAbortedAtGuard.push(abortController.signal.aborted);
-          }
-        }),
-        replacement: (match: string) => match.toUpperCase(),
-        stopReplacingSignal: abortController.signal
-      })
+      guardedSerial(() => {
+        signalAbortedAtGuard.push(abortController.signal.aborted);
+      }, abortController.signal)
     );
     const chunks: string[] = [];
     transform.on("data", (chunk: Buffer) => {
@@ -124,14 +122,7 @@ describe("ReplaceContentTransform + SerialTransformEngine + StringAnchorSearchSt
       throw new Error("guard");
     });
     const transform = new ReplaceContentTransform(
-      new SerialTransformEngine({
-        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"], {
-          maxBufferLength: 6,
-          onGuardExceeded
-        }),
-        replacement: (match: string) => match.toUpperCase(),
-        stopReplacingSignal: abortController.signal
-      })
+      guardedSerial(onGuardExceeded, abortController.signal)
     );
     const chunks: string[] = [];
     transform.on("data", (chunk: Buffer) => {
@@ -623,6 +614,54 @@ describe("ReplaceContentTransform + LookaheadTransformEngine, with nested() repl
   });
 });
 
+describe.each(guardedEngines)("ReplaceContentTransform + $engine + StringAnchorSearchStrategy, with an onGuardExceeded callback", ({ earlierMatchOnceStopped, create }) => {
+  it("passes the text it releases, and the rest of the stream from the same write() on, through verbatim once the callback aborts the stopReplacingSignal", async () => {
+    const stopReplacing = new AbortController();
+    const transform = new ReplaceContentTransform(
+      create(() => stopReplacing.abort(), stopReplacing.signal)
+    );
+
+    const output = text(sourceOf("a{{b}}c", "{{123456789 d{{e}}", " f{{g}}").pipe(transform));
+
+    await expect(output).resolves.toBe("a{{B}}c{{123456789 d{{e}} f{{g}}");
+  });
+
+  const { outcome, replaced } = earlierMatchOnceStopped;
+
+  it(`once the callback aborts the stopReplacingSignal, a match found earlier in the same write() ${outcome}`, async () => {
+    const stopReplacing = new AbortController();
+    const transform = new ReplaceContentTransform(
+      create(() => stopReplacing.abort(), stopReplacing.signal)
+    );
+
+    const output = text(sourceOf("a{{b}}c{{123456789 d{{e}}", " f{{g}}").pipe(transform));
+
+    await expect(output).resolves.toBe(
+      replaced ? "a{{B}}c{{123456789 d{{e}} f{{g}}" : "a{{b}}c{{123456789 d{{e}} f{{g}}"
+    );
+  });
+
+  it("destroys the stream with the error the callback throws", async () => {
+    const guardError = new Error("a {{ was not closed");
+    const transform = new ReplaceContentTransform(create(throwing(guardError)));
+
+    const output = text(sourceOf("a{{123", "456789").pipe(transform));
+
+    await expect(output).rejects.toBe(guardError);
+  });
+
+  it("emits none of the text the strategy held once the callback throws", async () => {
+    const transform = new ReplaceContentTransform(create(throwing(new Error("a {{ was not closed"))));
+    const chunks: string[] = [];
+    transform.on("data", (chunk: Buffer) => chunks.push(chunk.toString()));
+
+    sourceOf("a{{b}}c{{123", "456789").pipe(transform);
+    await finished(transform).catch(() => {});
+
+    expect(chunks.join("")).not.toContain("{{1");
+  });
+});
+
 describe("ReplaceContentTransform + LookaheadTransformEngine, failing replacement", () => {
   it("destroys the stream with the replacement's error, leaving no rejection unhandled", async () => {
     let streamError: unknown;
@@ -644,11 +683,29 @@ describe("ReplaceContentTransform + LookaheadTransformEngine, failing replacemen
   });
 });
 
-const unfinishedReadableGiven = (signal: AbortSignal, produced: string) => {
+const unfinishedReadableOf = (produced: string) => {
   const readable = new Readable({ read() {} });
   readable.push(produced);
-  return addAbortSignal(signal, readable);
+  return readable;
 };
+
+describe.each(lookaheadFailures)("ReplaceContentTransform + LookaheadTransformEngine, failing while the source is still open, when $failure", ({ create }) => {
+  it("destroys the stream with the error, leaving no rejection unhandled", async () => {
+    let streamError: unknown;
+    const unhandled = await unhandledRejectionsDuring(async () => {
+      const transform = new ReplaceContentTransform(create());
+      unfinishedReadableOf("a{{o}}b").pipe(transform);
+      streamError = await finished(transform).catch((error: unknown) => error);
+      await setImmediate();
+    });
+
+    expect(streamError).toBe(lookaheadFailure);
+    expect(unhandled).toEqual([]);
+  });
+});
+
+const unfinishedReadableGiven = (signal: AbortSignal, produced: string) =>
+  addAbortSignal(signal, unfinishedReadableOf(produced));
 
 function abortingOnOutput(transform: ReplaceContentTransform, abortController: AbortController, seen: string): string[] {
   const chunks: string[] = [];

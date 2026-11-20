@@ -2,6 +2,7 @@ import type { ByteEngineSink, TransformEngine, Utf8Bytes } from "../../engines/t
 import { BYTE_ORDER_MARK } from "../../byte-order-mark.js";
 import { ByteOrderMarkBypass } from "../byte-order-mark-bypass.js";
 import { TrailingHighSurrogateHold } from "../trailing-high-surrogate-hold.js";
+import { enqueueOrCancel } from "./enqueue-or-cancel.js";
 
 const encoder = new TextEncoder();
 
@@ -77,7 +78,7 @@ export class ReplaceContentTransformer implements Transformer<
   readonly #decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   readonly #hold = new TrailingHighSurrogateHold();
   readonly #byteOrderMark = new ByteOrderMarkBypass(() =>
-    this.#controller!.enqueue(encoder.encode(BYTE_ORDER_MARK))
+    this.#enqueue(encoder.encode(BYTE_ORDER_MARK))
   );
   #controller?: TransformStreamDefaultController<EncodedChunk>;
 
@@ -134,11 +135,14 @@ export class ReplaceContentTransformer implements Transformer<
   }
 
   #enqueueBytes(bytes: Utf8Bytes): void {
-    this.#enqueueHeldHighSurrogate();
-    this.#controller!.enqueue(new Uint8Array(bytes));
+    if (this.#enqueueIfAny(this.#hold.remainder())) this.#enqueue(new Uint8Array(bytes));
   }
 
-  #enqueueIfAny(text: string): void {
-    if (text) this.#controller!.enqueue(encoder.encode(text));
+  #enqueueIfAny(text: string): boolean {
+    return !text || this.#enqueue(encoder.encode(text));
+  }
+
+  #enqueue(chunk: EncodedChunk): boolean {
+    return enqueueOrCancel(this.#controller!, this.#engine, chunk);
   }
 }

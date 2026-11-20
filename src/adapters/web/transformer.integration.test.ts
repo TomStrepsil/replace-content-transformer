@@ -4,12 +4,17 @@ import { setImmediate } from "node:timers/promises";
 import { ReplaceContentTransformer } from "./transformer.js";
 import { SerialTransformEngine } from "../../engines/serial-transform-engine.js";
 import { LookaheadTransformEngine, SemaphoreStrategy } from "../../engines/index.js";
-import { StringAnchorSearchStrategy } from "../../search-strategies/index.js";
+import { RegexSearchStrategy, StringAnchorSearchStrategy } from "../../search-strategies/index.js";
 import { nested } from "../../engines/lookahead-transform-engine/nested.js";
-import type { TransformEngine, Utf8Bytes } from "../../engines/types.js";
+import type { EngineSink, TransformEngine, Utf8Bytes } from "../../engines/types.js";
 import {
   asyncIterable,
   byteReplacementEngines,
+  guardedEngines,
+  guardedLookahead,
+  lookaheadFailure,
+  lookaheadFailures,
+  throwing,
   mockSearchStrategyFactory,
   mockTransformStreamDefaultControllerFactory,
   reusingOneBuffer,
@@ -26,7 +31,7 @@ import {
   everyTwoWayByteSplit,
   midCharacterSplits,
   textWebAdapter,
-  type Bytes,
+  unendedByteStreamOf,
   type WebAdapterFamily,
   type WebChunk
 } from "../../../test/web-adapters.js";
@@ -249,6 +254,46 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
     });
   });
 
+  describe.each(guardedEngines)(`${family.adapter} + $engine + StringAnchorSearchStrategy, with an onGuardExceeded callback`, ({ earlierMatchOnceStopped, create }) => {
+    const outputOf = (engine: TransformEngine, ...chunks: string[]) =>
+      text(
+        family
+          .fromBytes(byteStreamOf(chunks.map(utf8)))
+          .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+      );
+
+    it("passes the text it releases, and the rest of the stream from the same write() on, through verbatim once the callback aborts the stopReplacingSignal", async () => {
+      const stopReplacing = new AbortController();
+      const engine = create(() => stopReplacing.abort(), stopReplacing.signal);
+
+      const output = outputOf(engine, "a{{b}}c", "{{123456789 d{{e}}", " f{{g}}");
+
+      await expect(output).resolves.toBe("a{{B}}c{{123456789 d{{e}} f{{g}}");
+    });
+
+    const { outcome, replaced } = earlierMatchOnceStopped;
+
+    it(`once the callback aborts the stopReplacingSignal, a match found earlier in the same write() ${outcome}`, async () => {
+      const stopReplacing = new AbortController();
+      const engine = create(() => stopReplacing.abort(), stopReplacing.signal);
+
+      const output = outputOf(engine, "a{{b}}c{{123456789 d{{e}}", " f{{g}}");
+
+      await expect(output).resolves.toBe(
+        replaced ? "a{{B}}c{{123456789 d{{e}} f{{g}}" : "a{{b}}c{{123456789 d{{e}} f{{g}}"
+      );
+    });
+
+    it("errors the stream with the error the callback throws", async () => {
+      const guardError = new Error("a {{ was not closed");
+      const engine = create(throwing(guardError));
+
+      const output = outputOf(engine, "a{{123", "456789");
+
+      await expect(output).rejects.toBe(guardError);
+    });
+  });
+
   describe(`${family.adapter} + LookaheadTransformEngine (web adapter)`, () => {
     it("forwards engine emissions to controller.enqueue", async () => {
       const strategy = mockSearchStrategyFactory(
@@ -386,13 +431,8 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
 
     it("aborts the replacement's signal when the output is cancelled while the input is still being received, so a generator awaiting it stops straight away, where the engine could close it only at its next piece", async () => {
       let closed = false;
-      const inputStillOpen = new ReadableStream<Uint8Array<ArrayBuffer>>({
-        start(controller) {
-          controller.enqueue(utf8("a{{x}}b"));
-        }
-      });
       const reader = outputOf(
-        inputStillOpen,
+        unendedByteStreamOf([utf8("a{{x}}b")]),
         create(async (_match, { signal }) =>
           (async function* () {
             try {
@@ -463,6 +503,164 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
     });
   });
 
+  describe(`${family.adapter} + LookaheadTransformEngine, with an onGuardExceeded callback that throws while a replacement is in flight`, () => {
+    it.each([
+      { outcome: "resolves", settle: (gate: PromiseWithResolvers<void>) => gate.resolve() },
+      { outcome: "rejects", settle: (gate: PromiseWithResolvers<void>) => gate.reject(new Error("fragment failed")) }
+    ])("errors the stream with the callback's error, leaving nothing unhandled once the replacement $outcome", async ({ settle }) => {
+      const guardError = new Error("a {{ was not closed");
+      const gate = Promise.withResolvers<void>();
+      const engine = guardedLookahead(throwing(guardError), async (match) => {
+        await gate.promise;
+        return asyncIterable(match.toUpperCase());
+      });
+      let streamError: unknown;
+
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        streamError = await text(
+          family
+            .fromBytes(byteStreamOf([utf8("a{{b}}c"), utf8("{{123456789")]))
+            .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        ).catch((error: unknown) => error);
+        settle(gate);
+        await setImmediate();
+      });
+
+      expect(streamError).toBe(guardError);
+      expect(unhandled).toEqual([]);
+    });
+  });
+
+  describe.each([
+    {
+      engine: "SerialTransformEngine",
+      create: (replacement: () => Promise<AsyncIterable<string | Utf8Bytes>>): TransformEngine =>
+        new SerialTransformEngine({ searchStrategy: new RegexSearchStrategy(/x+/), replacement })
+    },
+    {
+      engine: "LookaheadTransformEngine",
+      create: (replacement: () => Promise<AsyncIterable<string | Utf8Bytes>>): TransformEngine =>
+        new LookaheadTransformEngine({
+          searchStrategy: new RegexSearchStrategy(/x+/),
+          concurrencyStrategy: new SemaphoreStrategy(2),
+          replacement
+        })
+    }
+  ])(`${family.adapter} + $engine, with its output cancelled while it flushes a match reported as the input ends`, ({ create }) => {
+    const cancelWhileFlushing = async (piece: (text: string) => string | Utf8Bytes = (text) => text) => {
+      const lastRead = Promise.withResolvers<void>();
+      const reading = { pastRefusedChunk: false };
+      const engine = create(async () =>
+        (async function* () {
+          yield piece("first");
+          await lastRead.promise;
+          yield piece("second");
+          reading.pastRefusedChunk = true;
+          yield piece("third");
+        })()
+      );
+      const reader = family
+        .fromBytes(byteStreamOf([utf8("ax")]))
+        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .getReader();
+      await reader.read();
+      await setImmediate();
+
+      const cancelled = reader.cancel("stop");
+      lastRead.resolve();
+      return { cancelled, reading };
+    };
+
+    it("resolves the cancel once the replacement still being read produces more", async () => {
+      const { cancelled } = await cancelWhileFlushing();
+
+      await expect(cancelled).resolves.toBeUndefined();
+    });
+
+    it("resolves the cancel once the replacement still being read produces more bytes", async () => {
+      const { cancelled } = await cancelWhileFlushing(utf8);
+
+      await expect(cancelled).resolves.toBeUndefined();
+    });
+
+    it("reads no further from the replacement once the output refuses a chunk", async () => {
+      const { cancelled, reading } = await cancelWhileFlushing();
+      await cancelled;
+      await setImmediate();
+
+      expect(reading.pastRefusedChunk).toBe(false);
+    });
+
+    it("cancels the engine once when the output refuses both a held high surrogate and the bytes that follow it", async () => {
+      const lastRead = Promise.withResolvers<void>();
+      const engine = create(async () =>
+        (async function* () {
+          yield "first\uD83D";
+          await lastRead.promise;
+          yield utf8("second");
+        })()
+      );
+      const cancel = vi.spyOn(engine as Required<TransformEngine>, "cancel");
+      const reader = family
+        .fromBytes(byteStreamOf([utf8("ax")]))
+        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .getReader();
+      await reader.read();
+      await setImmediate();
+
+      const cancelled = reader.cancel("stop");
+      lastRead.resolve();
+      await cancelled;
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe.each([
+    { engine: "has no cancel()", cancel: undefined },
+    { engine: "has a cancel() that throws", cancel: throwing(new Error("cancel failed")) }
+  ])(`${family.adapter}, driving an engine that $engine, with its output cancelled while it flushes`, ({ cancel }) => {
+    it("throws the output's refusal from the sink's enqueue, so the engine learns the output refused the chunk", async () => {
+      let sink!: EngineSink;
+      const flushing = Promise.withResolvers<void>();
+      const engine: TransformEngine = {
+        start: (started) => {
+          sink = started;
+        },
+        write: (chunk) => sink.enqueue(chunk),
+        end: () => flushing.promise,
+        cancel
+      };
+      const reader = family
+        .fromBytes(byteStreamOf([utf8("a")]))
+        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .getReader();
+      await reader.read();
+      await setImmediate();
+      const cancelled = reader.cancel("stop");
+      await setImmediate();
+
+      expect(() => sink.enqueue("late")).toThrow(TypeError);
+      flushing.resolve();
+      await cancelled;
+    });
+  });
+
+  describe.each(lookaheadFailures)(`${family.adapter} + LookaheadTransformEngine, failing while the source is still open, when $failure`, ({ create }) => {
+    it("errors the stream with the error, leaving no rejection unhandled", async () => {
+      let streamError: unknown;
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        streamError = await text(
+          family.fromBytes(unendedByteStreamOf([utf8("a{{o}}b")])).pipeThrough(new TransformStream<C, C>(family.create(create())))
+        ).catch((error: unknown) => error);
+        await setImmediate();
+      });
+
+      expect(streamError).toBe(lookaheadFailure);
+      expect(unhandled).toEqual([]);
+    });
+  });
+
   describe.each([
     {
       engine: "SerialTransformEngine",
@@ -528,13 +726,8 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
             stopReplacingSignal: abortController.signal
           })
         );
-        const unendedInput = new ReadableStream<Bytes>({
-          start(controller) {
-            controller.enqueue(utf8("a{{x}}b"));
-          }
-        });
         const reader = family
-          .fromBytes(unendedInput)
+          .fromBytes(unendedByteStreamOf([utf8("a{{x}}b")]))
           .pipeThrough(new TransformStream<C, C>(transformer))
           .getReader();
         await reader.read();

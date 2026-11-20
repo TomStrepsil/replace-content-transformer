@@ -258,6 +258,10 @@ export class LookaheadTransformEngine<TState, TMatch>
       this.#text += content;
     },
     reportMatch: (match, streamIndices) => {
+      if (this._stopReplacingSignal?.aborted) {
+        this.#text += this._searchStrategy.matchToString(match);
+        return false;
+      }
       this.#offerText();
       this.#queue.offer(this.#scheduleMatch(match, streamIndices));
       if (!this.#queue.full) return true;
@@ -333,19 +337,30 @@ export class LookaheadTransformEngine<TState, TMatch>
 
   /**
    * Feed one input chunk into the scanner. Suspends when the internal
-   * queue is full (backpressure).
+   * queue is full (backpressure). Rejects with what the search throws, such
+   * as from `onGuardExceeded`, cancelling the engine.
    */
-  async write(chunk: string): Promise<void> {
-    if (this.#cancelled) return;
-    if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld();
-      if (this.#cancelled) return;
-      await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
-      return;
-    }
+  write(chunk: string): Promise<void> {
+    if (this.#cancelled) return Promise.resolve();
+    if (this._stopReplacingSignal?.aborted) return this.#passThrough(chunk);
+    return this.#search(chunk, false);
+  }
 
-    this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
-    await this.#enqueue(false);
+  async #passThrough(chunk: string): Promise<void> {
+    await this.#enqueueHeld();
+    if (this.#cancelled) return;
+    await this.#queue.push(textSlot(this.#siblingIndex++, chunk));
+  }
+
+  async #search(chunk: string, settling: boolean): Promise<void> {
+    try {
+      if (settling) this._settle(this.#matchSink);
+      else this._searchStrategy.processChunk(chunk, this._state, this.#matchSink);
+      await this.#enqueue(settling);
+    } catch (error) {
+      this.cancel();
+      throw error;
+    }
   }
 
   #offerText(): void {
@@ -354,13 +369,18 @@ export class LookaheadTransformEngine<TState, TMatch>
     this.#text = "";
   }
 
+  #offerSearched(): void {
+    if (this._stopReplacingSignal?.aborted) this.#text += this._searchStrategy.flush(this._state);
+    this.#offerText();
+  }
+
   async #enqueueHeld(): Promise<void> {
     const held = this._searchStrategy.flush(this._state);
     if (held) await this.#queue.push(textSlot(this.#siblingIndex++, held));
   }
 
   async #enqueue(settling: boolean): Promise<void> {
-    this.#offerText();
+    this.#offerSearched();
     while (this.#queue.full) {
       await this.#queue.room();
       if (this.#cancelled) return;
@@ -368,7 +388,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       if (this.#paused) {
         this.#paused = false;
         this._resume(settling, this.#matchSink);
-        this.#offerText();
+        this.#offerSearched();
       }
     }
   }
@@ -376,20 +396,17 @@ export class LookaheadTransformEngine<TState, TMatch>
   /**
    * Signal end-of-input. Emits any trailing content held by the search
    * strategy, closes the queue, and waits for the drain loop to finish.
-   * Rejects with the first error raised by the drain loop or by any
-   * scheduled replacement, so adapters can forward failures.
+   * Rejects with the first error raised by the search (cancelling the
+   * engine), the drain loop or any scheduled replacement, so adapters can
+   * forward failures.
    */
   override async end(): Promise<void> {
     if (this.#cancelled) {
       await this.#drainDone;
       return;
     }
-    if (this._stopReplacingSignal?.aborted) {
-      await this.#enqueueHeld();
-    } else {
-      this._settle(this.#matchSink);
-      await this.#enqueue(true);
-    }
+    if (this._stopReplacingSignal?.aborted) await this.#enqueueHeld();
+    else await this.#search("", true);
     this.#queue.close();
     await this.#drainDone;
   }
@@ -503,6 +520,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       for await (const piece of permit.reading.pieces) {
         if (this.#cancelled) return;
         this.#pieces.piece(piece);
+        if (this.#cancelled) return;
       }
     } finally {
       permit.finish();
@@ -523,6 +541,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       if (this.#cancelled) return;
       if (typeof chunk === "string") this._enqueueTo(this._sink, chunk);
       else this._enqueueTo(this.#byteSink!, chunk);
+      if (this.#cancelled) return;
     }
   }
 
@@ -537,7 +556,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     permit: SlotPermit
   ): AsyncGenerator<string | Utf8Bytes> {
     const buffer: (string | Utf8Bytes)[] = [];
-    let childErr: unknown = null;
+    let failure: { error: unknown } | undefined;
     let childDone = false;
     let notify: (() => void) | null = null;
     const wake = () => {
@@ -557,7 +576,7 @@ export class LookaheadTransformEngine<TState, TMatch>
         wake();
       },
       error: (e) => {
-        childErr = e;
+        failure = { error: e };
         childDone = true;
         wake();
       },
@@ -581,7 +600,7 @@ export class LookaheadTransformEngine<TState, TMatch>
       const writeDecoded = async () => {
         const text = decoded;
         decoded = "";
-        if (text && !this.#cancelled && childErr === null) await child.write(text);
+        if (text && !this.#cancelled && !failure) await child.write(text);
       };
       try {
         let original = "";
@@ -590,7 +609,7 @@ export class LookaheadTransformEngine<TState, TMatch>
           for await (const piece of reading.pieces) {
             pieces.piece(piece);
             await writeDecoded();
-            if (this.#cancelled || childErr !== null) break;
+            if (this.#cancelled || failure) break;
           }
         } catch (err) {
           if (!this.#stoppedBy(err)) throw err;
@@ -603,7 +622,7 @@ export class LookaheadTransformEngine<TState, TMatch>
         await child.end();
       } catch (err) {
         child.cancel();
-        childErr ??= err;
+        failure ??= { error: err };
       } finally {
         this.#cancelAbortController.signal.removeEventListener("abort", cancelChild);
         childDone = true;
@@ -613,7 +632,7 @@ export class LookaheadTransformEngine<TState, TMatch>
 
     while (true) {
       while (buffer.length > 0) yield buffer.shift()!;
-      if (childErr) throw childErr;
+      if (failure) throw failure.error;
       if (childDone) return;
       await new Promise<void>((resolve) => {
         notify = resolve;

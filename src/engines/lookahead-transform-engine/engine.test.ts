@@ -12,6 +12,8 @@ import {
   abortingOnFirstCall,
   asyncIterable,
   collectEngineSink,
+  guardedLookahead,
+  throwing,
   mockSearchStrategy,
   mockSearchStrategyFactory,
   foreignRealmUtf8,
@@ -788,6 +790,54 @@ describe("LookaheadTransformEngine", () => {
 
       expect(unhandled).toEqual([]);
     });
+
+    it("rejects write() with what onGuardExceeded throws, and enqueues nothing from a replacement still in flight", async () => {
+      const guardError = new Error("a {{ was not closed");
+      const gate = Promise.withResolvers<void>();
+      const engine = guardedLookahead(throwing(guardError), async (match) => {
+        await gate.promise;
+        return asyncIterable(match.toUpperCase());
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{b}}c");
+
+      await expect(engine.write("{{123456789")).rejects.toBe(guardError);
+      gate.resolve();
+      await setImmediate();
+
+      expect(chunks.join("")).not.toContain("{{B}}");
+    });
+
+    describe.each([undefined, null, 0, "", false].map((value) => ({ value })))("failing with a falsy value ($value) within nested() content", ({ value }) => {
+      it("rejects end() with what onGuardExceeded throws while the content is searched", async () => {
+        const engine = guardedLookahead(throwing(value), async () => nested(asyncIterable("<{{1234567", "89>")));
+        engine.start(collectEngineSink().sink);
+
+        await engine.write("a{{o}}b");
+
+        await expect(engine.end()).rejects.toBe(value);
+      });
+
+      it("rejects end() with what the nested() source fails with", async () => {
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          replacement: async () =>
+            nested(
+              (async function* () {
+                yield "<";
+                throw value;
+              })()
+            )
+        });
+        engine.start(collectEngineSink().sink);
+
+        await engine.write("a{{o}}b");
+
+        await expect(engine.end()).rejects.toBe(value);
+      });
+    });
   });
 
   describe("stopReplacingSignal", () => {
@@ -1491,6 +1541,42 @@ describe("LookaheadTransformEngine", () => {
   });
 
   describe("stopping the search once stopReplacingSignal aborts", () => {
+    it("stops searching once onGuardExceeded aborts the signal partway through a chunk, scheduling no later match and emitting the rest of the chunk verbatim as one chunk", async () => {
+      const ac = new AbortController();
+      const concurrencyStrategy = new SemaphoreStrategy(4);
+      const acquire = vi.spyOn(concurrencyStrategy, "acquire");
+      const onGuardExceeded = vi.fn(() => ac.abort());
+      const { sink, chunks } = collectEngineSink();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength: 6, onGuardExceeded }),
+        replacement: async (match) => asyncIterable(match.toUpperCase()),
+        concurrencyStrategy,
+        stopReplacingSignal: ac.signal
+      });
+
+      await runEngine(engine, sink, ["a{{123456789 {{x}} {{abcdefgh {{y}}"]);
+
+      expect(chunks).toEqual(["a{{123456789 {{x}} {{abcdefgh {{y}}"]);
+      expect(acquire).not.toHaveBeenCalled();
+      expect(onGuardExceeded).toHaveBeenCalledOnce();
+    });
+
+    it("stops searching once onGuardExceeded aborts the signal in a search resumed after waiting for room, emitting the rest of the chunk verbatim as one chunk", async () => {
+      const ac = new AbortController();
+      const { sink, chunks } = collectEngineSink();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength: 6, onGuardExceeded: () => ac.abort() }),
+        replacement: async (match) => asyncIterable(match.toUpperCase()),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        stopReplacingSignal: ac.signal,
+        highWaterMark: 1
+      });
+
+      await runEngine(engine, sink, ["{{a}}{{b}}{{c}}{{d}} {{123456789 {{x}} {{y}}"]);
+
+      expect(chunks.at(-1)).toBe(" {{123456789 {{x}} {{y}}");
+    });
+
     it("stops searching once a replacement aborts the signal while write() waits for room, and flushes the rest of the chunk", async () => {
       const ac = new AbortController();
       const { strategy, counts } = mockSearchStrategy({
