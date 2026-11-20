@@ -497,7 +497,7 @@ So does a replacement that fails with an error with either of those in its `caus
 The replacement context's `signal` belongs to the engine, and is separate from `stopReplacingSignal`. It aborts once the replacement's output is no longer wanted: when the stream is cancelled or destroyed before it ends, and, with `LookaheadTransformEngine`, when `abandonPendingSignal` abandons the replacement before its output has begun. The engine cancels a `ReadableStream` it has been given, such as a `fetch` body, whether or not the signal is passed. What the signal adds: pass it to `fetch`, as the recipes above do, so a request whose response hasn't arrived yet stops straight away, and pass it to a source the engine can't cancel itself, such as a Node `Readable` through `addAbortSignal`, or a generator waiting on other work, which the engine could otherwise close only at its next chunk. A replacement that fails because of the abort, with the signal's `reason` or an `AbortError`, doesn't error the stream.
 
 > [!NOTE]
-> A WHATWG stream passes a cancel of its output on to the transformer only until its input has ended and the last chunk has been transformed. A fragment still being read after that, as `LookaheadTransformEngine` reads those not yet emitted when the input ends, isn't cancelled then, and with `ReplaceContentTransformer` or `ReplaceContentTextTransformer` the signal doesn't abort. It is read on until its next piece, which the cancelled stream can't take, so the engine stops there, and with `LookaheadTransformEngine` the signal aborts. A stalled `fetch` stays open. Where your server aborts a signal when the client disconnects, such as a `request.signal`, combine the two: `AbortSignal.any([signal, request.signal])`. Bun passes the cancel on from 1.4.0, the minimum this package supports. `ReplaceContentTransform` cancels the engine whenever the stream is destroyed before it ends.
+> A WHATWG stream passes a cancel of its output on to the transformer only until its input has ended and the last chunk has been transformed. A fragment still being read after that, as `LookaheadTransformEngine` reads those not yet emitted when the input ends, isn't cancelled then. It is read on until its next piece, which the cancelled stream can't take, so `ReplaceContentTransformer` and `ReplaceContentTextTransformer` cancel the engine there, and the signal aborts. A stalled `fetch` stays open. Where your server aborts a signal when the client disconnects, such as a `request.signal`, combine the two: `AbortSignal.any([signal, request.signal])`. Bun passes the cancel on from 1.4.0, the minimum this package supports. `ReplaceContentTransform` cancels the engine whenever the stream is destroyed before it ends.
 
 ### Node Transform
 
@@ -618,7 +618,7 @@ See [search strategies](./src/search-strategies/README.md) for detail of functio
 
 #### Buffer limit
 
-A match can span chunks, so a strategy holds back content that could still become part of one. Every strategy, and `searchStrategyFactory`, caps this with `maxBufferLength`, in UTF-16 code units (65,536 by default): a match still incomplete that far from its start passes through as text up to there, `onGuardExceeded` is called, and the search restarts right after. Output stays lossless, and doesn't depend on how the input is split. `Infinity` removes the cap. For the string strategies, a limit shorter than the anchors together throws a `RangeError`, since nothing could match.
+A match can span chunks, so a strategy holds back content that could still become part of one. Every strategy, and `searchStrategyFactory`, caps this with `maxBufferLength`, in UTF-16 code units (65,536 by default): a match still incomplete that far from its start has `onGuardExceeded` called, then passes through as text up to there, and the search restarts right after. Output stays lossless, and doesn't depend on how the input is split. `Infinity` removes the cap. For the string strategies, a limit shorter than the anchors together throws a `RangeError`, since nothing could match.
 
 ```ts
 new StringAnchorSearchStrategy(["<esi:include", "/>"], {
@@ -627,6 +627,8 @@ new StringAnchorSearchStrategy(["<esi:include", "/>"], {
     console.warn("an <esi:include> passed through unreplaced")
 });
 ```
+
+The callback can also abort the engine's [`stopReplacingSignal`](#limit-replacements) to stop replacing, or throw to error the stream. See [What `onGuardExceeded` can do](./src/search-strategies/README.md#what-onguardexceeded-can-do).
 
 ### 🏭 Search Strategy Factory
 

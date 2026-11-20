@@ -8,7 +8,12 @@ import type {
   Utf8Bytes
 } from "../src/engines/types.ts";
 import { SLOT_KIND } from "../src/engines/lookahead-transform-engine/slot-tree/constants.ts";
-import { LookaheadTransformEngine, SemaphoreStrategy, SerialTransformEngine } from "../src/engines/index.ts";
+import {
+  LookaheadTransformEngine,
+  SemaphoreStrategy,
+  SerialTransformEngine,
+  type LookaheadReplacementFn
+} from "../src/engines/index.ts";
 import { StringAnchorSearchStrategy } from "../src/search-strategies/index.ts";
 import { Writable } from "node:stream";
 import { runInNewContext } from "node:vm";
@@ -367,6 +372,74 @@ const stalledStreamReplacementEngines = [
   }
 ];
 
+const GUARDED_MAX_BUFFER_LENGTH = 6;
+
+const guardedAnchors = (onGuardExceeded?: () => void) =>
+  new StringAnchorSearchStrategy(["{{", "}}"], { maxBufferLength: GUARDED_MAX_BUFFER_LENGTH, onGuardExceeded });
+
+/** A callback that throws `error`. */
+const throwing = (error: unknown) => (): never => {
+  throw error;
+};
+
+/** A `SerialTransformEngine` upper-casing `{{…}}` matches, calling `onGuardExceeded` past a buffer limit of 6. */
+const guardedSerial = (onGuardExceeded: () => void, stopReplacingSignal?: AbortSignal) =>
+  new SerialTransformEngine({
+    searchStrategy: guardedAnchors(onGuardExceeded),
+    replacement: (match: string) => match.toUpperCase(),
+    stopReplacingSignal
+  });
+
+/** A `LookaheadTransformEngine` replacing `{{…}}` matches, calling `onGuardExceeded` past a buffer limit of 6. */
+const guardedLookahead = (
+  onGuardExceeded: (() => void) | undefined,
+  replacement: LookaheadReplacementFn<string>,
+  stopReplacingSignal?: AbortSignal
+) =>
+  new LookaheadTransformEngine({
+    searchStrategy: guardedAnchors(onGuardExceeded),
+    concurrencyStrategy: new SemaphoreStrategy(4),
+    replacement,
+    stopReplacingSignal
+  });
+
+/**
+ * Each engine, built to upper-case `{{…}}` matches, calling `onGuardExceeded` past a buffer limit of 6, and to stop
+ * replacing when `stopReplacingSignal` aborts. `earlierMatchOnceStopped` says what becomes of a match found earlier in
+ * the `write()` in which the signal aborts.
+ */
+const guardedEngines = [
+  {
+    engine: "SerialTransformEngine",
+    earlierMatchOnceStopped: { outcome: "is still replaced", replaced: true },
+    create: (onGuardExceeded: () => void, stopReplacingSignal?: AbortSignal): TransformEngine =>
+      guardedSerial(onGuardExceeded, stopReplacingSignal)
+  },
+  {
+    engine: "LookaheadTransformEngine",
+    earlierMatchOnceStopped: {
+      outcome: "passes through verbatim, since with SemaphoreStrategy its replacement hasn't been called yet",
+      replaced: false
+    },
+    create: (onGuardExceeded: () => void, stopReplacingSignal?: AbortSignal): TransformEngine =>
+      guardedLookahead(onGuardExceeded, async (match) => asyncIterable(match.toUpperCase()), stopReplacingSignal)
+  }
+];
+
+const lookaheadFailure = new Error("failed");
+
+/** Each way a `guardedLookahead` engine fails with `lookaheadFailure` on `a{{o}}b`, before the input need end. */
+const lookaheadFailures = [
+  {
+    failure: "a replacement rejects",
+    create: () => guardedLookahead(undefined, async () => Promise.reject(lookaheadFailure))
+  },
+  {
+    failure: "onGuardExceeded throws within nested() content",
+    create: () => guardedLookahead(throwing(lookaheadFailure), async () => nested(asyncIterable("<{{1234567", "89>")))
+  }
+];
+
 const sinkKinds = [
   { sinkKind: "a sink that accepts bytes", acceptsBytes: true },
   { sinkKind: "a sink that receives only strings", acceptsBytes: false }
@@ -589,6 +662,12 @@ export {
   reusingOneBuffer,
   textOfPieces,
   foreignRealmUtf8,
+  guardedEngines,
+  guardedLookahead,
+  guardedSerial,
+  lookaheadFailure,
+  lookaheadFailures,
+  throwing,
   textWrittenTo,
   unhandledRejectionsDuring,
   utf8

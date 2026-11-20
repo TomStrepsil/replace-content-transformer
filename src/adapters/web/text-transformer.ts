@@ -1,4 +1,5 @@
 import type { TransformEngine } from "../../engines/types.js";
+import { enqueueOrCancel } from "./enqueue-or-cancel.js";
 
 /**
  * A transformer for the WHATWG Streams API that replaces content in a stream
@@ -42,7 +43,7 @@ export class ReplaceContentTextTransformer implements Transformer<string, string
 
   start(controller: TransformStreamDefaultController<string>): void {
     this.#engine.start({
-      enqueue: (chunk) => controller.enqueue(chunk),
+      enqueue: (chunk) => enqueueOrCancel(controller, this.#engine, chunk),
       error: (err) => controller.error(err),
       deliveryDeferred: true
     });

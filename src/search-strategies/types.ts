@@ -107,7 +107,16 @@ export type BufferGuardOptions = {
    * @default 65536
    */
   maxBufferLength?: number;
-  /** Called each time a match still incomplete `maxBufferLength` code units after its start passes through as text up to there. */
+  /**
+   * Called synchronously each time a match still incomplete `maxBufferLength`
+   * code units after its start is about to pass through as text up to there.
+   * Abort the engine's `stopReplacingSignal` from here to stop replacing: that
+   * text, and the rest of the stream, then pass through verbatim, apart from
+   * replacements `LookaheadTransformEngine` has already called.
+   * Throw from here to error the stream, losing that text and any output not
+   * yet read. See
+   * [What `onGuardExceeded` can do](./README.md#what-onguardexceeded-can-do).
+   */
   onGuardExceeded?: () => void;
 };
 

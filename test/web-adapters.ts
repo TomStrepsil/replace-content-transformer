@@ -63,6 +63,15 @@ function byteStreamOf(chunks: Bytes[]): ReadableStream<Bytes> {
   });
 }
 
+/** A stream of `chunks` that never closes, as from a source still producing. */
+function unendedByteStreamOf(chunks: Bytes[]): ReadableStream<Bytes> {
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+    }
+  });
+}
+
 export type { Bytes, WebAdapterFamily, WebChunk };
 
 export {
@@ -70,5 +79,6 @@ export {
   byteWebAdapter,
   everyTwoWayByteSplit,
   midCharacterSplits,
-  textWebAdapter
+  textWebAdapter,
+  unendedByteStreamOf
 };
