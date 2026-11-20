@@ -297,56 +297,6 @@ describe("LookaheadTransformEngine", () => {
     });
   });
 
-  describe("slot iterator return()", () => {
-    async function scheduledSlotIterator(
-      replacementIterator: AsyncIterator<string>
-    ) {
-      const scheduled: SlotTreeNode[] = [];
-      const spy: ConcurrencyStrategy = {
-        async acquire(node) {
-          scheduled.push(node);
-          return () => {};
-        }
-      };
-      const strategy = mockSearchStrategyFactory(
-        { isMatch: true, content: "M", streamIndices: [0, 1] }
-      );
-      const { sink } = collectEngineSink();
-      const engine = new LookaheadTransformEngine<object, string>({
-        searchStrategy: strategy,
-        replacement: async () => ({
-          [Symbol.asyncIterator]: () => replacementIterator
-        }),
-        concurrencyStrategy: spy
-      });
-      await runEngine(engine, sink, ["M"]);
-      const resolved = await (scheduled[0] as IterableSlotNode).iterable;
-      return (resolved as AsyncIterable<string>)[Symbol.asyncIterator]();
-    }
-
-    it("forwards the value to the replacement iterator's return() and yields its result", async () => {
-      const innerResult = { done: true as const, value: "inner-result" };
-      const innerReturn = vi.fn(async () => innerResult);
-      const slotIterator = await scheduledSlotIterator({
-        next: async () => ({ done: true, value: undefined }),
-        return: innerReturn
-      });
-      const result = await slotIterator.return!("passed-value");
-      expect(innerReturn).toHaveBeenCalledExactlyOnceWith("passed-value");
-      expect(result).toBe(innerResult);
-    });
-
-    it("yields a done result carrying the value when the replacement iterator has no return()", async () => {
-      const slotIterator = await scheduledSlotIterator({
-        next: async () => ({ done: true, value: undefined })
-      });
-      expect(await slotIterator.return!("passed-value")).toEqual({
-        done: true,
-        value: "passed-value"
-      });
-    });
-  });
-
   describe("backpressure", () => {
     it("suspends write() once highWaterMark buffered slots are reached", async () => {
       const strategy = mockSearchStrategyFactory(
@@ -624,6 +574,82 @@ describe("LookaheadTransformEngine", () => {
         // Downstream failure closes the replacement iterator.
         expect(sinkReplacementState.closed).toBe(true);
       }
+    });
+
+    it("takes a replacement's async iterator once", async () => {
+      let iteratorsTaken = 0;
+      const pieces = asyncIterable("R");
+      const countingIterators: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => {
+          iteratorsTaken++;
+          return pieces[Symbol.asyncIterator]();
+        }
+      };
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async () => countingIterators,
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+
+      await runEngine(engine, collectEngineSink().sink, ["a{{x}}b"]);
+
+      expect(iteratorsTaken).toBe(1);
+    });
+
+    it("errors on a replacement that resolves to bytes, which aren't an async iterable, rather than reading them as an iterable of numbers", async () => {
+      const { sink, chunks, errors } = collectEngineSink();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: (async () => utf8("XYZ")) as unknown as LookaheadReplacementFn<string>,
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+
+      await expect(engine.end()).rejects.toBeInstanceOf(TypeError);
+      expect(errors).toHaveLength(1);
+      expect(chunks.join("")).toBe("a");
+    });
+
+    it("rejects end() with the error of a nested() ReadableStream source that fails between reads, while the child engine takes its last piece", async () => {
+      const failure = new Error("source failed");
+      let sent = false;
+      const source = new ReadableStream<string>({
+        pull(controller) {
+          if (sent) return;
+          sent = true;
+          controller.enqueue("R");
+          queueMicrotask(() => controller.error(failure));
+        }
+      }, { highWaterMark: 0 });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async (match) => (match === "x" ? nested(source) : asyncIterable("")),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("a{{x}}b");
+
+      await expect(engine.end()).rejects.toBe(failure);
+    });
+
+    it("rejects end() with the sink's error, without waiting for the stream to finish cancelling, when the sink fails to take a piece of a ReadableStream", async () => {
+      const sinkFailure = new Error("enqueue failed");
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] }),
+        replacement: async () =>
+          new ReadableStream<string>({ pull: (controller) => controller.enqueue("R"), cancel: () => never<void>() }),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start({
+        enqueue: () => {
+          throw sinkFailure;
+        },
+        error: () => {}
+      });
+      await engine.write("M");
+
+      await expect(engine.end()).rejects.toBe(sinkFailure);
     });
 
     it("closes a replacement iterator when the sink throws", async () => {
@@ -1141,6 +1167,79 @@ describe("LookaheadTransformEngine", () => {
       await engine.end();
 
       expect(chunks.join("")).toBe("a{{x}}b");
+    });
+
+    it("releases the concurrency permit of an async iterable whose [Symbol.asyncIterator]() fails with the reason", async () => {
+      const ac = new AbortController();
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(2);
+      let earlier!: ReadableStreamDefaultController<string>;
+      const failingOnceAborted: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => {
+          ac.signal.throwIfAborted();
+          return asyncIterable("X")[Symbol.asyncIterator]();
+        }
+      };
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async (match) =>
+          match === "w"
+            ? new ReadableStream<string>({ start: (controller) => void (earlier = controller) })
+            : failingOnceAborted,
+        concurrencyStrategy,
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{w}}a{{x}}");
+      await setImmediate();
+
+      ac.abort();
+      earlier.enqueue("W");
+      earlier.close();
+      await engine.end();
+
+      expect(held()).toBe(0);
+    });
+
+    it("releases the concurrency permit of a ReadableStream that fails part way with the reason", async () => {
+      const ac = new AbortController();
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async () => bodyFailingOnAbort(ac.signal, { produced: [utf8("first")] }),
+        concurrencyStrategy,
+        stopReplacingSignal: ac.signal
+      });
+      const { sink, chunks } = collectEngineSink();
+      engine.start(sink);
+      await engine.write("a{{x}}b");
+      await vi.waitFor(() => expect(chunks.join("")).toBe("afirst"));
+
+      ac.abort();
+      await engine.end();
+
+      expect(held()).toBe(0);
+    });
+
+    it("releases the concurrency permit of a replacement whose Promise rejects", async () => {
+      const ac = new AbortController();
+      const { strategy: concurrencyStrategy, held } = heldSlotCounter(1);
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: () =>
+          new Promise<AsyncIterable<string>>((_, reject) =>
+            ac.signal.addEventListener("abort", () => reject(ac.signal.reason), { once: true })
+          ),
+        concurrencyStrategy,
+        stopReplacingSignal: ac.signal
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("a{{x}}b");
+      await setImmediate();
+
+      ac.abort();
+      await engine.end();
+
+      expect(held()).toBe(0);
     });
 
     it.each([
@@ -1685,6 +1784,20 @@ describe("LookaheadTransformEngine", () => {
   });
 
   describe("nested re-scanning", () => {
+    it("re-scans a nested() source that is a sync iterable, reading it as for await does", async () => {
+      const { sink, chunks } = collectEngineSink();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async (match, { depth }) =>
+          depth === 0 ? nested(["<{{y}}>"] as unknown as AsyncIterable<string>) : asyncIterable(match.toUpperCase()),
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      });
+
+      await runEngine(engine, sink, ["a{{x}}b"]);
+
+      expect(chunks.join("")).toBe("a<Y>b");
+    });
+
     it("types a Nested with no type argument as a source of strings, as it was before nested() took bytes", () => {
       expectTypeOf<Nested["source"]>().toEqualTypeOf<AsyncIterable<string>>();
     });
@@ -2169,6 +2282,95 @@ describe("LookaheadTransformEngine", () => {
       expect(held()).toBe(0);
     });
 
+    it("cancels a ReadableStream, such as a stalled fetch body, whose read is pending when cancel() lands", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const cancel = vi.fn();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => new ReadableStream<string>({ cancel }),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("M");
+      await setImmediate();
+
+      engine.cancel();
+      await engine.end();
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it("calls each permit's release once when cancel() lands while a ReadableStream is being read", async () => {
+      const inner = new SemaphoreStrategy(2);
+      let releaseCalls = 0;
+      const countingReleases: ConcurrencyStrategy = {
+        async acquire() {
+          const release = await inner.acquire();
+          return () => {
+            releaseCalls++;
+            release();
+          };
+        }
+      };
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async () => new ReadableStream<string>(),
+        concurrencyStrategy: countingReleases
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("a{{x}}b{{y}}c");
+      await setImmediate();
+
+      engine.cancel();
+      await engine.end();
+      await setImmediate();
+
+      expect(releaseCalls).toBe(2);
+    });
+
+    it("leaves nothing unhandled when a ReadableStream whose read is pending fails to cancel", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () =>
+          new ReadableStream<string>({
+            cancel: () => {
+              throw new Error("cancel failed");
+            }
+          }),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("M");
+      await setImmediate();
+
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        engine.cancel();
+        await engine.end();
+      });
+
+      expect(unhandled).toEqual([]);
+    });
+
+    it("cancels a ReadableStream whose replacement resolved but whose slot the drain loop had not reached when cancel() landed", async () => {
+      const cancel = vi.fn();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async (match) =>
+          match === "stalled" ? stalledBeforeFirstItem() : new ReadableStream<string>({ cancel }),
+        concurrencyStrategy: new SemaphoreStrategy(2)
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("a{{stalled}}b{{unread}}c");
+      await setImmediate();
+
+      engine.cancel();
+      await engine.end();
+      await setImmediate();
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
     it("cancel() mid-stream stops output without waiting for the next item", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: true, content: "M", streamIndices: [0, 1] }
@@ -2330,6 +2532,25 @@ describe("LookaheadTransformEngine", () => {
       await engine.end();
 
       expect(chunks).toEqual([]);
+    });
+
+    it("cancels a nested() ReadableStream source whose read is pending when cancel() lands", async () => {
+      const strategy = mockSearchStrategyFactory({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const cancel = vi.fn();
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: strategy,
+        replacement: async () => nested(new ReadableStream<string>({ cancel })),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("M");
+      await setImmediate();
+
+      engine.cancel();
+      await engine.end();
+      await setImmediate();
+
+      expect(cancel).toHaveBeenCalledOnce();
     });
 
     it("stops pulling a nested source after cancel()", async () => {

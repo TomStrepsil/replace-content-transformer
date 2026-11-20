@@ -2346,6 +2346,110 @@ describe("SerialTransformEngine", () => {
       expect(cancel).toHaveBeenCalledOnce();
     });
 
+    it("cancels a ReadableStream, such as a stalled fetch body, whose read is pending when cancel() lands", async () => {
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const cancel = vi.fn();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => new ReadableStream<string>({ cancel })
+      });
+      engine.start(collectEngineSink().sink);
+
+      const written = engine.write("input");
+      await setImmediate();
+      engine.cancel();
+      await written;
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it("leaves nothing unhandled when a ReadableStream whose read is pending fails to cancel", async () => {
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () =>
+          new ReadableStream<string>({
+            cancel: () => {
+              throw new Error("cancel failed");
+            }
+          })
+      });
+      engine.start(collectEngineSink().sink);
+
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        const written = engine.write("input");
+        await setImmediate();
+        engine.cancel();
+        await written;
+      });
+
+      expect(unhandled).toEqual([]);
+    });
+
+    it("cancels a ReadableStream replacement whose piece the sink fails to take", async () => {
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const cancel = vi.fn();
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () =>
+          new ReadableStream<string>({ pull: (controller) => controller.enqueue("R"), cancel })
+      });
+      const sinkFailure = new Error("enqueue failed");
+      engine.start({
+        enqueue: () => {
+          throw sinkFailure;
+        },
+        error: () => {}
+      });
+
+      await Promise.resolve(engine.write("input")).catch(() => {});
+
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it("rejects with the sink's error, without waiting for the stream to finish cancelling, when the sink fails to take a piece of a ReadableStream", async () => {
+      const strategy = mockSearchStrategyFactory<string>({ isMatch: true, content: "M", streamIndices: [0, 1] });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () =>
+          new ReadableStream<string>({
+            pull: (controller) => controller.enqueue("R"),
+            cancel: () => new Promise<void>(() => {})
+          })
+      });
+      const sinkFailure = new Error("enqueue failed");
+      engine.start({
+        enqueue: () => {
+          throw sinkFailure;
+        },
+        error: () => {}
+      });
+
+      await expect(engine.write("input")).rejects.toBe(sinkFailure);
+    });
+
+    it("reads a ReadableStream that a replacement returns again, after reading it to its end, as empty", async () => {
+      const strategy = mockSearchStrategyFactory<string>(
+        { isMatch: true, content: "A", streamIndices: [0, 1] },
+        { isMatch: false, content: "between" },
+        { isMatch: true, content: "B", streamIndices: [8, 9] }
+      );
+      const finished = new ReadableStream<string>({
+        start(controller) {
+          controller.enqueue("R");
+          controller.close();
+        }
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => finished
+      });
+
+      const output = (await runEngineAsync(engine, ["input"])).join("");
+
+      expect(output).toBe("Rbetween");
+    });
+
     it("destroys a Node Readable it no longer reads once the sink cancels on receiving the text before its match", async () => {
       const strategy = mockSearchStrategyFactory<string>(
         { isMatch: false, content: "before" },

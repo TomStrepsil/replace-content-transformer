@@ -11,12 +11,14 @@ import {
   byteReplacementEngines,
   collectWritable,
   reusingOneBuffer,
+  stalledStreamReplacementEngines,
   textOfPieces,
   unhandledRejectionsDuring,
   utf8,
   type ByteReplacement
 } from "../../../test/utilities.js";
 import { everyTwoWayByteSplit, midCharacterSplits } from "../../../test/web-adapters.js";
+import { everyTwoWaySplit } from "../../../test/splits.js";
 import {
   LookaheadTransformEngine,
   SemaphoreStrategy,
@@ -733,5 +735,30 @@ describe("ReplaceContentTransform + LookaheadTransformEngine, with a nested() Re
     await finished(transform);
 
     expect(chunks.join("")).toBe("afirst INNER {b");
+  });
+});
+
+describe("ReplaceContentTransform, with ReadableStream replacements that never yield, once the stream is destroyed", () => {
+  const splits = everyTwoWaySplit("a{{x}}b{{y}}c").map((chunks) => ({ chunks }));
+
+  describe.each(stalledStreamReplacementEngines)("$engine", ({ called, create }) => {
+    it.each(splits)("cancels each one it has called, whether or not it was being read, for $chunks", async ({ chunks }) => {
+      const cancelled: string[] = [];
+      const lastCall = Promise.withResolvers<void>();
+      const transform = new ReplaceContentTransform(
+        create(cancelled, (match) => {
+          if (match === called.at(-1)) lastCall.resolve();
+        })
+      );
+      transform.resume();
+      for (const chunk of chunks) transform.write(chunk);
+      await lastCall.promise;
+      await setImmediate();
+
+      transform.destroy();
+      await setImmediate();
+
+      expect(cancelled.toSorted()).toEqual(called);
+    });
   });
 });

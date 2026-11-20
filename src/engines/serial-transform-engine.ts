@@ -8,6 +8,7 @@ import type {
 import { TransformEngineBase } from "./transform-engine-base.ts";
 import { closeAbandoned, ignore } from "./abandon.ts";
 import { failedFromAbortOf } from "./abort-reason.ts";
+import { cancellableRead, type CancellableRead } from "./cancellable-read.ts";
 import type { MatchSink, SearchStrategy } from "../search-strategies/types.ts";
 import {
   acceptsBytes,
@@ -174,6 +175,7 @@ export class SerialTransformEngine<
   #awaitedIterablePieces!: ReplacementPieceForwarder;
   #pending: Promise<ReplacementValue> | AsyncIterable<string | Utf8Bytes> | undefined;
   #pendingMatch: TMatch | undefined;
+  #reading: CancellableRead<string | Utf8Bytes> | undefined;
   #cancelled = false;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
@@ -251,13 +253,15 @@ export class SerialTransformEngine<
    * next text or match the search strategy reports, the return of the
    * replacement that cancelled it, the next piece of a replacement being
    * read, or the next asynchronous step, without awaiting another
-   * replacement. A replacement it has called but not read is left to
-   * settle, its rejection ignored, and then closed if it is an async
-   * iterable. Called by the adapter when the stream is cancelled
-   * or destroyed before it ends.
+   * replacement. A `ReadableStream` replacement being read is cancelled
+   * straight away, which ends its pending read. A replacement it has
+   * called but not read is left to settle, its rejection ignored, and then
+   * closed if it is an async iterable. Called by the adapter when the
+   * stream is cancelled or destroyed before it ends.
    */
   cancel(): void {
     this.#cancelled = true;
+    this.#reading?.cancel();
   }
 
   #run(chunk: string, settling: boolean): void | Promise<void> {
@@ -304,7 +308,8 @@ export class SerialTransformEngine<
           this.#enqueueOutput();
         } else {
           try {
-            for await (const piece of replacement) {
+            this.#reading = cancellableRead(replacement);
+            for await (const piece of this.#reading.pieces) {
               if (this.#cancelled) return;
               this.#pieces.piece(piece);
               if (this.#cancelled) return;
@@ -313,6 +318,8 @@ export class SerialTransformEngine<
             this.#pieces.end();
           } catch (error) {
             this.#endStoppedReplacement(error, this.#pieces, this.#pendingMatch!);
+          } finally {
+            this.#reading = undefined;
           }
         }
         this.#pendingMatch = undefined;

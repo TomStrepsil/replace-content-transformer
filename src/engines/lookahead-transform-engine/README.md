@@ -113,7 +113,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stream teardown
 
-`ReplaceContentTransformer` and `ReplaceContentTextTransformer` honour WHATWG `Transformer.cancel()` through the normal stream-teardown path — each forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
+`ReplaceContentTransformer` and `ReplaceContentTextTransformer` honour WHATWG `Transformer.cancel()` through the normal stream-teardown path — each forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). The engine then cancels each `ReadableStream` replacement or `nested()` source it has called, such as a `fetch` body, whether or not it is being read, and closes any other async iterable once it next settles. For cancelling pending work (e.g. pending `fetch`es) share an `AbortController` between your replacement function and downstream teardown.
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
@@ -138,7 +138,7 @@ const engine = new LookaheadTransformEngine({
 When aborted, **both the scanner and the drain loop** switch mode:
 
 - **Scanner** — stops calling `replacement()` and stops searching, the same as `stopReplacingSignal`. The rest of the input passes through as raw text.
-- **Drain loop, queued slot** — the drain loop hasn't started consuming the slot's output, whether or not the replacement function has returned. The raw matched text is emitted in its place straight away and the slot's concurrency permit is released. The replacement is closed in the background once it settles, so a `finally` in a replacement generator still runs.
+- **Drain loop, queued slot** — the drain loop hasn't started consuming the slot's output, whether or not the replacement function has returned. The raw matched text is emitted in its place straight away and the slot's concurrency permit is released. Once the replacement function has returned, a `ReadableStream` replacement is cancelled, and any other async iterable is closed in the background once it next settles, so a `finally` in a replacement generator still runs.
 - **Drain loop, currently draining** — the drain loop has already begun iterating the slot's iterable. It is allowed to run to completion; all replacement chunks are emitted normally. No partial output, no substitution.
 
 ```typescript
