@@ -716,8 +716,6 @@ function abortingOnOutput(transform: ReplaceContentTransform, abortController: A
   return chunks;
 }
 
-const nodeHttpRejectsAbortedRequestWithoutCause = typeof Deno !== "undefined";
-
 describe("ReplaceContentTransform + SerialTransformEngine, with a replacement that fails with an AbortError whose cause is the stopReplacingSignal's reason", () => {
   const transformReplacingWith = (abortController: AbortController, replacement: () => Promise<Readable>) =>
     new ReplaceContentTransform(
@@ -762,8 +760,8 @@ describe("ReplaceContentTransform + SerialTransformEngine, with a replacement th
         get(`${baseUrl}${path}`, { signal }, (response) => resolve(responseOf(response))).on("error", reject)
       );
 
-    it.skipIf(nodeHttpRejectsAbortedRequestWithoutCause)(
-      "emits the match verbatim when the signal aborts before the response arrives (not on Deno, whose node:http rejects without the cause)",
+    it(
+      "emits the match verbatim when the signal aborts before the response arrives",
       async () => {
         const abortController = new AbortController();
         onRequest = () => abortController.abort();
