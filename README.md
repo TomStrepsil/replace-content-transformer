@@ -490,7 +490,7 @@ const transformer = new ReplaceContentTransformer(
 someEventBus.once("someEvent", () => abortController.abort());
 ```
 
-So does a replacement that fails with an error with either of those in its `cause` chain, such as the error Node's `stream.addAbortSignal` fails with, or an error wrapping that one. A Node `http.get` given the signal fails that way only until its response arrives, and not on Deno, whose `node:http` rejects without the `cause`. To end the response part way through too, return `addAbortSignal(signal, response)`.
+So does a replacement that fails with an error with either of those in its `cause` chain, such as the error Node's `stream.addAbortSignal` fails with, or an error wrapping that one. A Node `http.get` given the signal fails that way only until its response arrives, and on Deno only from 2.7.13, whose earlier `node:http` rejects without the `cause`. To end the response part way through too, return `addAbortSignal(signal, response)`.
 
 #### Stream cancellation
 
