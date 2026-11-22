@@ -30,15 +30,18 @@ function readerOf<T>(stream: ReadableStream<T>): CancellableRead<T> {
   return { pieces: iterator, cancel };
 }
 
-function iteratorOf<T>(source: AsyncIterable<T>): CancellableRead<T> {
-  const iterator = source[Symbol.asyncIterator]();
-  return { pieces: { [Symbol.asyncIterator]: () => iterator }, cancel: ignore };
-}
+const NOT_ASYNC_ITERABLE = "The replacement is not an async iterable";
 
-export function cancellableRead<T>(source: AsyncIterable<T>): CancellableRead<T> {
-  return source instanceof ReadableStream ? readerOf(source) : iteratorOf(source);
+function hasAsyncIterator(source: unknown): boolean {
+  const isObject = (typeof source === "object" && source !== null) || typeof source === "function";
+  return isObject && Symbol.asyncIterator in source;
 }
 
 export function cancellableForAwait<T>(source: AsyncIterable<T>): CancellableRead<T> {
   return source instanceof ReadableStream ? readerOf(source) : { pieces: source, cancel: ignore };
+}
+
+export function cancellableRead<T>(source: AsyncIterable<T>): CancellableRead<T> {
+  if (!(source instanceof ReadableStream) && !hasAsyncIterator(source)) throw new TypeError(NOT_ASYNC_ITERABLE);
+  return cancellableForAwait(source);
 }

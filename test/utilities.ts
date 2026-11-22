@@ -181,7 +181,9 @@ function createIterableSlotNode(
     siblingIndex,
     depth: parent !== null ? parent.depth + 1 : 0,
     parent,
-    iterable: new Promise<AsyncIterable<string> | Nested>(() => {})
+    iterable: new Promise<AsyncIterable<string> | Nested>(() => {}),
+    permit: undefined,
+    replacement: undefined
   };
 }
 
@@ -197,6 +199,53 @@ function asyncIterable<T extends string | Utf8Bytes = string>(...chunks: T[]): A
     }
   };
 }
+
+type CountedAsyncIterable = { iterable: AsyncIterable<string>; taken: () => number };
+
+function readerOfChunks(chunks: string[], stall: boolean): () => Promise<IteratorResult<string>> {
+  let index = 0;
+  return () => {
+    if (index < chunks.length) return Promise.resolve({ done: false, value: chunks[index++] });
+    return stall ? new Promise(() => {}) : Promise.resolve({ done: true, value: undefined });
+  };
+}
+
+/**
+ * The two ways an async iterable that isn't a generator can answer
+ * `[Symbol.asyncIterator]()`: with itself, as a generator does, or with a
+ * fresh iterator each call. Each yields `chunks`, then ends, or with
+ * `{ stall: true }` never settles, and `taken()` counts the calls to
+ * `[Symbol.asyncIterator]()`.
+ */
+const asyncIteratorShapes = [
+  {
+    shape: "returns the replacement itself",
+    of: (chunks: string[], { stall = false }: { stall?: boolean } = {}): CountedAsyncIterable => {
+      let taken = 0;
+      const iterator = {
+        [Symbol.asyncIterator]() {
+          taken++;
+          return iterator;
+        },
+        next: readerOfChunks(chunks, stall)
+      };
+      return { iterable: iterator, taken: () => taken };
+    }
+  },
+  {
+    shape: "returns a fresh iterator",
+    of: (chunks: string[], { stall = false }: { stall?: boolean } = {}): CountedAsyncIterable => {
+      let taken = 0;
+      const iterable = {
+        [Symbol.asyncIterator]() {
+          taken++;
+          return { next: readerOfChunks(chunks, stall) };
+        }
+      };
+      return { iterable, taken: () => taken };
+    }
+  }
+];
 
 /** A result for a mock strategy to report, or a callback to run when it reaches that point. */
 type MockStep<TMatch> = MatchResult<TMatch> | (() => void);
@@ -643,6 +692,7 @@ export {
   collectEngineSink,
   collectWritable,
   asyncIterable,
+  asyncIteratorShapes,
   createIterableSlotNode,
   indexOfWork,
   mockAsyncEngine,

@@ -7,12 +7,7 @@ export {
   streamOrder,
   type NodeComparator
 } from "./concurrency-strategy/node-comparators.ts";
-export type {
-  SlotTreeNode,
-  IterableSlotNode,
-  SlotNode,
-  TextSlotNode
-} from "./slot-tree/types.ts";
+export type { SlotTreeNode } from "./slot-tree/types.ts";
 export {
   LookaheadTransformEngine,
   DEFAULT_HIGH_WATER_MARK
