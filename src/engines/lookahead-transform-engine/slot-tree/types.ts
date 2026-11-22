@@ -29,7 +29,6 @@ export interface TextSlotNode {
 }
 
 import type { Nested } from "../nested.ts";
-import type { SlotPermit } from "../slot-permit.ts";
 import type { Utf8Bytes } from "../../types.ts";
 
 /**
@@ -39,8 +38,8 @@ import type { Utf8Bytes } from "../../types.ts";
  *
  * Extends {@link SlotTreeNode} with the engine-internal fields for content
  * production. The `ConcurrencyStrategy` receives only the {@link SlotTreeNode}
- * projection; `iterable`, `getOriginalContent`, `permit` and `replacement`
- * are not part of the scheduling contract.
+ * projection; `iterable` and `getOriginalContent` are not part of the
+ * scheduling contract.
  *
  * The `iterable` promise is resolved by the engine, to the replacement
  * itself, unread, once the `ConcurrencyStrategy` has granted a slot and the
@@ -61,8 +60,6 @@ export interface IterableSlotNode extends SlotTreeNode {
    * read before assignment.
    */
   iterable: Promise<AsyncIterable<string | Utf8Bytes> | Nested<string | Utf8Bytes>> | undefined;
-  permit: SlotPermit | undefined;
-  replacement: AsyncIterable<string | Utf8Bytes> | Nested<string | Utf8Bytes> | undefined;
 }
 
 export type SlotNode = TextSlotNode | IterableSlotNode;

@@ -18,11 +18,11 @@ import type { SlotNode } from "./types.ts";
  * and `room()`: when the scanner runs ahead of the drainer, the queue fills,
  * the scanner stops at the next match and waits for a consumer pull.
  */
-export class AsyncChildQueue implements AsyncIterable<SlotNode> {
+export class AsyncChildQueue<TNode extends SlotNode = SlotNode> implements AsyncIterable<TNode> {
   readonly #limit: number;
-  readonly #buffer: SlotNode[] = [];
+  readonly #buffer: TNode[] = [];
   readonly #pendingProducers: Array<() => void> = [];
-  readonly #pendingConsumers: Array<(result: IteratorResult<SlotNode>) => void> = [];
+  readonly #pendingConsumers: Array<(result: IteratorResult<TNode>) => void> = [];
   #closed = false;
 
   constructor(limit: number) {
@@ -33,7 +33,7 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
     return this.#buffer.length > this.#limit && !this.#closed;
   }
 
-  offer(node: SlotNode): void {
+  offer(node: TNode): void {
     if (this.#closed) {
       throw new Error("Cannot push to a closed AsyncChildQueue");
     }
@@ -51,7 +51,7 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
     }
   }
 
-  async push(node: SlotNode): Promise<void> {
+  async push(node: TNode): Promise<void> {
     this.offer(node);
     await this.room();
   }
@@ -67,7 +67,7 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
     }
   }
 
-  async *[Symbol.asyncIterator](): AsyncGenerator<SlotNode, void, undefined> {
+  async *[Symbol.asyncIterator](): AsyncGenerator<TNode, void, undefined> {
     while (true) {
       if (this.#buffer.length > 0) {
         const node = this.#buffer.shift()!;
@@ -79,7 +79,7 @@ export class AsyncChildQueue implements AsyncIterable<SlotNode> {
       if (this.#closed) {
         return;
       }
-      const next = await new Promise<IteratorResult<SlotNode>>((resolve) =>
+      const next = await new Promise<IteratorResult<TNode>>((resolve) =>
         this.#pendingConsumers.push(resolve)
       );
       if (next.done) return;

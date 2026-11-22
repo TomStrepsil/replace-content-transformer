@@ -1,5 +1,14 @@
 import type { CancellableRead } from "../cancellable-read.ts";
 import type { Utf8Bytes } from "../types.ts";
+import type { Nested } from "./nested.ts";
+import type { IterableSlotNode, TextSlotNode } from "./slot-tree/types.ts";
+
+export interface EngineSlotNode extends IterableSlotNode {
+  permit: SlotPermit | undefined;
+  replacement: AsyncIterable<string | Utf8Bytes> | Nested<string | Utf8Bytes> | undefined;
+}
+
+export type EngineSlot = TextSlotNode | EngineSlotNode;
 
 export class LivePermits {
   #first: SlotPermit | undefined = undefined;

@@ -11,11 +11,12 @@ import type {
   Utf8Bytes
 } from "../types.ts";
 import type { ConcurrencyStrategy } from "./concurrency-strategy/types.ts";
-import type { IterableSlotNode, SlotNode, SlotTreeNode, TextSlotNode } from "./slot-tree/types.ts";
-import { LivePermits, SlotPermit } from "./slot-permit.ts";
+import type { SlotTreeNode, TextSlotNode } from "./slot-tree/types.ts";
+import { LivePermits, SlotPermit, type EngineSlot, type EngineSlotNode } from "./slot-permit.ts";
 import { TransformEngineBase } from "../transform-engine-base.ts";
 import { AsyncChildQueue } from "./slot-tree/async-child-queue.ts";
 import { validateWholeNumberAtLeast } from "../../search-strategies/buffer-guard.ts";
+import joinText from "../../search-strategies/join-text.ts";
 import { Nested } from "./nested.ts";
 import { SLOT_KIND } from "./slot-tree/constants.ts";
 import { closeAbandoned, ignore } from "../abandon.ts";
@@ -174,7 +175,7 @@ export class LookaheadTransformEngine<TState, TMatch>
 {
   readonly #options: LookaheadTransformEngineOptions<TState, TMatch>;
   readonly #parent: SlotTreeNode | null;
-  readonly #queue: AsyncChildQueue;
+  readonly #queue: AsyncChildQueue<EngineSlot>;
   readonly #depth: number;
   readonly #cancelAbortController: AbortController;
   readonly #abandonSignal: AbortSignal;
@@ -183,6 +184,7 @@ export class LookaheadTransformEngine<TState, TMatch>
   readonly #watchedSignals: AbortSignal[];
   readonly #onWatchedSignalAbort = () => {
     if (this.#abandonSignal.aborted) {
+      this.#stopListening();
       this.#livePermits.forEach(abandonPermit);
     }
     this.#wakeIfAborted();
@@ -200,11 +202,11 @@ export class LookaheadTransformEngine<TState, TMatch>
   #byteSink: ByteEngineSink | undefined;
   readonly #matchSink: MatchSink<TMatch> = {
     reportText: (content) => {
-      this.#text += content;
+      this.#text = joinText(this.#text, content);
     },
     reportMatch: (match, streamIndices) => {
       if (this._stopReplacingSignal?.aborted) {
-        this.#text += this._searchStrategy.matchToString(match);
+        this.#text = joinText(this.#text, this._searchStrategy.matchToString(match));
         return false;
       }
       this.#offerText();
@@ -243,7 +245,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     this.#options = options;
     this.#parent = parent;
     this.#depth = depth;
-    this.#queue = new AsyncChildQueue(highWaterMark);
+    this.#queue = new AsyncChildQueue<EngineSlot>(highWaterMark);
     this.#cancelAbortController = cancelAbortController;
     this.#abandonSignal = abandonSignal;
     this.#watchedSignals = [];
@@ -286,12 +288,30 @@ export class LookaheadTransformEngine<TState, TMatch>
     this.#wakeOn = signal;
     return new Promise((resolve, reject) => {
       this.#wake = resolve;
-      promise.then(resolve, reject);
+      promise.then(
+        (value) => {
+          this.#forgetWait(resolve);
+          resolve(value);
+        },
+        (error: unknown) => {
+          this.#forgetWait(resolve);
+          reject(error);
+        }
+      );
     });
   }
 
+  #forgetWait(wake: (value: typeof ABANDONED) => void): void {
+    if (this.#wake !== wake) return;
+    this.#wake = undefined;
+    this.#wakeOn = undefined;
+  }
+
   #wakeIfAborted(): void {
-    if (this.#wakeOn?.aborted) this.#wake!(ABANDONED);
+    if (!this.#wakeOn?.aborted) return;
+    const wake = this.#wake!;
+    this.#forgetWait(wake);
+    wake(ABANDONED);
   }
 
   /**
@@ -346,7 +366,7 @@ export class LookaheadTransformEngine<TState, TMatch>
   }
 
   #offerSearched(): void {
-    if (this._stopReplacingSignal?.aborted) this.#text += this._searchStrategy.flush(this._state);
+    if (this._stopReplacingSignal?.aborted) this.#text = joinText(this.#text, this._searchStrategy.flush(this._state));
     this.#offerText();
   }
 
@@ -390,10 +410,10 @@ export class LookaheadTransformEngine<TState, TMatch>
   #scheduleMatch(
     match: TMatch,
     streamIndices: StreamIndices
-  ): IterableSlotNode {
+  ): EngineSlotNode {
     const matchIndex = this._matchIndex++;
     if (this.#slotsInFlight++ === 0) this.#listen();
-    const node: IterableSlotNode = {
+    const node: EngineSlotNode = {
       kind: SLOT_KIND.iterable,
       siblingIndex: this.#siblingIndex++,
       depth: this.#depth,
@@ -413,7 +433,7 @@ export class LookaheadTransformEngine<TState, TMatch>
   }
 
   async #runSlot(
-    node: IterableSlotNode,
+    node: EngineSlotNode,
     match: TMatch,
     matchIndex: number,
     streamIndices: StreamIndices
@@ -458,7 +478,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     }
   }
 
-  async #emitSlot(slot: SlotNode): Promise<void> {
+  async #emitSlot(slot: EngineSlot): Promise<void> {
     if (slot.kind === SLOT_KIND.text) {
       if (!this.#cancelled) this._enqueueTo(this._sink, slot.value);
       return;
@@ -490,7 +510,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     }
   }
 
-  #streamingPermit(slot: IterableSlotNode): SlotPermit {
+  #streamingPermit(slot: EngineSlotNode): SlotPermit {
     const permit = slot.permit!;
     permit.streaming = true;
     return permit;
@@ -514,7 +534,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     return !this._sinkFailed && failedFromAbortOf(this.#options.stopReplacingSignal, error);
   }
 
-  #replacementCalled(slot: IterableSlotNode): boolean {
+  #replacementCalled(slot: EngineSlotNode): boolean {
     return slot.permit !== undefined;
   }
 
@@ -534,7 +554,7 @@ export class LookaheadTransformEngine<TState, TMatch>
    */
   async *#runNested(
     source: AsyncIterable<string | Utf8Bytes>,
-    parent: IterableSlotNode,
+    parent: EngineSlotNode,
     permit: SlotPermit
   ): AsyncGenerator<string | Utf8Bytes> {
     const buffer: (string | Utf8Bytes)[] = [];

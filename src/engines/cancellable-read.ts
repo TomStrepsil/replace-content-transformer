@@ -42,6 +42,7 @@ export function cancellableForAwait<T>(source: AsyncIterable<T>): CancellableRea
 }
 
 export function cancellableRead<T>(source: AsyncIterable<T>): CancellableRead<T> {
-  if (!(source instanceof ReadableStream) && !hasAsyncIterator(source)) throw new TypeError(NOT_ASYNC_ITERABLE);
-  return cancellableForAwait(source);
+  if (source instanceof ReadableStream) return readerOf(source);
+  if (!hasAsyncIterator(source)) throw new TypeError(NOT_ASYNC_ITERABLE);
+  return { pieces: source, cancel: ignore };
 }

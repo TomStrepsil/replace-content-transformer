@@ -121,6 +121,19 @@ The check looks for the anchor's first character in the window, either by readin
 
 Each window size runs in a process of its own: on JavaScriptCore, a check that has run one of its branches for earlier sizes is slower when it switches to the other. Chunks come from a `TextDecoder`, as the adapters' do, since V8 reads a sliced string more slowly than a flat one.
 
+### Join Text Benchmarks
+
+What [`joinText`](../../src/search-strategies/join-text.ts) saves on each runtime, and what pausing a search at every match costs each strategy:
+
+```bash
+npm run bench:join-text       # Node
+npm run bench:join-text:bun   # Bun
+```
+
+#### What's Measured
+
+`SerialTransformEngine` pauses a search at every match whose replacement it awaits, and resumes it with `processChunk("")`, as `LookaheadTransformEngine` does when its queue fills. On Bun, joining the rest of the chunk to that runtime `""` with `+` copies it at the next search ([WebKit bug 332729](https://bugs.webkit.org/show_bug.cgi?id=332729)). The first group times that join on its own, with `joinText` and with `+`: once `+` is no slower on the minimum supported Bun, `joinText` can go. The others time each strategy searching a 16 KiB chunk with and without pausing at every match.
+
 ### Runtime Benchmarks
 
 Compare performance across different JavaScript runtimes (Node.js, Bun, Deno):

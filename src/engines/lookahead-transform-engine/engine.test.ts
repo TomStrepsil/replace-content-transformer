@@ -3526,6 +3526,44 @@ describe("LookaheadTransformEngine", () => {
 
       expect(combined.map((signal) => getEventListeners(signal, "abort"))).toEqual([[], []]);
     });
+
+    const pendingWithBothSignals = (abandonPendingSignal: AbortSignal) => {
+      const combine = vi.spyOn(AbortSignal, "any");
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(8),
+        stopReplacingSignal: new AbortController().signal,
+        abandonPendingSignal,
+        replacement: () => never<AsyncIterable<string>>()
+      });
+      const combined = combine.mock.results.map(({ value }) => value as AbortSignal);
+      combine.mockRestore();
+      const listenerCounts = () => combined.map((signal) => getEventListeners(signal, "abort").length);
+      return { engine, listenerCounts };
+    };
+
+    it("adds one listener to each signal it combines from those given while several replacements are pending, and removes them on cancel()", async () => {
+      const { engine, listenerCounts } = pendingWithBothSignals(new AbortController().signal);
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}{{c}}{{d}}{{e}}");
+      await setImmediate();
+
+      expect(listenerCounts()).toEqual([1, 1]);
+      engine.cancel();
+      expect(listenerCounts()).toEqual([0, 0]);
+    });
+
+    it("removes its listeners from the signals it combines as soon as abandonPendingSignal aborts, with replacements still pending", async () => {
+      const abandon = new AbortController();
+      const { engine, listenerCounts } = pendingWithBothSignals(abandon.signal);
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}{{c}}{{d}}{{e}}");
+      await setImmediate();
+
+      abandon.abort();
+      expect(listenerCounts()).toEqual([0, 0]);
+      engine.cancel();
+    });
   });
 
   describe("cancelling and abandoning several replacements", () => {

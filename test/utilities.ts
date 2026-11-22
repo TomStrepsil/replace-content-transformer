@@ -181,9 +181,7 @@ function createIterableSlotNode(
     siblingIndex,
     depth: parent !== null ? parent.depth + 1 : 0,
     parent,
-    iterable: new Promise<AsyncIterable<string> | Nested>(() => {}),
-    permit: undefined,
-    replacement: undefined
+    iterable: new Promise<AsyncIterable<string> | Nested>(() => {})
   };
 }
 

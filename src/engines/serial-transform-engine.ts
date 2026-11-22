@@ -9,6 +9,7 @@ import { TransformEngineBase } from "./transform-engine-base.ts";
 import { closeAbandoned, ignore } from "./abandon.ts";
 import { failedFromAbortOf } from "./abort-reason.ts";
 import { cancellableRead, type CancellableRead } from "./cancellable-read.ts";
+import joinText from "../search-strategies/join-text.ts";
 import type { MatchSink, SearchStrategy } from "../search-strategies/types.ts";
 import {
   acceptsBytes,
@@ -406,7 +407,7 @@ export class SerialTransformEngine<
 
   #append(content: string): void {
     try {
-      this.#output += content;
+      this.#output = joinText(this.#output, content);
     } catch {
       this.#enqueueOutput();
       this.#output = content;

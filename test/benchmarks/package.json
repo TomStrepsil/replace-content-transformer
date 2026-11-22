@@ -31,6 +31,10 @@
     "bench:partial-match-length": "node build/test/benchmarks/partial-match-length/run.bench.js",
     "prebench:partial-match-length:bun": "npm run build --silent",
     "bench:partial-match-length:bun": "bun run build/test/benchmarks/partial-match-length/run.bench.js",
+    "prebench:join-text": "npm run build --silent",
+    "bench:join-text": "node build/test/benchmarks/join-text/run.bench.js",
+    "prebench:join-text:bun": "npm run build --silent",
+    "bench:join-text:bun": "bun run build/test/benchmarks/join-text/run.bench.js",
     "bench:lookahead-engine": "./lookahead-engine/run.sh",
     "bench:lookahead-engine:timeline": "./lookahead-engine/run.sh --timeline",
     "bench:lookahead-engine:scenario": "./lookahead-engine/run.sh --scenario"
