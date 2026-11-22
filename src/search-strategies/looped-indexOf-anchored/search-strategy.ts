@@ -8,6 +8,7 @@ import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
 import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
 import partialMatchLength from "./partial-match-length.js";
 import validateNeedles from "./validate-needles.js";
+import joinText from "../join-text.js";
 
 /** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}. */
 export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
@@ -62,7 +63,7 @@ export class LoopedIndexOfAnchoredSearchStrategy
   ): undefined {
     const bufferLength = state.buffer.length;
     const baseOffset = state.streamOffset - bufferLength;
-    haystack = state.buffer + haystack;
+    haystack = joinText(state.buffer, haystack);
     const length = haystack.length;
     let position = state.matchConsumedLength;
     let matchStartPosition = 0;

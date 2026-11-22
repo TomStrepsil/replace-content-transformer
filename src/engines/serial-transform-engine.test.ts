@@ -9,6 +9,7 @@ import {
   abortErrorCausedBy,
   abortingOnFirstCall,
   asyncIterable,
+  asyncIteratorShapes,
   collectEngineSink,
   foreignRealmUtf8,
   mockSearchStrategy,
@@ -1086,6 +1087,26 @@ describe("SerialTransformEngine", () => {
       });
       expect(await runEngineAsync(engine, ["X"])).toEqual(["A", "B"]);
     });
+
+    it.each(asyncIteratorShapes)(
+      "takes once the async iterator of a replacement whose [Symbol.asyncIterator]() $shape, and reads it to its end",
+      async ({ of }) => {
+        const { iterable, taken } = of(["A", "B"]);
+        const strategy = mockSearchStrategyFactory({
+          isMatch: true,
+          content: "X",
+          streamIndices: [0, 1]
+        });
+        const engine = new SerialTransformEngine({
+          searchStrategy: strategy,
+          replacement: async () => iterable
+        });
+
+        const output = (await runEngineAsync(engine, ["X"])).join("");
+
+        expect({ output, taken: taken() }).toEqual({ output: "AB", taken: 1 });
+      }
+    );
 
     it("accepts a directly-returned AsyncIterable (not just Promise<AsyncIterable>)", async () => {
       const strategy = mockSearchStrategyFactory({

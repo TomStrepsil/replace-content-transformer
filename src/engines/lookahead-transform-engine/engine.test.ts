@@ -1,4 +1,5 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
+import { getEventListeners } from "node:events";
 import { setImmediate } from "node:timers/promises";
 import { LookaheadTransformEngine, type LookaheadReplacementFn } from "./engine.ts";
 import { SemaphoreStrategy } from "./concurrency-strategy/semaphore-strategy.ts";
@@ -11,6 +12,7 @@ import {
   abortErrorCausedBy,
   abortingOnFirstCall,
   asyncIterable,
+  asyncIteratorShapes,
   collectEngineSink,
   guardedLookahead,
   throwing,
@@ -585,25 +587,62 @@ describe("LookaheadTransformEngine", () => {
       }
     });
 
-    it("takes a replacement's async iterator once", async () => {
-      let iteratorsTaken = 0;
-      const pieces = asyncIterable("R");
-      const countingIterators: AsyncIterable<string> = {
-        [Symbol.asyncIterator]: () => {
-          iteratorsTaken++;
-          return pieces[Symbol.asyncIterator]();
+    it.each(asyncIteratorShapes)(
+      "takes once the async iterator of a replacement whose [Symbol.asyncIterator]() $shape, and reads it to its end",
+      async ({ of }) => {
+        const { iterable, taken } = of(["R", "S"]);
+        const { sink, chunks } = collectEngineSink();
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          replacement: async () => iterable,
+          concurrencyStrategy: new SemaphoreStrategy(1)
+        });
+
+        await runEngine(engine, sink, ["a{{x}}b"]);
+
+        expect({ output: chunks.join(""), taken: taken() }).toEqual({ output: "aRSb", taken: 1 });
+      }
+    );
+
+    it("reads a replacement's [Symbol.asyncIterator] once, so a getter for it runs once", async () => {
+      let gets = 0;
+      const source = {
+        get [Symbol.asyncIterator]() {
+          gets++;
+          return () => asyncIterable("R")[Symbol.asyncIterator]();
         }
       };
+      const { sink, chunks } = collectEngineSink();
       const engine = new LookaheadTransformEngine({
         searchStrategy: braceStrategy(),
-        replacement: async () => countingIterators,
-        concurrencyStrategy: new SemaphoreStrategy(1)
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        replacement: async () => source
       });
 
-      await runEngine(engine, collectEngineSink().sink, ["a{{x}}b"]);
+      await runEngine(engine, sink, ["a{{x}}b"]);
 
-      expect(iteratorsTaken).toBe(1);
+      expect({ output: chunks.join(""), gets }).toEqual({ output: "aRb", gets: 1 });
     });
+
+    it.each(asyncIteratorShapes)(
+      "cancel() lets end() resolve while a replacement whose [Symbol.asyncIterator]() $shape stalls part way through",
+      async ({ of }) => {
+        const { iterable } = of(["R"], { stall: true });
+        const { sink, chunks } = collectEngineSink();
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          replacement: async () => iterable,
+          concurrencyStrategy: new SemaphoreStrategy(1)
+        });
+        engine.start(sink);
+        await engine.write("a{{x}}b");
+        await vi.waitFor(() => expect(chunks.join("")).toBe("aR"));
+
+        engine.cancel();
+
+        await expect(engine.end()).resolves.toBeUndefined();
+      }
+    );
 
     it("errors on a replacement that resolves to bytes, which aren't an async iterable, rather than reading them as an iterable of numbers", async () => {
       const { sink, chunks, errors } = collectEngineSink();
@@ -3416,6 +3455,351 @@ describe("LookaheadTransformEngine", () => {
       await engine.end();
 
       expect(spread.signal).toBeInstanceOf(AbortSignal);
+    });
+  });
+
+  describe("abort listeners", () => {
+    const withoutAbandonPendingSignal = [
+      { options: "", stopReplacingSignal: () => undefined },
+      { options: ", with stopReplacingSignal", stopReplacingSignal: () => new AbortController().signal }
+    ];
+
+    it.each(withoutAbandonPendingSignal)(
+      "adds no listener per match to the replacement's signal, which is the engine's own, while replacements are pending$options",
+      async ({ stopReplacingSignal }) => {
+        const signals: AbortSignal[] = [];
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          stopReplacingSignal: stopReplacingSignal(),
+          replacement: (_match, { signal }) => {
+            signals.push(signal);
+            return never();
+          }
+        });
+        engine.start(collectEngineSink().sink);
+        await engine.write("{{a}}{{b}}{{c}}");
+        await setImmediate();
+
+        expect(signals).toHaveLength(3);
+        expect(getEventListeners(signals[0], "abort")).toEqual([]);
+        engine.cancel();
+      }
+    );
+
+    it.each(withoutAbandonPendingSignal)(
+      "adds no listener to the replacement's signal while its output is being read$options",
+      async ({ stopReplacingSignal }) => {
+        let signal!: AbortSignal;
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(4),
+          stopReplacingSignal: stopReplacingSignal(),
+          replacement: async (_match, context) => {
+            signal = context.signal;
+            return stalledBeforeFirstItem();
+          }
+        });
+        engine.start(collectEngineSink().sink);
+        await engine.write("{{a}}");
+        await setImmediate();
+
+        expect(getEventListeners(signal, "abort")).toEqual([]);
+        engine.cancel();
+      }
+    );
+
+    it("removes its listeners from the signals it combines from those given once its replacements have been emitted, so a long-lived signal doesn't keep the engine", async () => {
+      const combine = vi.spyOn(AbortSignal, "any");
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        stopReplacingSignal: new AbortController().signal,
+        abandonPendingSignal: new AbortController().signal,
+        replacement: async () => asyncIterable("R")
+      });
+      const combined = combine.mock.results.map(({ value }) => value as AbortSignal);
+      combine.mockRestore();
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}");
+      await engine.end();
+
+      expect(combined.map((signal) => getEventListeners(signal, "abort"))).toEqual([[], []]);
+    });
+
+    const pendingWithBothSignals = (abandonPendingSignal: AbortSignal) => {
+      const combine = vi.spyOn(AbortSignal, "any");
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(8),
+        stopReplacingSignal: new AbortController().signal,
+        abandonPendingSignal,
+        replacement: () => never<AsyncIterable<string>>()
+      });
+      const combined = combine.mock.results.map(({ value }) => value as AbortSignal);
+      combine.mockRestore();
+      const listenerCounts = () => combined.map((signal) => getEventListeners(signal, "abort").length);
+      return { engine, listenerCounts };
+    };
+
+    it("adds one listener to each signal it combines from those given while several replacements are pending, and removes them on cancel()", async () => {
+      const { engine, listenerCounts } = pendingWithBothSignals(new AbortController().signal);
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}{{c}}{{d}}{{e}}");
+      await setImmediate();
+
+      expect(listenerCounts()).toEqual([1, 1]);
+      engine.cancel();
+      expect(listenerCounts()).toEqual([0, 0]);
+    });
+
+    it("removes its listeners from the signals it combines as soon as abandonPendingSignal aborts, with replacements still pending", async () => {
+      const abandon = new AbortController();
+      const { engine, listenerCounts } = pendingWithBothSignals(abandon.signal);
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}{{c}}{{d}}{{e}}");
+      await setImmediate();
+
+      abandon.abort();
+      expect(listenerCounts()).toEqual([0, 0]);
+      engine.cancel();
+    });
+  });
+
+  describe("cancelling and abandoning several replacements", () => {
+    it("cancel() cancels a ReadableStream replacement being read before aborting its signal, so a listener that closes the stream doesn't stop its cancel() being called", async () => {
+      const log: string[] = [];
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (_match, { signal }) => {
+          signal.addEventListener("abort", () => log.push("abort"));
+          return new ReadableStream<string>({
+            pull: () => never(),
+            cancel: () => {
+              log.push("cancel");
+            }
+          });
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}");
+      await setImmediate();
+
+      engine.cancel();
+
+      expect(log).toEqual(["cancel", "abort"]);
+    });
+
+    type Trigger = (engine: { cancel(): void }, abandon: AbortController) => void;
+    it.each<{ trigger: string; act: Trigger }>([
+      { trigger: "cancel()", act: (engine) => engine.cancel() },
+      { trigger: "abandonPendingSignal aborting", act: (_engine, abandon) => abandon.abort() }
+    ])(
+      "aborts the signals of pending replacements, and releases their concurrency slots, in match order on $trigger",
+      async ({ act }) => {
+        const aborted: number[] = [];
+        const released: number[] = [];
+        const abandonController = new AbortController();
+        const semaphore = new SemaphoreStrategy(4);
+        let acquired = 0;
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: {
+            async acquire() {
+              const index = acquired++;
+              const release = await semaphore.acquire();
+              return () => {
+                released.push(index);
+                release();
+              };
+            }
+          },
+          abandonPendingSignal: abandonController.signal,
+          replacement: (_match, { signal, matchIndex }) => {
+            signal.addEventListener("abort", () => aborted.push(matchIndex));
+            return never();
+          }
+        });
+        engine.start(collectEngineSink().sink);
+        await engine.write("{{a}}{{b}}{{c}}");
+        await setImmediate();
+
+        act(engine, abandonController);
+
+        expect({ aborted, released }).toEqual({ aborted: [0, 1, 2], released: [0, 1, 2] });
+        engine.cancel();
+      }
+    );
+
+    it("cancel() leaves unaborted the signal of each replacement already read to its end, with abandonPendingSignal", async () => {
+      const signals: AbortSignal[] = [];
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        abandonPendingSignal: new AbortController().signal,
+        replacement: async (_match, { signal }) => {
+          signals.push(signal);
+          return asyncIterable("R");
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}{{c}}");
+      await setImmediate();
+
+      engine.cancel();
+
+      expect(signals.map((signal) => signal.aborted)).toEqual([false, false, false]);
+    });
+
+    it("cancel() leaves unaborted the signal of a replacement that has already failed while an earlier one is pending, with abandonPendingSignal", async () => {
+      const signals: AbortSignal[] = [];
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        abandonPendingSignal: new AbortController().signal,
+        replacement: async (_match, { signal, matchIndex }) => {
+          signals.push(signal);
+          if (matchIndex === 1) throw new Error("failed");
+          return never();
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}{{c}}");
+      await setImmediate();
+
+      engine.cancel();
+
+      expect(signals[1].aborted).toBe(false);
+    });
+
+    it("cancel() releases each replacement's concurrency slot before aborting its signal, without abandonPendingSignal", async () => {
+      const log: string[] = [];
+      const semaphore = new SemaphoreStrategy(4);
+      let acquired = 0;
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: {
+          async acquire() {
+            const index = acquired++;
+            const release = await semaphore.acquire();
+            return () => {
+              log.push(`release ${index}`);
+              release();
+            };
+          }
+        },
+        replacement: async (_match, { signal, matchIndex }) => {
+          signal.addEventListener("abort", () => log.push(`abort ${matchIndex}`));
+          return matchIndex === 0 ? new ReadableStream<string>({ pull: () => never() }) : never();
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}");
+      await setImmediate();
+
+      engine.cancel();
+
+      expect([0, 1].map((index) => log.indexOf(`release ${index}`) < log.indexOf(`abort ${index}`))).toEqual([true, true]);
+    });
+
+    it("cancel() aborts a nested() replacement's signal before the signals of the replacements in its content, with abandonPendingSignal", async () => {
+      const log: string[] = [];
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        abandonPendingSignal: new AbortController().signal,
+        replacement: async (_match, { signal, depth }) => {
+          signal.addEventListener("abort", () => log.push(`abort ${depth}`));
+          return depth === 0
+            ? nested(
+                (async function* () {
+                  yield "<{{q}}";
+                  await never();
+                })()
+              )
+            : never();
+        }
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}");
+      await setImmediate();
+      await setImmediate();
+
+      engine.cancel();
+
+      expect(log).toEqual(["abort 0", "abort 1"]);
+    });
+
+    it.each([
+      { options: "", abandonPendingSignal: () => undefined },
+      { options: ", with abandonPendingSignal", abandonPendingSignal: () => new AbortController().signal }
+    ])(
+      "cancel() still cancels a ReadableStream replacement being read, and aborts its signal, after a later one has failed and another has been called since$options",
+      async ({ abandonPendingSignal }) => {
+        const signals: AbortSignal[] = [];
+        let cancelled = false;
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          concurrencyStrategy: new SemaphoreStrategy(2),
+          abandonPendingSignal: abandonPendingSignal(),
+          replacement: async (_match, { signal, matchIndex }) => {
+            signals.push(signal);
+            if (matchIndex === 0) {
+              return new ReadableStream<string>({
+                pull: () => never(),
+                cancel: () => {
+                  cancelled = true;
+                }
+              });
+            }
+            if (matchIndex === 1) throw new Error("failed");
+            return never();
+          }
+        });
+        engine.start(collectEngineSink().sink);
+        await engine.write("{{a}}{{b}}{{c}}");
+        await setImmediate();
+        expect(signals).toHaveLength(3);
+
+        engine.cancel();
+        await setImmediate();
+
+        expect({ cancelled, aborted: signals[0].aborted }).toEqual({ cancelled: true, aborted: true });
+      }
+    );
+
+    it("cancel() still cancels a ReadableStream replacement being read after an abandoned replacement has rejected", async () => {
+      const abandon = new AbortController();
+      let cancelled = false;
+      let rejectSecond!: (error: Error) => void;
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        abandonPendingSignal: abandon.signal,
+        replacement: async (_match, { matchIndex }) =>
+          matchIndex === 0
+            ? new ReadableStream<string>({
+                pull: () => never(),
+                cancel: () => {
+                  cancelled = true;
+                }
+              })
+            : new Promise((_resolve, reject) => {
+                rejectSecond = reject;
+              })
+      });
+      engine.start(collectEngineSink().sink);
+      await engine.write("{{a}}{{b}}");
+      await setImmediate();
+      abandon.abort();
+      rejectSecond(new Error("late"));
+      await setImmediate();
+
+      engine.cancel();
+      await setImmediate();
+
+      expect(cancelled).toBe(true);
     });
   });
 

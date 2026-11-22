@@ -11,6 +11,7 @@
     "algorithm/**/*.ts",
     "regex-shapes/**/*.ts",
     "partial-match-length/**/*.ts",
+    "join-text/**/*.ts",
     "harnesses/**/*.ts",
     "references/**/*.ts",
     "../search-strategy-results.ts",

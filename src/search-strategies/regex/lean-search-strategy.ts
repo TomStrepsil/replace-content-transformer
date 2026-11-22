@@ -12,6 +12,7 @@ import sameCaptures from "./same-captures.js";
 import skipOneCodePointPastZeroLengthMatch from "./skip-one-code-point-past-zero-length-match.js";
 import codeUnitsInCodePointAt from "../code-units-in-code-point-at.js";
 import takeMatch from "./take-match.js";
+import joinText from "../join-text.js";
 import type {
   RegexSearchState,
   StreamRegexMatch,
@@ -132,12 +133,12 @@ export class LeanRegexSearchStrategy
   ): undefined {
     const bufferLength = state.buffer.length;
     if (this.canSkipEvaluation(state, bufferLength + haystack.length)) {
-      state.buffer += haystack;
+      state.buffer = joinText(state.buffer, haystack);
       state.streamOffset += haystack.length;
       return;
     }
     const baseOffset = state.streamOffset - bufferLength;
-    haystack = state.buffer + haystack;
+    haystack = joinText(state.buffer, haystack);
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
     const windowLength = this.guard.maxBufferLength + 1;
@@ -168,7 +169,7 @@ export class LeanRegexSearchStrategy
       }
     } finally {
       if (cursor.reportedUpTo < length) {
-        state.buffer += haystack.slice(cursor.reportedUpTo);
+        state.buffer = joinText(state.buffer, haystack.slice(cursor.reportedUpTo));
       }
       state.streamOffset += haystack.length - bufferLength;
     }
