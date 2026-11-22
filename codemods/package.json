@@ -5,8 +5,12 @@
   "description": "Codemods for replace-content-transformer breaking changes",
   "type": "module",
   "scripts": {
-    "codemod:replacement-callback-context": "jscodeshift -t transforms/v1-v2/replacement-callback-positional-to-context.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs",
-    "codemod:processor-to-engine": "jscodeshift -t transforms/v1-v2/processor-to-engine.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs",
+    "v1-v2:replacement-callback-positional-to-context": "jscodeshift -t transforms/v1-v2/replacement-callback-positional-to-context.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs",
+    "v1-v2:processor-to-engine": "jscodeshift -t transforms/v1-v2/processor-to-engine.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs",
+    "v3-v4:rename-exports": "jscodeshift -t transforms/v3-v4/rename-exports.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs,cjs",
+    "v3-v4:report-search-strategies": "jscodeshift -t transforms/v3-v4/report-search-strategies.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs,cjs --dry",
+    "v3-v4:report-replacement-contexts": "jscodeshift -t transforms/v3-v4/report-replacement-contexts.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs,cjs --dry",
+    "v3-v4:report-text-stream-pipelines": "jscodeshift -t transforms/v3-v4/report-text-stream-pipelines.js --parser=tsx --extensions=js,jsx,ts,tsx,mjs,cjs --dry",
     "test": "vitest run"
   },
   "devDependencies": {
