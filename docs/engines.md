@@ -10,7 +10,7 @@ Replaces each match in full before searching for the next.
 new SerialTransformEngine({
   searchStrategy,
   replacement,
-  stopReplacingSignal? // see Stopping and cancelling
+  stopReplacingSignal // Optional - see "Stopping and cancelling"
 });
 ```
 
