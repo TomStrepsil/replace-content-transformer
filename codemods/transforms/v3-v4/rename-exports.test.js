@@ -835,6 +835,111 @@ describe("rename-exports codemod", () => {
     });
   });
 
+  describe("shadowed names", () => {
+    const syncEngineImport = 'import { SyncReplacementTransformEngine } from "replace-content-transformer";';
+
+    it("leaves a new of a parameter that shadows the sync engine without a third type argument", () => {
+      const { output } = run(
+        syncEngineImport,
+        "function f(SyncReplacementTransformEngine) { return new SyncReplacementTransformEngine<State>(options); }"
+      );
+
+      expect(output).toContain("return new SyncReplacementTransformEngine<State>(options);");
+    });
+
+    it("renames and widens a type reference that a parameter of the same name doesn't shadow", () => {
+      const { output } = run(
+        syncEngineImport,
+        "function f(SyncReplacementTransformEngine) { let engine: SyncReplacementTransformEngine<State>; }"
+      );
+
+      expect(output).toContain(
+        "let engine: SerialTransformEngine<State, string, string | SerialReplacementFn<string, string | Iterable<string>>>;"
+      );
+    });
+
+    it("leaves a type parameter that shadows the sync engine, and its uses, alone", () => {
+      const { output } = run(
+        syncEngineImport,
+        "function f<SyncReplacementTransformEngine>(engine: SyncReplacementTransformEngine<State>) {",
+        "  class Wrapper implements SyncReplacementTransformEngine<State> {}",
+        "}"
+      );
+
+      expect(output).toContain(
+        [
+          "function f<SyncReplacementTransformEngine>(engine: SyncReplacementTransformEngine<State>) {",
+          "  class Wrapper implements SyncReplacementTransformEngine<State> {}",
+          "}"
+        ].join("\n")
+      );
+    });
+
+    it("leaves a local type alias that shadows the sync engine, and its uses, alone", () => {
+      const { output } = run(
+        syncEngineImport,
+        "function f() { type SyncReplacementTransformEngine<T> = T; let engine: SyncReplacementTransformEngine<State>; }"
+      );
+
+      expect(output).toContain(
+        "function f() { type SyncReplacementTransformEngine<T> = T; let engine: SyncReplacementTransformEngine<State>; }"
+      );
+    });
+
+    it("leaves a local class that shadows the sync engine, and its uses as a type, alone", () => {
+      const { output } = run(
+        syncEngineImport,
+        "function f() { class SyncReplacementTransformEngine<T> {} let engine: SyncReplacementTransformEngine<State>; }"
+      );
+
+      expect(output).toContain(
+        "function f() { class SyncReplacementTransformEngine<T> {} let engine: SyncReplacementTransformEngine<State>; }"
+      );
+    });
+
+    it("leaves a member of a parameter that shadows a namespace import alone", () => {
+      const { output } = run(
+        'import * as rct from "replace-content-transformer";',
+        "function f(rct) { return new rct.AsyncLookaheadTransformEngine(options); }"
+      );
+
+      expect(output).toBeNull();
+    });
+
+    it("renames and widens a namespaced type whose namespace a parameter of the same name doesn't shadow", () => {
+      const { output } = run(
+        'import * as rct from "replace-content-transformer";',
+        "function f(rct) { let engine: rct.SyncReplacementTransformEngine<State>; }"
+      );
+
+      expect(output).toContain(
+        "let engine: rct.SerialTransformEngine<State, string, string | rct.SerialReplacementFn<string, string | Iterable<string>>>;"
+      );
+    });
+
+    it("renames the uses of a name destructured from require() inside a function", () => {
+      const { output } = run(
+        "function f() {",
+        '  const { AsyncLookaheadTransformEngine } = require("replace-content-transformer");',
+        "  return new AsyncLookaheadTransformEngine(options);",
+        "}"
+      );
+
+      expect(output).toContain("return new LookaheadTransformEngine(options);");
+    });
+
+    it("renames a member of a namespace required inside a function", () => {
+      const { output } = run(
+        "function f() {",
+        '  const rct = require("replace-content-transformer");',
+        "  return new rct.AsyncLookaheadTransformEngine(options);",
+        "}"
+      );
+
+      expect(output).toContain("return new rct.LookaheadTransformEngine(options);");
+    });
+  });
+
   describe("regex match type", () => {
     const message =
       "line 2: RegExpExecArray: a match from RegexSearchStrategy is a StreamRegexMatch in 4.0, whose index and indices are stream-relative and whose input is undefined. Where this types one, use StreamRegexMatch";

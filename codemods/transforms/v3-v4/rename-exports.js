@@ -188,9 +188,44 @@ function usesNames(root, j, names) {
   return found;
 }
 
-function resolvesToModuleScope(path) {
-  const scope = path.scope?.lookup(path.node.name);
-  return !scope || scope.isGlobal;
+function isTypePosition(path) {
+  if (path.node.type === "TSTypeParameter") return true;
+  const parent = path.parent.node;
+  switch (parent.type) {
+    case "TSTypeReference":
+      return parent.typeName === path.node;
+    case "TSQualifiedName":
+      return parent.left === path.node;
+    case "TSTypeAliasDeclaration":
+    case "TSInterfaceDeclaration":
+      return parent.id === path.node;
+    default:
+      return HERITAGE_CLAUSES.has(parent.type) && parent.expression === path.node;
+  }
+}
+
+function isImportBinding(binding) {
+  const declarator = binding.parent.node;
+  const isRequiredNamespace =
+    declarator.type === "VariableDeclarator" && declarator.id === binding.node && requiredSource(declarator.init) !== null;
+  return isRequiredNamespace || isPackageBinding(binding);
+}
+
+function declaresTypeToo(binding) {
+  return ["ClassDeclaration", "ClassExpression"].includes(binding.parent.node.type);
+}
+
+function resolvesToImport(path) {
+  const { name } = path.node;
+  const inTypePosition = isTypePosition(path);
+  for (let scope = path.scope; scope; scope = scope.parent) {
+    if (inTypePosition && scope.declaresType(name)) return false;
+    if (!scope.declares(name)) continue;
+    const bindings = scope.getBindings()[name];
+    if (bindings.some(isImportBinding)) return true;
+    if (!inTypePosition || bindings.some(declaresTypeToo)) return false;
+  }
+  return true;
 }
 
 function mergeComments(from, into) {
@@ -471,30 +506,38 @@ export default function renameExports(fileInfo, api) {
     params.push(j.tsUnionType([j.tsStringKeyword(), fnReference]));
   };
 
-  const exportedNameAt = (node) => {
-    if (node?.type === "Identifier") return widenedLocals.get(node.name);
+  const isPackageNamespace = (path) =>
+    path.node.type === "Identifier" && namespaces.get(path.node.name) === PACKAGE && resolvesToImport(path);
+  const exportedNameAt = (path) => {
+    const { node } = path;
+    if (node?.type === "Identifier") return resolvesToImport(path) ? widenedLocals.get(node.name) : undefined;
     const isNamespaced =
-      (node?.type === "TSQualifiedName" && node.left.type === "Identifier" && namespaces.get(node.left.name) === PACKAGE) ||
-      (node?.type === "MemberExpression" && node.object.type === "Identifier" && namespaces.get(node.object.name) === PACKAGE);
+      (node?.type === "TSQualifiedName" && isPackageNamespace(path.get("left"))) ||
+      (node?.type === "MemberExpression" && isPackageNamespace(path.get("object")));
     if (!isNamespaced) return undefined;
     const name = nameOf(node.right ?? node.property);
     return WIDENED.includes(name) ? name : undefined;
   };
 
-  root.find(j.TSTypeReference).forEach(({ node }) => {
-    const exported = exportedNameAt(node.typeName);
+  root.find(j.TSTypeReference).forEach((path) => {
+    const { node } = path;
+    const exported = exportedNameAt(path.get("typeName"));
     if (exported) widen(exported, node.typeParameters, node);
   });
-  root.find(j.NewExpression).forEach(({ node }) => {
-    const exported = exportedNameAt(node.callee);
+  root.find(j.NewExpression).forEach((path) => {
+    const { node } = path;
+    const exported = exportedNameAt(path.get("callee"));
     if (exported === SYNC_ENGINE) widen(exported, node.typeParameters, node);
   });
-  root.find(j.Node, (node) => ["ClassDeclaration", "ClassExpression"].includes(node.type)).forEach(({ node }) => {
-    const exported = exportedNameAt(node.superClass);
+  root.find(j.Node, (node) => ["ClassDeclaration", "ClassExpression"].includes(node.type)).forEach((path) => {
+    const { node } = path;
+    if (!node.superClass) return;
+    const exported = exportedNameAt(path.get("superClass"));
     if (exported === SYNC_ENGINE) widen(exported, node.superTypeParameters, node);
   });
-  root.find(j.Node, (node) => HERITAGE_CLAUSES.has(node.type)).forEach(({ node }) => {
-    const exported = exportedNameAt(node.expression);
+  root.find(j.Node, (node) => HERITAGE_CLAUSES.has(node.type)).forEach((path) => {
+    const { node } = path;
+    const exported = exportedNameAt(path.get("expression"));
     if (exported) widen(exported, node.typeParameters, node);
   });
   root.find(j.TSImportType).forEach(({ node }) => {
@@ -511,12 +554,12 @@ export default function renameExports(fileInfo, api) {
     changed = true;
   });
 
-  const isAsyncSerialEngine = (callee) => {
-    if (callee?.type === "Identifier") return asyncSerialEngineLocals.has(callee.name);
+  const isAsyncSerialEngine = (path) => {
+    const callee = path.node;
+    if (callee?.type === "Identifier") return asyncSerialEngineLocals.has(callee.name) && resolvesToImport(path);
     return (
       callee?.type === "MemberExpression" &&
-      callee.object.type === "Identifier" &&
-      namespaces.get(callee.object.name) === PACKAGE &&
+      isPackageNamespace(path.get("object")) &&
       nameOf(callee.property) === ASYNC_SERIAL_ENGINE
     );
   };
@@ -527,13 +570,13 @@ export default function renameExports(fileInfo, api) {
   };
   root.find(j.VariableDeclarator).forEach((path) => {
     const { node } = path;
-    if (node.id.type === "Identifier" && node.init?.type === "NewExpression" && isAsyncSerialEngine(node.init.callee)) {
+    if (node.id.type === "Identifier" && node.init?.type === "NewExpression" && isAsyncSerialEngine(path.get("init", "callee"))) {
       rememberEngine(path, node.id.name);
     }
   });
   root.find(j.AssignmentExpression).forEach((path) => {
     const { node } = path;
-    if (node.left.type === "Identifier" && node.right.type === "NewExpression" && isAsyncSerialEngine(node.right.callee)) {
+    if (node.left.type === "Identifier" && node.right.type === "NewExpression" && isAsyncSerialEngine(path.get("right", "callee"))) {
       rememberEngine(path, node.left.name);
     }
   });
@@ -580,9 +623,11 @@ export default function renameExports(fileInfo, api) {
       );
     });
 
-  const renameMember = (container, key) => {
-    const namespace = container.type === "TSQualifiedName" ? container.left : container.object;
-    if (namespace.type !== "Identifier" || !namespaces.has(namespace.name)) return;
+  const renameMember = (path, key) => {
+    const container = path.node;
+    const namespacePath = path.get(container.type === "TSQualifiedName" ? "left" : "object");
+    const namespace = namespacePath.node;
+    if (namespace.type !== "Identifier" || !namespaces.has(namespace.name) || !resolvesToImport(namespacePath)) return;
     const source = namespaces.get(namespace.name);
     const exported = nameOf(container[key]);
     const renamed = renameFor(source, exported);
@@ -590,8 +635,8 @@ export default function renameExports(fileInfo, api) {
     container[key] = j.identifier(renamed);
     changed = true;
   };
-  root.find(j.TSQualifiedName).forEach(({ node }) => renameMember(node, "right"));
-  root.find(j.MemberExpression).forEach(({ node }) => renameMember(node, "property"));
+  root.find(j.TSQualifiedName).forEach((path) => renameMember(path, "right"));
+  root.find(j.MemberExpression).forEach((path) => renameMember(path, "property"));
 
   root.find(j.ExportNamedDeclaration, (node) => !node.source).forEach(({ node: declaration }) => {
     for (const specifier of [...(declaration.specifiers ?? [])]) {
@@ -608,7 +653,7 @@ export default function renameExports(fileInfo, api) {
 
   root
     .find(j.Identifier)
-    .filter((path) => localRenames.has(path.node.name) && isReferencePosition(path) && resolvesToModuleScope(path))
+    .filter((path) => localRenames.has(path.node.name) && isReferencePosition(path) && resolvesToImport(path))
     .forEach((path) => {
       const property = path.parent.node;
       const isShorthandValue =
