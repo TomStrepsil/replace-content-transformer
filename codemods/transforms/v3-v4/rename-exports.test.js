@@ -454,6 +454,44 @@ describe("rename-exports codemod", () => {
       );
     });
 
+    it("merges a pair destructured from require() in separate declarations into one", () => {
+      const { output } = run(
+        'const { SyncTransformEngine } = require("replace-content-transformer");',
+        'const { AsyncTransformEngine } = require("replace-content-transformer");',
+        "use(SyncTransformEngine, AsyncTransformEngine);"
+      );
+
+      expect(output).toBe(
+        [
+          'const { TransformEngine } = require("replace-content-transformer");',
+          "use(TransformEngine, TransformEngine);"
+        ].join("\n")
+      );
+    });
+
+    it("keeps a pair destructured from require() in different scopes in separate declarations", () => {
+      const { output } = run(
+        'const { SyncTransformEngine } = require("replace-content-transformer");',
+        'function f() { const { AsyncTransformEngine } = require("replace-content-transformer"); return AsyncTransformEngine; }'
+      );
+
+      expect(output).toBe(
+        [
+          'const { TransformEngine } = require("replace-content-transformer");',
+          'function f() { const { TransformEngine } = require("replace-content-transformer"); return TransformEngine; }'
+        ].join("\n")
+      );
+    });
+
+    it("renames an optional member of a namespace import", () => {
+      const { output } = run(
+        'import * as rct from "replace-content-transformer";',
+        "rct?.AsyncLookaheadTransformEngine(options);"
+      );
+
+      expect(output).toContain("rct?.LookaheadTransformEngine(options);");
+    });
+
     it("renames members of a required module", () => {
       const { output } = run(
         'const rct = require("replace-content-transformer/node");',
@@ -904,6 +942,17 @@ describe("rename-exports codemod", () => {
       );
 
       expect(output).toBeNull();
+    });
+
+    it("renames the 3.x web adapter when a 4.0 name is used only through a parameter that shadows a namespace import", () => {
+      const { output } = run(
+        'import { ReplaceContentTransformer } from "replace-content-transformer/web";',
+        'import * as rct from "replace-content-transformer";',
+        "function f(rct) { return rct.SerialTransformEngine; }",
+        "new ReplaceContentTransformer(engine);"
+      );
+
+      expect(output).toContain("new ReplaceContentTextTransformer(engine);");
     });
 
     it("renames and widens a namespaced type whose namespace a parameter of the same name doesn't shadow", () => {

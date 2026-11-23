@@ -175,12 +175,14 @@ function usesNames(root, j, names) {
     if (node.id.type === "Identifier") namespaces.add(node.id.name);
     if (node.id.type === "ObjectPattern" && node.id.properties.some((property) => isNew(property.key))) found = true;
   });
-  const isNamespace = (node) => node?.type === "Identifier" && namespaces.has(node.name);
-  root.find(j.MemberExpression).forEach(({ node }) => {
-    if (isNamespace(node.object) && !node.computed && isNew(node.property)) found = true;
+  const isNamespace = (path) =>
+    path.node?.type === "Identifier" && namespaces.has(path.node.name) && resolvesToImport(path);
+  root.find(j.MemberExpression).forEach((path) => {
+    const { node } = path;
+    if (isNamespace(path.get("object")) && !node.computed && isNew(node.property)) found = true;
   });
-  root.find(j.TSQualifiedName).forEach(({ node }) => {
-    if (isNamespace(node.left) && isNew(node.right)) found = true;
+  root.find(j.TSQualifiedName).forEach((path) => {
+    if (isNamespace(path.get("left")) && isNew(path.node.right)) found = true;
   });
   root.find(j.TSImportType).forEach(({ node }) => {
     if (importTypeSource(node) && isNew(node.qualifier)) found = true;
@@ -713,14 +715,18 @@ function mergeDuplicateImports(root, j) {
 
 function mergeDuplicateRequires(root, j) {
   let merged = false;
+  const seenByScope = new Map();
   root
     .find(j.VariableDeclarator)
     .filter(({ node }) => requiredSource(node.init) && node.id.type === "ObjectPattern")
-    .forEach(({ node }) => {
-      const seen = new Map();
+    .forEach((path) => {
+      const { node } = path;
+      const source = requiredSource(node.init);
+      if (!seenByScope.has(path.scope)) seenByScope.set(path.scope, new Map());
+      const seen = seenByScope.get(path.scope);
       node.id.properties = node.id.properties.filter((property) => {
         if (!["ObjectProperty", "Property"].includes(property.type) || property.computed) return true;
-        const key = `${nameOf(property.key)}:${nameOf(property.value)}`;
+        const key = `${source}:${nameOf(property.key)}:${nameOf(property.value)}`;
         if (seen.has(key)) {
           mergeComments(property, seen.get(key));
           merged = true;
@@ -729,6 +735,10 @@ function mergeDuplicateRequires(root, j) {
         seen.set(key, property);
         return true;
       });
+      if (node.id.properties.length > 0) return;
+      const declaration = path.parent;
+      if (declaration.node.declarations.length === 1) declaration.prune();
+      else path.prune();
     });
   return merged;
 }
