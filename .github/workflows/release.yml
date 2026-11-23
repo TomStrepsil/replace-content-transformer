@@ -71,7 +71,9 @@ jobs:
 
           # Match each commit to the PR it was squash-merged from by merge commit, rather
           # than trusting its title to end in "(#123)": the title can be edited at merge.
-          # One call for every merged PR, so a transient API failure can't strike per commit.
+          # One call for the most recently created merged PRs, so a transient API failure
+          # can't strike per commit. A commit not among them (a direct push, or a PR created
+          # before them but merged since) is looked up on its own.
           MERGED_PRS=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --base main --limit 1000 \
             --json number,mergeCommit,body)
 
@@ -88,6 +90,10 @@ jobs:
 
             PR=$(jq -c --arg sha "$(git rev-parse "$COMMIT_HASH")" \
               'first(.[] | select(.mergeCommit.oid == $sha)) // empty' <<< "$MERGED_PRS")
+            if [ -z "$PR" ]; then
+              PR=$(gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT_HASH/pulls" \
+                --jq 'first(.[] | select(.merged_at != null and .base.ref == "main")) | {number, body}' < /dev/null)
+            fi
 
             PR_BODY=""
             if [ -n "$PR" ]; then
