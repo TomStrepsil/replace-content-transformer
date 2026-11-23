@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-23
+
 ### Added
 
 - Replacements can return UTF-8 bytes (`Uint8Array`), or an iterable or async iterable of them such as a `fetch` response body, with no `TextDecoderStream`, and `ReplaceContentTransformer` and `ReplaceContentTransform` emit bytes from an async replacement without decoding them. See [Async Iterable Replacement](./recipes.md#async-iterable-replacement)
