@@ -80,46 +80,38 @@ jobs:
             COMMIT_HASH=$(echo "$line" | awk '{print $1}')
             COMMIT_MESSAGE=${line#* }
 
-            # Extract PR number from squash merge format: "Title (#123)"
-            PR_NUMBER=$(echo "$COMMIT_MESSAGE" | grep -oE '\(#[0-9]+\)$' | grep -oE '[0-9]+' || true)
+            # Ask GitHub which merged PR the commit came from, rather than trusting the
+            # commit title to end in "(#123)": the title can be edited at merge time.
+            PR_NUMBER=$(gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT_HASH/pulls" \
+              --jq '[.[] | select(.merged_at != null and .base.ref == "main") | .number] | first // empty' < /dev/null)
 
-            if [ -z "$PR_NUMBER" ]; then
-              echo "❌ Error: No PR number found in commit $COMMIT_HASH"
-              echo "Commit message: $COMMIT_MESSAGE"
-              echo "All commits must be from merged PRs with format 'Title (#123)'"
-              exit 1
+            PR_BODY=""
+            if [ -n "$PR_NUMBER" ]; then
+              SOURCE="PR #$PR_NUMBER"
+              echo "Checking $SOURCE for commit $COMMIT_HASH"
+              PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body' < /dev/null)
+            else
+              SOURCE="commit $COMMIT_HASH"
+              echo "No merged PR found for $SOURCE: $COMMIT_MESSAGE"
             fi
 
-            echo "Checking PR #$PR_NUMBER for commit $COMMIT_HASH"
-
-            GH_OUTPUT=$(gh pr view "$PR_NUMBER" --json body --jq '.body' 2>&1)
-            GH_EXIT_CODE=$?
-            if [ $GH_EXIT_CODE -ne 0 ] || [ -z "$GH_OUTPUT" ]; then
-              echo "❌ Error: Could not fetch PR body for #$PR_NUMBER"
-              echo "gh CLI error output:"
-              echo "$GH_OUTPUT"
-              exit 1
-            fi
-
-            PR_BODY="$GH_OUTPUT"
             if echo "$PR_BODY" | grep -q "\[[xX]\] \*\*MAJOR\*\*"; then
-              echo "Found MAJOR bump in PR #$PR_NUMBER"
+              echo "Found MAJOR bump in $SOURCE"
               MAX_BUMP=3
             elif echo "$PR_BODY" | grep -q "\[[xX]\] \*\*MINOR\*\*"; then
-              echo "Found MINOR bump in PR #$PR_NUMBER"
+              echo "Found MINOR bump in $SOURCE"
               if [ $MAX_BUMP -lt 2 ]; then MAX_BUMP=2; fi
             elif echo "$PR_BODY" | grep -q "\[[xX]\] \*\*PATCH\*\*"; then
-              echo "Found PATCH bump in PR #$PR_NUMBER"
+              echo "Found PATCH bump in $SOURCE"
               if [ $MAX_BUMP -lt 1 ]; then MAX_BUMP=1; fi
             else
               BEFORE_INTEGRITY=$(.github/scripts/published-package-integrity.sh "$COMMIT_HASH^" < /dev/null)
               AFTER_INTEGRITY=$(.github/scripts/published-package-integrity.sh "$COMMIT_HASH" < /dev/null)
               if [ "$BEFORE_INTEGRITY" != "$AFTER_INTEGRITY" ]; then
-                echo "❌ Error: No version bump checkbox selected in PR #$PR_NUMBER, which changed the published package"
-                echo "Please select MAJOR, MINOR, or PATCH in the PR description"
+                echo "❌ Error: $SOURCE changed the published package without a MAJOR, MINOR or PATCH checkbox"
                 exit 1
               fi
-              echo "Ignoring PR #$PR_NUMBER (published package unchanged, no semver checkbox)"
+              echo "Ignoring $SOURCE (published package unchanged, no semver checkbox)"
             fi
           done <<< "$ALL_COMMITS"
 
