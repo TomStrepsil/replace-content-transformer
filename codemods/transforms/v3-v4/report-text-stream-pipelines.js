@@ -71,23 +71,52 @@ function nameOf(node) {
   return null;
 }
 
+function requiredSource(node) {
+  const isRequire = node?.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "require";
+  return isRequire ? (node.arguments[0]?.value ?? null) : null;
+}
+
 function requiresPackage(node) {
-  return (
-    node?.type === "CallExpression" &&
-    node.callee.type === "Identifier" &&
-    node.callee.name === "require" &&
-    isPackageSource(node.arguments[0]?.value)
-  );
+  return isPackageSource(requiredSource(node));
+}
+
+function bindingOf(path) {
+  const { name } = path.node;
+  return path.scope?.lookup(name)?.getBindings()[name]?.[0] ?? null;
+}
+
+function importOf(binding) {
+  const parent = binding.parent.node;
+  if (parent.type === "ImportSpecifier") return { source: binding.parent.parent.node.source.value, exported: importedName(parent) };
+  if (parent.type === "ImportNamespaceSpecifier") return { source: binding.parent.parent.node.source.value, exported: null };
+  if (parent.type === "VariableDeclarator" && parent.id === binding.node) {
+    const source = requiredSource(parent.init);
+    return source === null ? null : { source, exported: null };
+  }
+  const declarator = binding.parent.parent?.parent?.node;
+  const isDestructured =
+    ["ObjectProperty", "Property"].includes(parent.type) &&
+    parent.value === binding.node &&
+    !parent.computed &&
+    binding.parent.parent.node.type === "ObjectPattern" &&
+    declarator?.type === "VariableDeclarator";
+  const source = isDestructured ? requiredSource(declarator.init) : null;
+  return source === null ? null : { source, exported: nameOf(parent.key) };
+}
+
+function namespaceSourceOf(path) {
+  if (path.node?.type !== "Identifier") return null;
+  const binding = bindingOf(path);
+  const imported = binding && importOf(binding);
+  return imported && imported.exported === null ? imported.source : null;
 }
 
 function usesNewNames(root, j) {
   const isNew = (node) => NAMES_NEW_IN_4.has(nameOf(node));
-  const namespaces = new Set();
   let found = false;
   root.find(j.ImportDeclaration).forEach(({ node }) => {
     if (!isPackageSource(node.source.value)) return;
     for (const specifier of node.specifiers ?? []) {
-      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name);
       if (specifier.type === "ImportSpecifier" && isNew(specifier.imported)) found = true;
     }
   });
@@ -97,15 +126,15 @@ function usesNewNames(root, j) {
   });
   root.find(j.VariableDeclarator).forEach(({ node }) => {
     if (!requiresPackage(node.init)) return;
-    if (node.id.type === "Identifier") namespaces.add(node.id.name);
     if (node.id.type === "ObjectPattern" && node.id.properties.some((property) => isNew(property.key))) found = true;
   });
-  const isNamespace = (node) => node?.type === "Identifier" && namespaces.has(node.name);
-  root.find(j.MemberExpression).forEach(({ node }) => {
-    if (isNamespace(node.object) && !node.computed && isNew(node.property)) found = true;
+  const isNamespace = (path) => isPackageSource(namespaceSourceOf(path));
+  root.find(j.MemberExpression).forEach((path) => {
+    const { node } = path;
+    if (isNamespace(path.get("object")) && !node.computed && isNew(node.property)) found = true;
   });
-  root.find(j.TSQualifiedName).forEach(({ node }) => {
-    if (isNamespace(node.left) && isNew(node.right)) found = true;
+  root.find(j.TSQualifiedName).forEach((path) => {
+    if (isNamespace(path.get("left")) && isNew(path.node.right)) found = true;
   });
   root.find(j.TSImportType).forEach(({ node }) => {
     const argument = node.argument?.literal ?? node.argument;
@@ -198,47 +227,42 @@ export default function reportTextStreamPipelines(fileInfo, api) {
     return null;
   };
 
-  const adapterLocals = new Map();
-  const webNamespaces = new Set();
-  root.find(j.ImportDeclaration, { source: { value: WEB } }).forEach(({ node }) => {
-    for (const specifier of node.specifiers ?? []) {
-      if (specifier.type === "ImportNamespaceSpecifier") webNamespaces.add(specifier.local.name);
-      if (specifier.type !== "ImportSpecifier") continue;
-      const kind = kindOf(importedName(specifier));
-      if (kind) adapterLocals.set(specifier.local.name, kind);
+  const adapterVariables = new Map();
+  const adapterKindOfNew = (path) => {
+    if (path.node?.type !== "NewExpression") return null;
+    const calleePath = path.get("callee");
+    const { node: callee } = calleePath;
+    if (callee.type === "Identifier") {
+      const binding = bindingOf(calleePath);
+      const imported = binding && importOf(binding);
+      return imported?.source === WEB && imported.exported ? kindOf(imported.exported) : null;
     }
-  });
-
-  const adapterKindOfNew = (node) => {
-    if (node?.type !== "NewExpression") return null;
-    const { callee } = node;
-    if (callee.type === "Identifier") return adapterLocals.get(callee.name) ?? null;
     const isNamespaced =
-      callee.type === "MemberExpression" &&
-      !callee.computed &&
-      callee.object.type === "Identifier" &&
-      webNamespaces.has(callee.object.name);
+      callee.type === "MemberExpression" && !callee.computed && namespaceSourceOf(calleePath.get("object")) === WEB;
     return isNamespaced ? kindOf(callee.property.name) : null;
   };
-
-  const adapterVariables = new Map();
-  const adapterKindOf = (node) =>
-    node?.type === "Identifier" ? (adapterVariables.get(node.name) ?? null) : adapterKindOfNew(node);
-  const streamKindOf = (node) => {
-    if (node?.type === "Identifier") return adapterVariables.get(node.name) ?? null;
-    return isNewOf(node, TRANSFORM_STREAM) ? adapterKindOf(node.arguments[0]) : null;
+  const variableKindOf = (path) => {
+    const binding = bindingOf(path);
+    return (binding && adapterVariables.get(binding.node)) ?? null;
+  };
+  const adapterKindOf = (path) => (path.node?.type === "Identifier" ? variableKindOf(path) : adapterKindOfNew(path));
+  const streamKindOf = (path) => {
+    if (path.node?.type === "Identifier") return variableKindOf(path);
+    return isNewOf(path.node, TRANSFORM_STREAM) ? adapterKindOf(path.get("arguments", 0)) : null;
   };
 
-  root.find(j.VariableDeclarator).forEach(({ node }) => {
-    const kind = adapterKindOfNew(node.init) ?? streamKindOf(node.init);
-    if (kind && node.id.type === "Identifier") adapterVariables.set(node.id.name, kind);
+  root.find(j.VariableDeclarator).forEach((path) => {
+    const { node } = path;
+    if (node.id.type !== "Identifier" || !node.init) return;
+    const kind = adapterKindOfNew(path.get("init")) ?? streamKindOf(path.get("init"));
+    if (kind) adapterVariables.set(node.id, kind);
   });
 
   root.find(j.Node, ({ type }) => CALLS.has(type)).forEach((path) => {
     const { node } = path;
     const source = pipedFrom(node);
     if (!source) return;
-    const kind = streamKindOf(node.arguments[0]);
+    const kind = streamKindOf(path.get("arguments", 0));
     if (!kind) return;
     const decoder = pipedThrough(source, DECODER);
     const decodedBefore = decoder !== null;

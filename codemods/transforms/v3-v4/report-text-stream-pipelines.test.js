@@ -92,6 +92,51 @@ describe("text stream pipeline report", () => {
     expect(report).toContain("line 4: the string adapter sits between");
   });
 
+  it.each([
+    ["by name", 'const { ReplaceContentTextTransformer } = require("replace-content-transformer/web");', "ReplaceContentTextTransformer"],
+    ["through a namespace", 'const web = require("replace-content-transformer/web");', "web.ReplaceContentTextTransformer"]
+  ])("finds an adapter required %s", (_, required, adapter) => {
+    const { report } = run(...pipeline(required, adapter));
+
+    expect(report).toContain("line 4: the string adapter sits between");
+  });
+
+  it("stays quiet about a parameter that shadows a variable holding an adapter", () => {
+    const { reports } = run(
+      'import { ReplaceContentTextTransformer } from "replace-content-transformer/web";',
+      "const replacing = new TransformStream(new ReplaceContentTextTransformer(engine));",
+      "function f(replacing) {",
+      "  return body.pipeThrough(new TextDecoderStream()).pipeThrough(replacing).pipeThrough(new TextEncoderStream());",
+      "}"
+    );
+
+    expect(reports).toEqual([]);
+  });
+
+  it("stays quiet about a parameter that shadows an adapter's import", () => {
+    const { reports } = run(
+      'import { ReplaceContentTextTransformer } from "replace-content-transformer/web";',
+      "function f(ReplaceContentTextTransformer) {",
+      "  return body",
+      "    .pipeThrough(new TextDecoderStream())",
+      "    .pipeThrough(new TransformStream(new ReplaceContentTextTransformer(engine)))",
+      "    .pipeThrough(new TextEncoderStream());",
+      "}"
+    );
+
+    expect(reports).toEqual([]);
+  });
+
+  it("treats a 3.x ReplaceContentTransformer as the string adapter when a 4.0 name is used only through a parameter that shadows a namespace import", () => {
+    const { report } = run(
+      'import * as rct from "replace-content-transformer";',
+      "function f(rct) { return rct.SerialTransformEngine; }",
+      ...pipeline('import { ReplaceContentTransformer } from "replace-content-transformer/web";', "ReplaceContentTransformer")
+    );
+
+    expect(report).toContain("the string adapter sits between");
+  });
+
   it("finds a pipeline on an optional chain", () => {
     const { report } = run(
       'import { ReplaceContentTextTransformer } from "replace-content-transformer/web";',

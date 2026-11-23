@@ -133,7 +133,7 @@ Each finding is printed on a line starting ` REP`, followed by the file and the 
     save the state in a finally block, so it stays intact when a sink call throws or stops the search, as the built-in strategies do
 ```
 
-A class or object counts as a strategy when it has `processChunk`, `createState` and `matchToString`, implements `SearchStrategy`, or extends one of this package's strategies, imported by name or through a namespace. It also lists code outside a strategy that reads `processChunk(chunk, state)`'s results itself, such as a custom engine.
+A class or object counts as a strategy when it has `processChunk`, `createState` and `matchToString`, implements `SearchStrategy`, or extends one of this package's strategies, imported or destructured from `require()` by name, or reached through a namespace. It also lists code outside a strategy that reads `processChunk(chunk, state)`'s results itself, such as a custom engine.
 
 A `processChunk` that refers to a function, such as `{ createState, processChunk, matchToString }`, is followed to a function or variable declared in the same file. One it can't follow, such as an imported function, is reported without the detail, on each run, for you to check.
 
@@ -157,7 +157,7 @@ A literal that spreads another object in, as in `{ ...context, matchIndex }`, is
  REP src/proxy.ts line 6: the string adapter sits between a TextDecoderStream and a TextEncoderStream. The byte adapter, ReplaceContentTransformer, can replace all three, since it takes and emits UTF-8 bytes. Unlike TextDecoderStream, it keeps a byte order mark at the start of the input in its output, without searching it
 ```
 
-A `TextDecoderStream` with `ignoreBOM: true` keeps the mark too, so its report leaves that out. A `TextDecoderStream` for an encoding other than UTF-8, or one that may be `fatal`, is left alone, since the byte adapter reads only UTF-8 and writes U+FFFD for malformed input. It also lists the 4.0 byte adapter fed by a `TextDecoderStream`, whose strings error it. It follows a `pipeThrough()` chain, optional calls included, and a `TransformStream` or adapter held in a variable. It looks through `!` and `as` in the chain. It doesn't follow a decoder or encoder held in a variable, a stream passed between functions, or an adapter destructured from `require()`.
+A `TextDecoderStream` with `ignoreBOM: true` keeps the mark too, so its report leaves that out. A `TextDecoderStream` for an encoding other than UTF-8, or one that may be `fatal`, is left alone, since the byte adapter reads only UTF-8 and writes U+FFFD for malformed input. It also lists the 4.0 byte adapter fed by a `TextDecoderStream`, whose strings error it. It follows a `pipeThrough()` chain, optional calls included, and a `TransformStream` or adapter held in a variable. It looks through `!` and `as` in the chain. It doesn't follow a decoder or encoder held in a variable, or a stream passed between functions.
 
 ## Breaking changes
 

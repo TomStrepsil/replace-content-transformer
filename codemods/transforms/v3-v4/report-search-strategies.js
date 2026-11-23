@@ -88,18 +88,6 @@ function typeName(node) {
   return null;
 }
 
-function builtInStrategyLocals(root, j) {
-  const locals = new Set();
-  root
-    .find(j.ImportDeclaration, { source: { value: PACKAGE } })
-    .find(j.ImportSpecifier)
-    .forEach(({ node }) => {
-      const imported = node.imported.name ?? node.imported.value;
-      if (BUILT_IN_STRATEGIES.has(imported)) locals.add(node.local.name);
-    });
-  return locals;
-}
-
 function matchTypeOf(classNode, j) {
   for (const clause of classNode.implements ?? []) {
     if (typeName(clause) !== STRATEGY_INTERFACE) continue;
@@ -109,23 +97,58 @@ function matchTypeOf(classNode, j) {
   return null;
 }
 
-function extendsBuiltIn(superClass, builtIns, namespaces) {
-  if (superClass?.type === "Identifier") return builtIns.has(superClass.name);
+function bindingOf(path) {
+  const { name } = path.node;
+  return path.scope?.lookup(name)?.getBindings()[name]?.[0] ?? null;
+}
+
+function requiresPackage(node) {
   return (
-    superClass?.type === "MemberExpression" &&
-    !superClass.computed &&
-    superClass.object.type === "Identifier" &&
-    namespaces.has(superClass.object.name) &&
-    BUILT_IN_STRATEGIES.has(superClass.property.name)
+    node?.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    node.callee.name === "require" &&
+    node.arguments[0]?.value === PACKAGE
   );
 }
 
-function isStrategy(container, builtIns, namespaces) {
+function packageExportOf(binding) {
+  const parent = binding.parent.node;
+  if (parent.type === "ImportSpecifier") {
+    return binding.parent.parent.node.source.value === PACKAGE ? (parent.imported.name ?? parent.imported.value) : null;
+  }
+  const declarator = binding.parent.parent?.parent?.node;
+  const isDestructured =
+    ["ObjectProperty", "Property"].includes(parent.type) &&
+    parent.value === binding.node &&
+    binding.parent.parent.node.type === "ObjectPattern" &&
+    declarator?.type === "VariableDeclarator" &&
+    requiresPackage(declarator.init);
+  return isDestructured ? keyName(parent) : null;
+}
+
+function isPackageNamespace(binding) {
+  const parent = binding.parent.node;
+  if (parent.type === "ImportNamespaceSpecifier") return binding.parent.parent.node.source.value === PACKAGE;
+  return parent.type === "VariableDeclarator" && parent.id === binding.node && requiresPackage(parent.init);
+}
+
+function extendsBuiltIn(superClassPath) {
+  const superClass = superClassPath?.node;
+  if (superClass?.type === "Identifier") {
+    const binding = bindingOf(superClassPath);
+    return binding !== null && BUILT_IN_STRATEGIES.has(packageExportOf(binding));
+  }
+  if (superClass?.type !== "MemberExpression" || superClass.computed || superClass.object.type !== "Identifier") return false;
+  const binding = bindingOf(superClassPath.get("object"));
+  return binding !== null && isPackageNamespace(binding) && BUILT_IN_STRATEGIES.has(superClass.property.name);
+}
+
+function isStrategy(container) {
   const names = memberNames(container.members);
   if (!names.has(PROCESS_CHUNK)) return false;
   if (names.has("createState") && names.has("matchToString")) return true;
   if ((container.implements ?? []).some((clause) => typeName(clause) === STRATEGY_INTERFACE)) return true;
-  return extendsBuiltIn(container.superClass, builtIns, namespaces);
+  return extendsBuiltIn(container.superClassPath);
 }
 
 function nameOfContainer(path) {
@@ -161,24 +184,6 @@ function isProcessChunkCall(node) {
     : property.name === PROCESS_CHUNK;
 }
 
-function packageNamespaces(root, j) {
-  const names = new Set();
-  root
-    .find(j.ImportDeclaration, { source: { value: PACKAGE } })
-    .find(j.ImportNamespaceSpecifier)
-    .forEach(({ node }) => names.add(node.local.name));
-  root.find(j.VariableDeclarator).forEach(({ node }) => {
-    const { init } = node;
-    const requiresPackage =
-      init?.type === "CallExpression" &&
-      init.callee.type === "Identifier" &&
-      init.callee.name === "require" &&
-      init.arguments[0]?.value === PACKAGE;
-    if (requiresPackage && node.id.type === "Identifier") names.add(node.id.name);
-  });
-  return names;
-}
-
 function literalResult(argument) {
   if (argument?.type !== "ObjectExpression") return null;
   const fields = new Map();
@@ -196,8 +201,6 @@ function literalResult(argument) {
 export default function reportSearchStrategies(fileInfo, api) {
   const j = api.jscodeshift;
   const root = j(fileInfo.source);
-  const builtIns = builtInStrategyLocals(root, j);
-  const namespaces = packageNamespaces(root, j);
   const findCalls = (collection) => collection.find(j.Node, ({ type }) => CALLS.has(type));
   const source = (node) => j(node).toSource();
   const migratedBodies = new Set();
@@ -276,13 +279,14 @@ export default function reportSearchStrategies(fileInfo, api) {
     .find(j.Node, ({ type }) => type === "ClassDeclaration" || type === "ClassExpression")
     .forEach((path) => {
       const members = path.node.body.body;
-      const container = { members, implements: path.node.implements, superClass: path.node.superClass };
-      if (isStrategy(container, builtIns, namespaces)) reportStrategy(path, members, path.node);
+      const superClassPath = path.node.superClass ? path.get("superClass") : null;
+      const container = { members, implements: path.node.implements, superClassPath };
+      if (isStrategy(container)) reportStrategy(path, members, path.node);
     });
 
   root.find(j.ObjectExpression).forEach((path) => {
     const members = path.node.properties.filter((property) => property.type !== "SpreadElement");
-    if (isStrategy({ members }, builtIns, namespaces)) reportStrategy(path, members, null);
+    if (isStrategy({ members })) reportStrategy(path, members, null);
   });
 
   findCalls(root)

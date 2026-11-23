@@ -121,6 +121,42 @@ describe("search strategy report", () => {
     expect(report).toContain("line 2: Logged is a search strategy");
   });
 
+  it.each([
+    ["by name", "const { RegexSearchStrategy } = require(\"replace-content-transformer\");", "RegexSearchStrategy"],
+    ["under an alias", "const { RegexSearchStrategy: Regex } = require(\"replace-content-transformer\");", "Regex"],
+    ["through a namespace", "const rct = require(\"replace-content-transformer\");", "rct.RegexSearchStrategy"]
+  ])("finds a class extending a built-in strategy required %s", (_, required, base) => {
+    const { report } = run(required, `class Logged extends ${base} {`, "  *processChunk(haystack, state) {}", "}");
+
+    expect(report).toContain("line 2: Logged is a search strategy");
+  });
+
+  it("stays quiet about a class extending a member of a parameter that shadows a namespace import", () => {
+    const { reports } = run(
+      'import * as rct from "replace-content-transformer";',
+      "function f(rct) {",
+      "  class Logged extends rct.RegexSearchStrategy {",
+      "    *processChunk(haystack, state) {}",
+      "  }",
+      "}"
+    );
+
+    expect(reports).toEqual([]);
+  });
+
+  it("stays quiet about a class extending a parameter that shadows a built-in strategy's import", () => {
+    const { reports } = run(
+      'import { RegexSearchStrategy } from "replace-content-transformer";',
+      "function f(RegexSearchStrategy) {",
+      "  class Logged extends RegexSearchStrategy {",
+      "    *processChunk(haystack, state) {}",
+      "  }",
+      "}"
+    );
+
+    expect(reports).toEqual([]);
+  });
+
   it("finds a strategy written as an object literal", () => {
     const { report } = run(
       "const strategy = {",
