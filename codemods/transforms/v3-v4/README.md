@@ -163,7 +163,7 @@ A `TextDecoderStream` with `ignoreBOM: true` keeps the mark too, so its report l
 
 ### Custom search strategies
 
-A strategy reports each result to a `MatchSink`, passed to `processChunk` as a third argument, instead of yielding `MatchResult`s. `processChunk` returns `undefined`, so a strategy still written as a generator is a type error. `flush` is unchanged: it returns the held text without searching it. `settle(state, sink)` is new and optional: the engine calls it in place of `flush` at the end of the stream, so a strategy that deferred a decision at the last chunk boundary can still report a match. `SearchStrategy` and `MatchSink` are now exported from the package root, so a strategy can be typed against them. See [Search Strategies](../../../README.md#-search-strategies).
+A strategy reports each result to a `MatchSink`, passed to `processChunk` as a third argument, instead of yielding `MatchResult`s. `processChunk` returns `undefined`, so a strategy still written as a generator is a type error. `flush` is unchanged: it returns the held text without searching it. `settle(state, sink)` is new and optional: the engine calls it in place of `flush` at the end of the stream, so a strategy that deferred a decision at the last chunk boundary can still report a match. `SearchStrategy` and `MatchSink` are now exported from the package root, so a strategy can be typed against them. See [Search Strategies](../../../docs/CONTRIBUTING.md#search-strategy-contract).
 
 `reportMatch` returns `false` when the engine wants the search to stop there, for instance while it awaits that match's replacement. The strategy returns at once, with everything after the match left in the state. The engine then carries on by calling `processChunk("", state, sink)`, or calls `flush`. The built-in strategies save the state in a `finally` block, which also keeps it intact when a sink call throws. See [`LoopedIndexOfAnchoredSearchStrategy`](../../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts) for one.
 
@@ -273,7 +273,7 @@ interface TransformEngine {
 - An adapter of your own that drove a `SyncTransformEngine` must now handle a `Promise` from `write()` and `end()`.
 - An engine that reads a strategy's results itself must pass it a `MatchSink`: see [Custom search strategies](#custom-search-strategies). The [search strategy report](#report-custom-search-strategies) lists these call sites too.
 - `EngineSink.enqueue` still takes only strings, so a custom sink needs no change. One that sets `acceptsBytes: true` also receives `Uint8Array`s, typed as `ByteEngineSink`.
-- Given a web adapter's sink, an engine should implement `cancel()`. Once the output can no longer take a chunk, the adapter calls it and drops the chunk, where the sink used to throw. An engine without `cancel()`, or whose `cancel()` throws, still sees the throw. See [Stream cancellation](../../../README.md#stream-cancellation).
+- Given a web adapter's sink, an engine should implement `cancel()`. Once the output can no longer take a chunk, the adapter calls it and drops the chunk, where the sink used to throw. An engine without `cancel()`, or whose `cancel()` throws, still sees the throw. See [Stream cancellation](../../../docs/cancellation.md#stream-cancellation-the-context-signal).
 
 ### Driving an engine directly
 
@@ -283,7 +283,7 @@ Code that calls an engine's `write()` and `end()` itself, rather than through an
 
 Every strategy now limits what it holds back awaiting a decision to `maxBufferLength`, 65,536 UTF-16 code units by default. A match still incomplete that far from its start no longer matches: its text up to there passes through, and the search restarts after it. `maxBufferLength: Infinity` restores 3.x behaviour, along with the unbounded memory the limit guards against.
 
-To choose a limit, take the longest match you expect, and allow for the input a regex such as `/\S+/` could still be extending. Set `onGuardExceeded` to find out when the limit is hit, for instance to log it, or to stop replacing. See [Buffer limit](../../../README.md#buffer-limit) and [What `onGuardExceeded` can do](../../../README.md#what-onguardexceeded-can-do).
+To choose a limit, take the longest match you expect, and allow for the input a regex such as `/\S+/` could still be extending. Set `onGuardExceeded` to find out when the limit is hit, for instance to log it, or to stop replacing. See [Buffer limit](../../../docs/search-strategies.md#buffer-limit) and [What `onGuardExceeded` can do](../../../docs/search-strategies.md#what-onguardexceeded-can-do).
 
 ```ts
 new RegexSearchStrategy(/<!--#include .*?-->/s, {
@@ -348,7 +348,7 @@ transform.on("data", (chunk: Buffer) => {
 });
 ```
 
-See [Stopping on output](../../../README.md#stopping-on-output) for when this holds.
+See [Stopping on output](../../../docs/cancellation.md#stopping-on-output) for when this holds.
 
 ### Errors from a synchronous replacement on Node
 
@@ -381,11 +381,11 @@ replacement: async (match, { signal }) => {
 }
 ```
 
-The [text stream pipeline report](#report-textdecoderstream-and-textencoderstream-pipelines) lists the pipelines to look at. See [WHATWG Transformer](../../../README.md#whatwg-transformer) and [Async Iterable Replacement](../../../README.md#async-iterable-replacement).
+The [text stream pipeline report](#report-textdecoderstream-and-textencoderstream-pipelines) lists the pipelines to look at. See [WHATWG Transformer](../../../docs/adapters.md#whatwg-streams) and [Async Iterable Replacement](../../../docs/recipes.md#async-iterable-replacement).
 
 ### Byte order mark on Node
 
-`ReplaceContentTransform` no longer searches a byte order mark at the start of its input. It's kept at the start of the output, and `streamIndices` count from the text after it, as with a `TextDecoder`. This matters only for a needle that matched the mark, or code that relied on the offset it added. See [Node Transform](../../../README.md#node-transform).
+`ReplaceContentTransform` no longer searches a byte order mark at the start of its input. It's kept at the start of the output, and `streamIndices` count from the text after it, as with a `TextDecoder`. This matters only for a needle that matched the mark, or code that relied on the offset it added. See [Node Transform](../../../docs/adapters.md#node-streams).
 
 ### Node output is always UTF-8
 
@@ -393,11 +393,11 @@ The [text stream pipeline report](#report-textdecoderstream-and-textencoderstrea
 
 ### Bun 1.4.0
 
-Bun 1.4.0 is the minimum supported version, up from 1.0. See [Compatibility](../../../README.md#-compatibility).
+Bun 1.4.0 is the minimum supported version, up from 1.0. See [Compatibility](../../../docs/compatibility.md).
 
 ### Stopping with `stopReplacingSignal`
 
-Once `stopReplacingSignal` has aborted, a replacement that fails with its `reason` or an `AbortError`, or an error with either in its `cause` chain, no longer errors the stream. It ends there, and its match is emitted verbatim if it had produced nothing. A `fetch` given the signal fails that way once it aborts, so the `try`/`catch` around it in 3.x's [Limit replacements](../../../README.md#limit-replacements) recipe can go, unless you want something other than the match in its place:
+Once `stopReplacingSignal` has aborted, a replacement that fails with its `reason` or an `AbortError`, or an error with either in its `cause` chain, no longer errors the stream. It ends there, and its match is emitted verbatim if it had produced nothing. A `fetch` given the signal fails that way once it aborts, so the `try`/`catch` around it in 3.x's [Limit replacements](../../../docs/cancellation.md#stopping-requests-in-flight) recipe can go, unless you want something other than the match in its place:
 
 ```ts
 // 3.x
@@ -428,7 +428,7 @@ A consumer that relied on that error to detect the stop has to check `abortContr
 
 ### The replacement context's `signal`
 
-The replacement context has a required `signal`, owned by the engine, which aborts when the engine is cancelled, or, with `LookaheadTransformEngine`, when `abandonPendingSignal` abandons the replacement. `ReplaceContentTransform` cancels the engine whenever its stream is destroyed before it ends. A web adapter does so when its output is cancelled before its input has ended. Once the input has ended, a cancel waits for the replacements still being read, and the signal aborts only at the next piece the cancelled stream refuses, so it doesn't abort for a replacement that has stalled (see the note under [Stream cancellation](../../../README.md#stream-cancellation)).
+The replacement context has a required `signal`, owned by the engine, which aborts when the engine is cancelled, or, with `LookaheadTransformEngine`, when `abandonPendingSignal` abandons the replacement. `ReplaceContentTransform` cancels the engine whenever its stream is destroyed before it ends. A web adapter does so when its output is cancelled before its input has ended. Once the input has ended, a cancel waits for the replacements still being read, and the signal aborts only at the next piece the cancelled stream refuses, so it doesn't abort for a replacement that has stalled (see the note under [Stream cancellation](../../../docs/cancellation.md#stream-cancellation-the-context-signal)).
 
 So pass the context's `signal` to `fetch`, but keep a signal of your own for a request that might stall after the input ends, and combine the two with `AbortSignal.any()`: a server's `request.signal`, which aborts when the client disconnects, or an `AbortSignal.timeout()`. Neither is a signal the engine knows, so a replacement that fails from either errors the stream. A timeout fails with a `TimeoutError`, so catch it where the match should pass through instead. A timeout while the body is being read still errors the stream:
 
@@ -452,4 +452,4 @@ An engine of your own that builds a `ReplacementContext`, or a test that calls a
 replacement(match, { matchIndex: 0, streamIndices: [0, 5], signal: new AbortController().signal });
 ```
 
-The [replacement context report](#report-code-that-builds-a-replacementcontext) lists these. See [Stream cancellation](../../../README.md#stream-cancellation).
+The [replacement context report](#report-code-that-builds-a-replacementcontext) lists these. See [Stream cancellation](../../../docs/cancellation.md#stream-cancellation-the-context-signal).

@@ -65,7 +65,7 @@ class NestingSink implements MatchSink {
  *
  * A pair still unbalanced `maxBufferLength` code units after its opening
  * delimiter passes through as text up to there, and the search restarts after
- * it. See [Buffer limit](../../../README.md#buffer-limit).
+ * it. See [Buffer limit](../../../docs/search-strategies.md#buffer-limit).
  *
  * See [README](./README.md) for the algorithm.
  *

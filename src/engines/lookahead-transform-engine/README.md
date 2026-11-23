@@ -14,7 +14,7 @@ Each engine instance owns its scanning state, so construct a fresh instance per 
 
 Wrap it in `ReplaceContentTransformer` (from `replace-content-transformer/web`) for WHATWG streams, or `ReplaceContentTransform` (from `replace-content-transformer/node`) for Node `.pipe()` pipelines.
 
-See the [main README](../../../README.md#pipelined-async-replacement-with-lookaheadtransformengine) for full usage examples covering both WHATWG streams and Node.js pipelines.
+See [Pipelined async replacement](../../../docs/recipes.md#pipelined-async-replacement) for a WHATWG example, and [Node streams](../../../docs/adapters.md#node-streams) for a Node.js pipeline.
 
 ## Recursive Replacement
 
@@ -50,7 +50,7 @@ const transformer = new ReplaceContentTransformer(
 );
 ```
 
-See the [full usage examples](../../../README.md#pipelined-async-replacement-with-lookaheadtransformengine) in the main README.
+See the [recipes](../../../docs/recipes.md#pipelined-async-replacement) for more usage.
 
 > [!IMPORTANT]
 > When a child engine errors, any chunks it had already enqueued into its internal buffer are yielded to the outer drain loop before the error is thrown. The outer stream may therefore emit partial output before the rejection surfaces — this is intentional, preserving the "emit what you have" semantics consistent with the rest of the drain loop.
@@ -113,7 +113,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Stream teardown
 
-`ReplaceContentTransformer` and `ReplaceContentTextTransformer` honour WHATWG `Transformer.cancel()` through the normal stream-teardown path — each forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). The engine then cancels each `ReadableStream` replacement or `nested()` source it has called, such as a `fetch` body, whether or not it is being read, and closes any other async iterable once it next settles. `cancel()` also aborts the `signal` in each replacement's context. Pass it to `fetch` to stop a request whose response hasn't arrived yet, and to a source the engine can't cancel itself, such as a Node `Readable` through `addAbortSignal`, which it could otherwise close only at its next chunk. See [Stream cancellation](../../../README.md#stream-cancellation) for when a WHATWG stream passes a cancel on.
+`ReplaceContentTransformer` and `ReplaceContentTextTransformer` honour WHATWG `Transformer.cancel()` through the normal stream-teardown path — each forwards to `engine.cancel?.()` if present. `ReplaceContentTransform` does the same when the Node stream is destroyed before it ends (e.g. by `destroy()`, a failed `pipeline()` or an aborted `{ signal }`). The engine then cancels each `ReadableStream` replacement or `nested()` source it has called, such as a `fetch` body, whether or not it is being read, and closes any other async iterable once it next settles. `cancel()` also aborts the `signal` in each replacement's context. Pass it to `fetch` to stop a request whose response hasn't arrived yet, and to a source the engine can't cancel itself, such as a Node `Readable` through `addAbortSignal`, which it could otherwise close only at its next chunk. See [Stream cancellation](../../../docs/cancellation.md#stream-cancellation-the-context-signal) for when a WHATWG stream passes a cancel on.
 
 ### Stopping new replacements (`stopReplacingSignal`)
 
