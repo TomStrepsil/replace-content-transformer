@@ -2,7 +2,7 @@
 
 This directory contains search strategies for finding and matching patterns in streaming content. Each strategy handles patterns that may span chunk boundaries.
 
-These strategies have been chosen from an array of alternatives (see [benchmarking](#benchmark-strategies)). The "string anchor" is 1.3–2.7x faster than the regex strategy on the same patterns in the algorithm benchmarks, and about 30x with 16 KB chunks and no matches, so should be preferred unless more complex matching is required. See [why it uses smart buffering](./looped-indexOf-anchored/README.md#why-smart-buffering).
+These strategies have been chosen from an array of alternatives (see [benchmarking](#-benchmark-strategies)). The "string anchor" is 1.3–2.7x faster than the regex strategy on the same patterns in the algorithm benchmarks, and about 30x with 16 KB chunks and no matches, so should be preferred unless more complex matching is required. See [why it uses smart buffering](./looped-indexOf-anchored/README.md#why-smart-buffering).
 
 ## 🪝 String Anchor (N-Token Sequential Matching)
 
@@ -37,7 +37,7 @@ Matches opening/closing delimiters where nesting is meaningful: the match only c
 - **Use Case**: Complex patterns, wildcards, character classes
 - **Exports**: `RegexSearchStrategy`, and `LeanRegexSearchStrategy` for a smaller bundle (see [Lean Bundles](./regex/README.md#lean-bundles))
 
-Every strategy holds back no more than `maxBufferLength` code units (65,536 by default) awaiting a decision. See [Buffer limit](../../README.md#buffer-limit), including [what `onGuardExceeded` can do](../../README.md#what-onguardexceeded-can-do).
+Every strategy holds back no more than `maxBufferLength` code units (65,536 by default) awaiting a decision. See [Buffer limit](../../docs/search-strategies.md#buffer-limit), including [what `onGuardExceeded` can do](../../docs/search-strategies.md#what-onguardexceeded-can-do).
 
 ## 📊 Benchmark Strategies
 

@@ -9,7 +9,7 @@ Each harness wraps one implementation, shipped or a [reference](../references/RE
 
 [`engine-harness.ts`](./engine-harness.ts) adapts the different engine shapes (the serial engine with a sync or async replacement, callback, generator, legacy transformer) to that `{ transform, flush }` pair.
 
-Every harness exported from [`index.ts`](./index.ts) runs through the scenarios in [`validate-functionality.test.ts`](../algorithm/validate-functionality.test.ts) as part of `npm test`, and is then benchmarked by [`comparison.bench.ts`](../algorithm/comparison.bench.ts). Each harness also belongs to at least one comparison in [`comparisons.ts`](../algorithm/comparisons.ts), which `comparisons.test.ts` checks.
+Every harness exported from [`index.ts`](./index.ts) runs through the scenarios in [`validate-functionality.test.ts`](../algorithm/validate-functionality.test.ts) as part of `npm test` (single and multi-chunk replacements, tokens split at chunk boundaries, consecutive and nested patterns, false starts, pathological and edge cases, and real-world templating), and is then benchmarked by [`comparison.bench.ts`](../algorithm/comparison.bench.ts). Each harness also belongs to at least one comparison in [`comparisons.ts`](../algorithm/comparisons.ts), which `comparisons.test.ts` checks.
 
 ## Adding a harness
 

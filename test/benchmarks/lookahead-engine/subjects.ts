@@ -23,8 +23,8 @@ type ReplacementFn = (
 //
 // This adapter wraps an instrumented ReplacementFn so that any `Nested`
 // return value is transparently converted into a child
-// ReplaceContentTextTransformer pipeline (the README "Manage Recursion"
-// pattern), making subject A a fair serial comparison for nested scenarios.
+// ReplaceContentTextTransformer pipeline (the "Recursion" recipe in
+// docs/recipes.md), making subject A a fair serial comparison for nested scenarios.
 // ---------------------------------------------------------------------------
 
 /**
@@ -58,8 +58,8 @@ function pipeThrough(
  *
  * When the inner function returns a `Nested`, this adapter creates a child
  * `ReplaceContentTextTransformer` (using the scenario's search strategy) and
- * pipes the Nested source through it — exactly the README "Manage Recursion"
- * pattern. The adapter is self-referential so nesting works to any depth.
+ * pipes the Nested source through it — exactly the "Recursion" recipe in
+ * docs/recipes.md. The adapter is self-referential so nesting works to any depth.
  */
 function makeManualNestingAdapter(
   instrumented: ReplacementFn,
@@ -102,7 +102,7 @@ export const subjects: Subject[] = [
     /**
      * Uses ReplaceContentTextTransformer with a manual-nesting adapter so
      * that Nested return values are handled via recursive child transformers
-     * (the README "Manage Recursion" pattern). On flat scenarios the adapter
+     * (the "Recursion" recipe in docs/recipes.md). On flat scenarios the adapter
      * is a zero-overhead pass-through.
      */
     create: (scenario, wrappedReplacement) => {

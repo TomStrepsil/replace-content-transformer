@@ -29,7 +29,7 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  *
  * A match still incomplete `maxBufferLength` code units after its first anchor
  * passes through as text up to there, and the search restarts after it. See
- * [Buffer limit](../../../README.md#buffer-limit).
+ * [Buffer limit](../../../docs/search-strategies.md#buffer-limit).
  *
  * Exposed publicly as `StringAnchorSearchStrategy`.
  *

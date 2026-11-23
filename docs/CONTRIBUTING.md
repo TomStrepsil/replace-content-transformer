@@ -30,6 +30,21 @@ Please be respectful and constructive in all interactions. We aim to maintain a 
    npm install
    ```
 
+### Scripts
+
+| Script                     | Does                                                                   |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `npm test`                 | Runs the tests                                                         |
+| `npm run test:watch`       | Runs the tests in watch mode                                           |
+| `npm run test:ci`          | Runs the tests with coverage, as CI does                               |
+| `npm run lint`             | Lints the code                                                         |
+| `npm run build`            | Builds `lib/`                                                          |
+| `npm run bench`            | Benchmarks the string anchor strategy on Node                          |
+| `npm run bench:runtimes`   | The same, on each of Node, Deno and Bun that is installed              |
+| `npm run bench:algorithms` | Compares algorithms, most of them unexported references                |
+
+See [Benchmarks](../test/benchmarks/README.md) for the rest.
+
 ## Before You Start
 
 ### Check for Existing Issues
@@ -166,6 +181,98 @@ Correct behaviour shouldn't depend on where the stream happens to be split. Any 
 - [`test/benchmarks/harnesses/README.md`](../test/benchmarks/harnesses/README.md): running a strategy through the shared validation and benchmark scenarios
 - [`test/benchmarks/references/README.md`](../test/benchmarks/references/README.md#-testing): how much testing the reference strategies and engine shapes need
 
+## 🧩 Search strategies and engines
+
+The `SearchStrategy` and `TransformEngine` interfaces are exported, so a strategy or engine can be written outside this package. To propose one for the package, or a change to an existing one, [raise an issue](#check-for-existing-issues) first.
+
+### Search strategy contract
+
+A strategy implements `SearchStrategy`, reporting what it finds to a `MatchSink`:
+
+```typescript
+type StreamIndices = [startIndex: number, endIndex: number];
+
+interface MatchSink<TMatch = string> {
+  reportText(content: string): void;
+  reportMatch(content: TMatch, streamIndices: StreamIndices): boolean;
+}
+
+interface SearchStrategy<TState, TMatch = string> {
+  createState(): TState;
+  processChunk(
+    haystack: string,
+    state: TState,
+    sink: MatchSink<TMatch>
+  ): undefined;
+  flush(state: TState): string;
+  settle?(state: TState, sink: MatchSink<TMatch>): undefined;
+  matchToString(match: TMatch): string;
+}
+```
+
+A strategy must be **stateless**: everything that changes as a stream is searched, such as a partial match held across chunks or the position in the stream, belongs in its `TState`, never on the strategy itself. The engine owns that state, one per stream, and passes it to every call. So any construction cost, such as compiling a pattern, is paid once, and one strategy instance can serve many streams, even at the same time. The strategy instance holds only its configuration (needles, pattern, options), fixed at construction.
+
+- **`createState`** returns a fresh state for a new stream. The engine calls it once, when it is constructed.
+- **`processChunk`** reports the chunk in stream order: literal content through `reportText`, each match through `reportMatch`, with `streamIndices` as absolute offsets into the engine's input. It returns `undefined` rather than `void`, so a strategy still written as a generator is a type error rather than one that silently reports nothing. A sink rather than a generator lets the engine stop or pause at any match, and lets one strategy wrap another's sink, as `BalancedPairSearchStrategy` does around an anchor strategy. It is 1.03–1.7x faster across the streaming scenarios of the algorithm benchmarks, about 1.2x in a typical one (see [Engine shapes](../test/benchmarks/references/README.md#-engine-shapes)).
+- **`reportMatch`** returns whether to carry on. On `false`, the strategy returns at once, leaving everything after that match in the state. The engine then either calls `flush` to emit it verbatim, as once `stopReplacingSignal` aborts, or resumes the search by calling `processChunk` with `""` (or `settle` again), but only once `processChunk` (or `settle`) has returned, since the state is complete only then. `SerialTransformEngine` pauses like this at a match whose replacement it awaits, and `LookaheadTransformEngine` at one that fills its queue, so a strategy can be paused at every match. Join what the state holds to a chunk only when neither is empty: on Bun, a string joined with `""` is copied when it is next searched, which costs the rest of the chunk at every match ([WebKit bug 332729](https://bugs.webkit.org/show_bug.cgi?id=332729)). The built-in strategies leave the rest in the state from a `finally` block, which also keeps the state intact if a sink call throws.
+- **`flush`** returns anything still held, as raw text without searching it, and resets the state for reuse. The engine calls it at the end of the stream when the strategy has no `settle`, and once `stopReplacingSignal` has aborted.
+- **`settle`**, optional, is called in place of `flush` at the end of the stream, unless `stopReplacingSignal` has aborted, to decide what is still held. It reports to the sink as `processChunk` does, so a decision deferred at the final chunk boundary can still be a match: `RegexSearchStrategy` re-scans its buffer with the original pattern. It also resets the state.
+- **`matchToString`** converts a match back to its raw text, for a match emitted verbatim.
+
+`TMatch` lets a strategy report richer matches than a string, as `RegexSearchStrategy` does with a [`StreamRegexMatch`](./search-strategies.md#regex-matches).
+
+An engine drives its strategy along these lines:
+
+```typescript
+let stoppedAt: string | undefined;
+const sink: MatchSink<TMatch> = {
+  reportText: (content) => output.enqueue(content),
+  reportMatch: (content, streamIndices) => {
+    if (stopReplacingSignal?.aborted) {
+      stoppedAt = this.searchStrategy.matchToString(content);
+      return false;
+    }
+    output.enqueue(/* some replacement form (static, functional, iterator, async...) */);
+    return true;
+  }
+};
+write(chunk: string) {
+  this.searchStrategy.processChunk(chunk, this.searchState, sink);
+  if (stoppedAt !== undefined) {
+    /* the match verbatim, then the rest of the chunk and anything held */
+    output.enqueue(stoppedAt + this.searchStrategy.flush(this.searchState));
+    stoppedAt = undefined;
+  }
+}
+end() {
+  if (this.searchStrategy.settle) {
+    this.searchStrategy.settle(this.searchState, sink);
+  } else {
+    const held = this.searchStrategy.flush(this.searchState);
+    if (held) output.enqueue(held);
+  }
+}
+```
+
+### Engine contract
+
+An engine implements `TransformEngine`:
+
+```typescript
+interface TransformEngine {
+  start(sink: EngineSink): void;
+  write(chunk: string): void | Promise<void>;
+  end(): void | Promise<void>;
+  cancel?(): void;
+}
+```
+
+`write()` and `end()` return `undefined` when the call completed synchronously, or a `Promise` the adapter waits for before its next call.
+
+The `EngineSink` receives the output as strings. A `ByteEngineSink`, which sets `acceptsBytes: true`, as `ReplaceContentTransformer` and `ReplaceContentTransform` do, also receives the UTF-8 bytes a replacement produces asynchronously, in order with the strings around them, without their being decoded. Each chunk of bytes is valid UTF-8 that ends at a character boundary, and may be a view of the replacement's own buffer, so a sink that keeps one past `enqueue` must copy it.
+
+See the [search strategy contract](#search-strategy-contract) for how an engine drives its strategy, and [Engines](./engines.md#driving-an-engine) for why only an adapter should drive an engine.
+
 ## 🎨 Code Style
 
 - TypeScript with strict mode
@@ -179,7 +286,7 @@ Correct behaviour shouldn't depend on where the stream happens to be split. Any 
 
 When adding new features:
 
-1. **Update README.md** with examples and API documentation
+1. **Update the docs**: examples in [`recipes.md`](./recipes.md), API detail in the other `docs/` pages, and the [README](../README.md) only where its overview tables change
 2. **Update TypeScript types** for public APIs
 3. **Include JSDoc comments** for exported functions
 

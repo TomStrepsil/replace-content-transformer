@@ -40,7 +40,7 @@ Build from `core`, binding `withModules(backreferences)` only if the pattern has
 Anything other than a `PartialMatchRegExp` instance, from any entry point, throws a `TypeError`.
 
 > [!NOTE]
-> The smaller bundle needs a bundler that tree-shakes. Without one, importing from the package root also loads `RegexSearchStrategy`, and with it the full `PartialMatchRegExp` class and every module, so `LeanRegexSearchStrategy` saves nothing there. [`searchStrategyFactory`](../../../README.md#-search-strategy-factory) continues to return `RegexSearchStrategy`.
+> The smaller bundle needs a bundler that tree-shakes. Without one, importing from the package root also loads `RegexSearchStrategy`, and with it the full `PartialMatchRegExp` class and every module, so `LeanRegexSearchStrategy` saves nothing there. [`searchStrategyFactory`](../../../docs/search-strategies.md#choosing-a-strategy) continues to return `RegexSearchStrategy`.
 
 ## How It Works
 
@@ -428,7 +428,7 @@ A terminator the body cannot consume **bounds** the buffer without emptying it: 
 
 Both the 1024-character threshold and the growth factor of 2 can be changed with the `minCandidateLengthToBackOff` and `bufferGrowthFactorBetweenEvaluations` options. The price is latency: a match that completes just after a scan is released at the next one, or at end of stream.
 
-Memory is bounded by `maxBufferLength`, shared with the other strategies (see [Buffer limit](../../../README.md#buffer-limit)):
+Memory is bounded by `maxBufferLength`, shared with the other strategies (see [Buffer limit](../../../docs/search-strategies.md#buffer-limit)):
 
 ```js
 new RegexSearchStrategy(/\S+/, {
