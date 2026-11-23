@@ -109,10 +109,13 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
    */
   highWaterMark?: number;
   /**
-   * When aborted, the scanner stops calling the replacement function and
-   * stops searching: what is left of the current chunk and what the strategy
-   * holds are emitted verbatim as one chunk, and later chunks pass through
-   * unchanged. No replacement is called once the
+   * When aborted, the scanner stops calling the replacement function, and
+   * stops searching at the next match the strategy reports, or at the next
+   * chunk if none comes first, so an abort raised during a chunk's scan,
+   * such as from `onGuardExceeded`, lets the scan carry on until then. From
+   * there, what is left of the current chunk and what the strategy holds are
+   * emitted verbatim as one chunk, and later chunks pass through unchanged.
+   * No replacement is called once the
    * signal has fired: a match scheduled earlier whose replacement has not
    * been called, such as one still waiting for a concurrency slot, is
    * emitted verbatim in its place, without waiting for the slot. Replacements
@@ -131,8 +134,9 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
    * begun consuming is abandoned: its iterable is closed and the original
    * matched text is emitted in its place. A replacement the drain loop is
    * already iterating is allowed to complete normally — no partial output.
-   * Scanning is also halted (implying {@link stopReplacingSignal} semantics):
-   * no further replacements are scheduled and the rest of the input passes
+   * Scanning also stops at the next match the strategy reports, or the next
+   * chunk (implying {@link stopReplacingSignal} semantics): no further
+   * replacements are scheduled and the rest of the input passes
    * through as raw text — there is no useful combination where pending work
    * is abandoned but new replacements continue to be scheduled. Internally
    * the engine combines both signals via `AbortSignal.any()`.

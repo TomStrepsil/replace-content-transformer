@@ -57,6 +57,8 @@ npm install replace-content-transformer
 yarn add replace-content-transformer regex-partial-match
 ```
 
+Upgrading from 3.x? See [Migrating from 3.x to 4.0](./codemods/transforms/v3-v4/README.md), with a codemod for the renames.
+
 ## 🚀 Usage
 
 See [Design](#-design) on composable parts to import and combine.
