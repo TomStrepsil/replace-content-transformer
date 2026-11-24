@@ -2,10 +2,6 @@ import type { TransformEngine } from "../../engines/types.js";
 
 export const HIGH_WATER_MARK = 64 * 1024;
 
-export type RoomFor = (desiredSize: number, writtenLength: number) => number;
-
-export const roomInChunks: RoomFor = (desiredSize, writtenLength) => desiredSize * writtenLength;
-
 export function sizesAs(
   strategy: QueuingStrategy<never>,
   BuiltIn: typeof ByteLengthQueuingStrategy | typeof CountQueuingStrategy
@@ -13,7 +9,7 @@ export function sizesAs(
   return strategy.size === new BuiltIn({ highWaterMark: 0 }).size;
 }
 
-export function countsChunks(strategy: QueuingStrategy<never>): boolean {
+function countsChunks(strategy: QueuingStrategy<never>): boolean {
   return strategy.size === undefined || sizesAs(strategy, CountQueuingStrategy);
 }
 
@@ -29,7 +25,7 @@ export function transformerPair<TInput, TOutput>(
   transformerFor: (engine: TransformEngine) => PairedTransformer<TInput, TOutput>,
   writableStrategy: QueuingStrategy<TInput> | undefined,
   readableStrategy: QueuingStrategy<TOutput>,
-  roomFor: RoomFor | undefined
+  sizePerCodeUnit: number | undefined
 ): ReadableWritablePair<TOutput, TInput> {
   let readableController!: ReadableStreamDefaultController<TOutput>;
   let writableController!: WritableStreamDefaultController;
@@ -47,9 +43,14 @@ export function transformerPair<TInput, TOutput>(
     readWaiting || readableController.desiredSize! > 0
       ? undefined
       : (resumed ??= new Promise((resolve) => (resume = resolve)));
-  const room = roomFor && (() => roomFor(readableController.desiredSize!, writtenLength));
+  const roomCountsChunks = countsChunks(readableStrategy);
+  const room = roomCountsChunks
+    ? () => readableController.desiredSize! * writtenLength
+    : sizePerCodeUnit === undefined
+      ? undefined
+      : () => readableController.desiredSize! / sizePerCodeUnit;
   const transformer = transformerFor({
-    start: (sink) => engine.start({ ...sink, ready, room, roomCountsChunks: roomFor === roomInChunks }),
+    start: (sink) => engine.start({ ...sink, ready, room, roomCountsChunks }),
     write: (chunk) => {
       writtenLength = chunk.length;
       return engine.write(chunk);

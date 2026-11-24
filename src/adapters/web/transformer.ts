@@ -133,16 +133,16 @@ export class ReplaceContentTransformer implements Transformer<
   #end(): void | Promise<void> {
     const ended = this.#engine.end();
     return ended
-      ? ended.then(() => void this.#enqueueHeldHighSurrogate())
-      : void this.#enqueueHeldHighSurrogate();
+      ? ended.then(() => this.#enqueueHeldHighSurrogate())
+      : this.#enqueueHeldHighSurrogate();
   }
 
-  #enqueueHeldHighSurrogate(): boolean {
-    return this.#enqueueIfAny(this.#hold.remainder());
+  #enqueueHeldHighSurrogate(): void {
+    this.#enqueueIfAny(this.#hold.remainder());
   }
 
   #enqueueBytes(bytes: Utf8Bytes): void {
-    if (this.#enqueueHeldHighSurrogate()) this.#enqueue(new Uint8Array(bytes));
+    if (this.#enqueueIfAny(this.#hold.remainder())) this.#enqueue(new Uint8Array(bytes));
   }
 
   #enqueueIfAny(text: string): boolean {

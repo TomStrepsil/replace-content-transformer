@@ -1,15 +1,8 @@
 import type { TransformEngine } from "../../engines/types.js";
 import { ReplaceContentTextTransformer } from "./text-transformer.js";
-import { countsChunks, HIGH_WATER_MARK, roomInChunks, transformerPair, type RoomFor } from "./transformer-pair.js";
+import { HIGH_WATER_MARK, transformerPair } from "./transformer-pair.js";
 
 const codeUnitsStrategy: QueuingStrategy<string> = { highWaterMark: HIGH_WATER_MARK, size: (chunk) => chunk!.length };
-
-const roomInCodeUnits: RoomFor = (desiredSize) => desiredSize;
-
-function roomFor(strategy: QueuingStrategy<string>): RoomFor | undefined {
-  if (strategy === codeUnitsStrategy) return roomInCodeUnits;
-  return countsChunks(strategy) ? roomInChunks : undefined;
-}
 
 /**
  * A readable/writable pair that replaces content in a stream of strings, as
@@ -61,7 +54,7 @@ export class ReplaceContentTextStream implements ReadableWritablePair<string, st
       (paced) => new ReplaceContentTextTransformer(paced),
       writableStrategy,
       readableStrategy,
-      roomFor(readableStrategy)
+      readableStrategy === codeUnitsStrategy ? 1 : undefined
     ));
   }
 }

@@ -918,6 +918,27 @@ function describeReaderThatStops<Chunk extends WebChunk>(family: WebAdapterFamil
       expect(replacement).toHaveBeenCalledOnce();
     });
 
+    it("errors the stream with what an asynchronous replacement rejects with while the output before its match waits to be read, leaving no rejection unhandled", async () => {
+      let streamError: unknown;
+      const unhandled = await unhandledRejectionsDuring(async () => {
+        const pair = family.stream(
+          new SerialTransformEngine({
+            searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+            replacement: () => Promise.reject(new Error("rejected"))
+          }),
+          undefined,
+          new CountQueuingStrategy({ highWaterMark: 1 })
+        );
+        void pair.writable.getWriter().write(family.chunkOf("a{{x}}")).catch(() => {});
+        await setImmediate();
+
+        streamError = await text(pair.readable).catch((error: unknown) => error);
+      });
+
+      expect(streamError).toMatchObject({ message: "rejected" });
+      expect(unhandled).toEqual([]);
+    });
+
     it("reads no piece of an asynchronous iterable replacement while the output before its match fills the readable side", async () => {
       const piecesRead: string[] = [];
       const pair = family.stream(

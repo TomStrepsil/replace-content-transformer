@@ -604,7 +604,7 @@ export class LookaheadTransformEngine<TState, TMatch>
         wake();
       },
       acceptsBytes: this.#byteSink !== undefined,
-      ready: () => (buffer.length === 0 ? undefined : new Promise<void>((resolve) => (drained = resolve)))
+      ready: this._sink.ready && (() => (buffer.length === 0 ? undefined : new Promise<void>((resolve) => (drained = resolve))))
     });
 
     let reading: CancellableRead<string | Utf8Bytes> | undefined;

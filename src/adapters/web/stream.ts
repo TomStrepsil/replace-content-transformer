@@ -1,17 +1,10 @@
 import type { TransformEngine } from "../../engines/types.js";
 import { ReplaceContentTransformer } from "./transformer.js";
-import { countsChunks, HIGH_WATER_MARK, roomInChunks, sizesAs, transformerPair, type RoomFor } from "./transformer-pair.js";
+import { HIGH_WATER_MARK, sizesAs, transformerPair } from "./transformer-pair.js";
 
 const MAX_UTF8_BYTES_PER_CODE_UNIT = 3;
 
 type EncodedChunk = ReturnType<TextEncoder["encode"]>;
-
-const roomInBytes: RoomFor = (desiredSize) => desiredSize / MAX_UTF8_BYTES_PER_CODE_UNIT;
-
-function roomFor(strategy: QueuingStrategy<EncodedChunk>): RoomFor | undefined {
-  if (sizesAs(strategy, ByteLengthQueuingStrategy)) return roomInBytes;
-  return countsChunks(strategy) ? roomInChunks : undefined;
-}
 
 /**
  * A readable/writable pair that replaces content in a UTF-8 byte stream, as
@@ -64,7 +57,7 @@ export class ReplaceContentStream implements ReadableWritablePair<EncodedChunk, 
       (paced) => new ReplaceContentTransformer(paced),
       writableStrategy,
       readableStrategy,
-      roomFor(readableStrategy)
+      sizesAs(readableStrategy, ByteLengthQueuingStrategy) ? MAX_UTF8_BYTES_PER_CODE_UNIT : undefined
     ));
   }
 }

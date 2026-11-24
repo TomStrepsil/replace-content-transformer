@@ -18,9 +18,9 @@ import {
   type ReplacementPieceForwarder
 } from "./replacement-pieces.ts";
 
-type SyncReplacement = string | Utf8Bytes | Iterable<string | Utf8Bytes>;
 type ReplacementPiece = string | Utf8Bytes;
-type ReplacementValue = SyncReplacement | AsyncIterable<string | Utf8Bytes>;
+type SyncReplacement = ReplacementPiece | Iterable<ReplacementPiece>;
+type ReplacementValue = SyncReplacement | AsyncIterable<ReplacementPiece>;
 
 /**
  * What a {@link SerialReplacementFn} may return: a `string`, UTF-8 bytes
@@ -194,7 +194,7 @@ export class SerialTransformEngine<
     enqueue: (text: string) => this.#appendProduced(text)
   });
   #awaitedIterablePieces!: ReplacementPieceForwarder;
-  #pending: Promise<ReplacementValue> | AsyncIterable<string | Utf8Bytes> | undefined;
+  #pending: Promise<ReplacementValue> | AsyncIterable<ReplacementPiece> | undefined;
   #pendingMatch: TMatch | undefined;
   #paced = false;
   #paused: Promise<void> | undefined;
@@ -202,7 +202,7 @@ export class SerialTransformEngine<
   #pausedPieces:
     | { iterator: Iterator<ReplacementPiece>; next: Iterator<ReplacementPiece>["next"]; pieces: ReplacementPieceForwarder }
     | undefined;
-  #reading: CancellableRead<string | Utf8Bytes> | undefined;
+  #reading: CancellableRead<ReplacementPiece> | undefined;
   #cancelled = false;
   readonly #cancelController = new AbortController();
   readonly #signal = this.#cancelController.signal;
@@ -270,7 +270,7 @@ export class SerialTransformEngine<
     this.#pieces = replacementPieceForwarder(this._failureRecordingSink(sink));
     this.#awaitedIterablePieces = acceptsBytes(sink)
       ? replacementPieceForwarder({
-          enqueue: (chunk: string | Utf8Bytes) => this.#appendOrEnqueueBytes(chunk, sink),
+          enqueue: (chunk: ReplacementPiece) => this.#appendOrEnqueueBytes(chunk, sink),
           acceptsBytes: true
         })
       : this.#producedPieces;
@@ -350,8 +350,6 @@ export class SerialTransformEngine<
               ? this.#matchSink.reportMatch(this.#pendingMatch!, this.#pausedAt!)
               : this.#resumePieces();
         } else {
-          const ready = this.#paced && !this._fitsRoom(0) ? this._untilReady() : undefined;
-          if (ready) await ready;
           const pending = this.#pending!;
           let replacement: ReplacementValue;
           try {
@@ -361,6 +359,11 @@ export class SerialTransformEngine<
             replacement = this._searchStrategy.matchToString(this.#pendingMatch!);
           }
           if (this.#cancelled) return;
+          const ready = this.#paced && !this._fitsRoom(0) ? this._untilReady() : undefined;
+          if (ready) {
+            await ready;
+            if (this.#cancelled) return;
+          }
           this.#pending = undefined;
           if (typeof replacement === "string") {
             if (replacement) this._enqueueTo(this._sink, replacement);
@@ -435,11 +438,12 @@ export class SerialTransformEngine<
 
   #forwardIterable(replacement: Utf8Bytes | Iterable<ReplacementPiece>, pieces: ReplacementPieceForwarder): boolean {
     if (this.#cancelled) throw scanCancelled;
-    if (!isUtf8Bytes(replacement) && !Array.isArray(replacement)) {
-      const iterator = replacement[Symbol.iterator]();
+    const listed = isUtf8Bytes(replacement) ? [replacement] : replacement;
+    if (!Array.isArray(listed)) {
+      const iterator = listed[Symbol.iterator]();
       return this.#forwardPieces(iterator, iterator.next, pieces);
     }
-    for (const piece of isUtf8Bytes(replacement) ? [replacement] : replacement) {
+    for (const piece of listed) {
       pieces.piece(piece);
       if (this.#cancelled) throw scanCancelled;
     }
@@ -487,7 +491,7 @@ export class SerialTransformEngine<
     closeQuietly(paused.iterator);
   }
 
-  #appendOrEnqueueBytes(chunk: string | Utf8Bytes, sink: ByteEngineSink): void {
+  #appendOrEnqueueBytes(chunk: ReplacementPiece, sink: ByteEngineSink): void {
     if (typeof chunk === "string") {
       this.#appendProduced(chunk);
       return;
