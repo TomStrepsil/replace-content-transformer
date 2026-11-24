@@ -2,7 +2,11 @@ import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { constants } from "node:buffer";
 import { setImmediate } from "node:timers/promises";
 import { Readable } from "node:stream";
-import { SerialTransformEngine } from "./serial-transform-engine.ts";
+import {
+  SerialTransformEngine,
+  type SerialReplacement,
+  type SerialReplacementFn
+} from "./serial-transform-engine.ts";
 import type { EngineSink, TransformEngine, Utf8Bytes } from "./types.ts";
 import type { MatchResult } from "../../test/utilities.ts";
 import {
@@ -11,6 +15,7 @@ import {
   asyncIterable,
   asyncIteratorShapes,
   collectEngineSink,
+  collectPacedEngineSink,
   foreignRealmUtf8,
   mockSearchStrategy,
   mockSearchStrategyFactory,
@@ -56,6 +61,37 @@ async function runEngineAsync(
   for (const input of inputs) await engine.write(input);
   await engine.end();
   return chunks;
+}
+
+const match = (content: string, start: number): MatchResult => ({
+  isMatch: true,
+  content,
+  streamIndices: [start, start + 1]
+});
+const nonMatch = (content: string): MatchResult => ({
+  isMatch: false,
+  content
+});
+
+/**
+ * An iterable whose iterator's `next` is a getter giving a fresh method each
+ * time it is read, of which only the first yields `pieces`; the rest report
+ * the iterator done.
+ */
+function nextReadOnce(pieces: string[]): Iterable<string> {
+  return {
+    [Symbol.iterator]: () => {
+      let reads = 0;
+      let at = 0;
+      return {
+        get next() {
+          const first = ++reads === 1;
+          return () =>
+            first && at < pieces.length ? { done: false, value: pieces[at++] } : { done: true, value: undefined };
+        }
+      } as Iterator<string>;
+    }
+  };
 }
 
 describe("SerialTransformEngine", () => {
@@ -164,6 +200,19 @@ describe("SerialTransformEngine", () => {
           yield "P";
           yield "Q";
         }
+      });
+      expect(outputOf(engine, ["X"])).toBe("PQ");
+    });
+
+    it("reads its iterator's next() method once, as for...of does", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => nextReadOnce(["P", "Q"])
       });
       expect(outputOf(engine, ["X"])).toBe("PQ");
     });
@@ -656,16 +705,6 @@ describe("SerialTransformEngine", () => {
   });
 
   describe("one output chunk per call", () => {
-    const match = (content: string, start: number): MatchResult => ({
-      isMatch: true,
-      content,
-      streamIndices: [start, start + 1]
-    });
-    const nonMatch = (content: string): MatchResult => ({
-      isMatch: false,
-      content
-    });
-
     it("enqueues once per write() and once per end(), however many results each reports", () => {
       const { strategy } = mockSearchStrategy({
         chunk: (haystack) => [
@@ -839,6 +878,422 @@ describe("SerialTransformEngine", () => {
 
       expect(() => engine.write("x1y2z")).toThrow("boom");
       expect(chunks.join("")).toBe(expected);
+    });
+  });
+
+  describe("a sink with ready()", () => {
+    const steps = [nonMatch("a"), match("1", 1), nonMatch("b"), match("2", 3), nonMatch("c")];
+    const replacementKinds = [
+      { kind: "synchronous", returning: (value: string) => value },
+      { kind: "asynchronous", returning: (value: string) => Promise.resolve(value) }
+    ];
+
+    function pacedEngine<T extends SerialReplacement>(
+      replacement: SerialReplacementFn<string, T>,
+      {
+        highWaterMark = 2,
+        withRoom = true,
+        stopReplacingSignal = undefined as AbortSignal | undefined,
+        chunk = steps
+      } = {}
+    ) {
+      const { strategy } = mockSearchStrategy({ chunk, settled: chunk });
+      const replace = vi.fn(replacement);
+      const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: replace, stopReplacingSignal });
+      const paced = collectPacedEngineSink({ highWaterMark, withRoom });
+      engine.start(paced.sink);
+      return { engine, strategy, replace, ...paced };
+    }
+
+    it.each(replacementKinds)("calls no further replacement while ready() is pending ($kind replacement)", async ({ returning }) => {
+      const { engine, replace } = pacedEngine((content) => returning(`<${content}>`));
+
+      void engine.write("a1b2c");
+      await setImmediate();
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(replacementKinds)("enqueues the rest of the output once ready() resolves ($kind replacement)", async ({ returning }) => {
+      const { engine, chunks, read } = pacedEngine((content) => returning(`<${content}>`));
+
+      const written = engine.write("a1b2c");
+      await setImmediate();
+      read();
+      await written;
+
+      expect(chunks.join("")).toBe("a<1>b<2>c");
+    });
+
+    it("pauses end() as it does write(), settling the rest once ready() resolves", async () => {
+      const { engine, chunks, replace, read } = pacedEngine((content) => `<${content}>`);
+
+      const ended = engine.end();
+      expect(replace).toHaveBeenCalledTimes(1);
+      read();
+      await ended;
+
+      expect(chunks.join("")).toBe("a<1>b<2>c");
+    });
+
+    it.each([
+      { stage: "a chunk", call: (engine: TransformEngine) => engine.write("a1b2c"), scans: [["a1b2c"], [""]], settles: 0 },
+      { stage: "the end of the stream", call: (engine: TransformEngine) => engine.end(), scans: [], settles: 2 }
+    ])("resumes $stage paused on ready() the way it was scanning", async ({ call, scans, settles }) => {
+      const { engine, strategy, read } = pacedEngine((content) => `<${content}>`);
+
+      const called = call(engine);
+      read();
+      await called;
+
+      expect(strategy.processChunk.mock.calls.map(([haystack]) => [haystack])).toEqual(scans);
+      expect(strategy.settle).toHaveBeenCalledTimes(settles);
+    });
+
+    it("passes the replacement it paused before its match's streamIndices", async () => {
+      const { engine, replace, read } = pacedEngine((content) => `<${content}>`);
+
+      const written = engine.write("a1b2c");
+      read();
+      await written;
+
+      expect(replace.mock.calls[1][1].streamIndices).toEqual([3, 4]);
+    });
+
+    it("keeps its output in order when a replacement after the one it paused before is asynchronous", async () => {
+      const { engine, chunks, read } = pacedEngine(
+        (content) => (content === "3" ? Promise.resolve(`<${content}>`) : `<${content}>`),
+        { highWaterMark: 5, chunk: [...steps, match("3", 5), nonMatch("d")] }
+      );
+
+      const written = engine.write("a1b2c3d");
+      read();
+      await written;
+
+      expect(chunks.join("")).toBe("a<1>b<2>c<3>d");
+    });
+
+    it("reads room() again only once the output it holds reaches what room() last gave", () => {
+      const { engine, room } = pacedEngine((content) => `<${content}>`, { highWaterMark: 100 });
+
+      engine.write("a1b2c");
+
+      expect(room).toHaveBeenCalledOnce();
+    });
+
+    it("reads room() again only once the output it has enqueued and holds since reaches what room() last gave", async () => {
+      const { engine, room } = pacedEngine(async (content) => `<${content}>`, {
+        highWaterMark: 100,
+        chunk: [match("1", 0), match("2", 1)]
+      });
+
+      await engine.write("12");
+
+      expect(room).toHaveBeenCalledOnce();
+    });
+
+    describe("with roomCountsChunks", () => {
+      function chunkCountingEngine(
+        highWaterMark: number,
+        {
+          replacement = async (content: string) => `<${content}>`,
+          chunk = [match("1", 0), match("2", 1)]
+        }: { replacement?: (content: string) => SerialReplacement; chunk?: MatchResult[] } = {}
+      ) {
+        const { strategy } = mockSearchStrategy({ chunk });
+        const replace = vi.fn(replacement);
+        const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: replace });
+        let chunksUnread = 0;
+        const room = vi.fn(() => (highWaterMark - chunksUnread) * 100);
+        engine.start({
+          ...collectEngineSink().sink,
+          enqueue: () => chunksUnread++,
+          ready: () => (chunksUnread < highWaterMark ? undefined : new Promise<void>(() => {})),
+          room,
+          roomCountsChunks: true
+        });
+        return { engine, replace, room };
+      }
+
+      it("reads room() again at the next match once it has enqueued output", async () => {
+        const { engine, room } = chunkCountingEngine(100);
+
+        await engine.write("12");
+
+        expect(room).toHaveBeenCalledTimes(2);
+      });
+
+      it("calls no further replacement once room() gives none after it enqueues less than room() last gave", async () => {
+        const { engine, replace } = chunkCountingEngine(1);
+
+        void engine.write("12");
+        await setImmediate();
+
+        expect(replace).toHaveBeenCalledOnce();
+      });
+
+      it.each([
+        {
+          kind: "an asynchronous iterable",
+          returning: (pieces: () => Generator<string>) =>
+            (async function* () {
+              yield* pieces();
+            })()
+        },
+        { kind: "an asynchronous replacement's synchronous iterable", returning: (pieces: () => Generator<string>) => Promise.resolve(pieces()) }
+      ])("reads no piece of $kind while the output before its match, enqueued before it, fills downstream", async ({ returning }) => {
+        const piecesRead: string[] = [];
+        const { engine } = chunkCountingEngine(1, {
+          chunk: [nonMatch("a"), match("1", 1)],
+          replacement: async () =>
+            returning(function* () {
+              piecesRead.push("p");
+              yield "p";
+            })
+        });
+
+        void engine.write("a1");
+        await setImmediate();
+
+        expect(piecesRead).toEqual([]);
+      });
+
+      it("closes an asynchronous iterable replacement it has not read once cancel() is called while the output before its match fills downstream", async () => {
+        let closed = false;
+        const { engine } = chunkCountingEngine(1, {
+          chunk: [nonMatch("a"), match("1", 1)],
+          replacement: async () =>
+            (async function* () {
+              try {
+                yield "p";
+              } finally {
+                closed = true;
+              }
+            })()
+        });
+
+        const written = engine.write("a1");
+        await setImmediate();
+        engine.cancel();
+        await written;
+        await setImmediate();
+
+        expect(closed).toBe(true);
+      });
+    });
+
+    it("calls no replacement in the next write() while the output of the last one fills downstream", () => {
+      const { engine, replace } = pacedEngine((content) => `<${content}>`, { highWaterMark: 10 });
+
+      engine.write("a1b2c");
+      void engine.write("a1b2c");
+
+      expect(replace).toHaveBeenCalledTimes(2);
+    });
+
+    it("calls no further replacement once the output it holds reaches room() and fills downstream", () => {
+      const { engine, replace } = pacedEngine((content) => `<${content}>`, { highWaterMark: 5 });
+
+      void engine.write("a1b2c");
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it("without room(), calls no further replacement at a match with no output held once downstream is full", async () => {
+      const { engine, replace } = pacedEngine(async (content) => `<${content}>`, {
+        withRoom: false,
+        chunk: [match("1", 0), match("2", 1)]
+      });
+
+      void engine.write("12");
+      await setImmediate();
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns a Promise from a call paused on ready(), though every replacement is synchronous", () => {
+      const { engine } = pacedEngine((content) => content);
+
+      expect(engine.write("a1b2c")).toBeInstanceOf(Promise);
+    });
+
+    it("enqueues a call's output once, and returns undefined, while it fits in room()", () => {
+      const { engine, chunks } = pacedEngine((content) => `<${content}>`, { highWaterMark: 100 });
+
+      expect(engine.write("a1b2c")).toBeUndefined();
+      expect(chunks).toEqual(["a<1>b<2>c"]);
+    });
+
+    it("enqueues before every replacement without room()", () => {
+      const { engine, chunks } = pacedEngine((content) => `<${content}>`, { highWaterMark: 100, withRoom: false });
+
+      engine.write("a1b2c");
+
+      expect(chunks).toEqual(["a", "<1>b", "<2>c"]);
+    });
+
+    it("with a stopReplacingSignal, calls no further replacement once output enqueued as it is produced fills downstream", () => {
+      const { engine, replace } = pacedEngine((content) => `<${content}>`, {
+        stopReplacingSignal: new AbortController().signal
+      });
+
+      void engine.write("a1b2c");
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads no further piece of an asynchronous iterable replacement while ready() is pending", async () => {
+      const piecesRead: string[] = [];
+      const { engine } = pacedEngine(async function* () {
+        for (const piece of ["p", "q", "r"]) {
+          piecesRead.push(piece);
+          yield piece;
+        }
+      });
+
+      void engine.write("a1b2c");
+      await setImmediate();
+
+      expect(piecesRead).toEqual(["p"]);
+    });
+
+    const syncIterableKinds = [
+      { kind: "a synchronous iterable", returning: <T>(pieces: Iterable<T>) => pieces },
+      { kind: "an asynchronous replacement's iterable", returning: <T>(pieces: Iterable<T>) => Promise.resolve(pieces) }
+    ];
+
+    function* recorded(pieces: string[], read: string[], onClose: () => void = () => {}) {
+      try {
+        for (const piece of pieces) {
+          read.push(piece);
+          yield piece;
+        }
+      } finally {
+        onClose();
+      }
+    }
+
+    it.each(syncIterableKinds)("reads no further piece of $kind while ready() is pending", async ({ returning }) => {
+      const piecesRead: string[] = [];
+      const { engine } = pacedEngine(() => returning(recorded(["p", "q", "r"], piecesRead)));
+
+      void engine.write("a1b2c");
+      await setImmediate();
+
+      expect(piecesRead).toEqual(["p"]);
+    });
+
+    it.each(syncIterableKinds)("enqueues the rest of $kind, and the output after it, once ready() resolves", async ({ returning }) => {
+      const { engine, chunks, readToEnd } = pacedEngine(() => returning(recorded(["p", "q", "r"], [])));
+
+      const written = engine.write("a1b2c");
+      await setImmediate();
+      readToEnd();
+      await written;
+
+      expect(chunks.join("")).toBe("apqrbpqrc");
+    });
+
+    it("calls the next() method it read from a synchronous iterable replacement's iterator once resumed from ready()", async () => {
+      const { engine, chunks, readToEnd } = pacedEngine(() => nextReadOnce(["p", "q", "r"]));
+
+      const written = engine.write("a1b2c");
+      await setImmediate();
+      readToEnd();
+      await written;
+
+      expect(chunks.join("")).toBe("apqrbpqrc");
+    });
+
+    it("returns a Promise from a call paused between the pieces of a synchronous iterable replacement", () => {
+      const { engine } = pacedEngine(() => recorded(["p", "q", "r"], []));
+
+      expect(engine.write("a1b2c")).toBeInstanceOf(Promise);
+    });
+
+    it("reads every piece of an array replacement within the call that found its match, though downstream fills between them", () => {
+      const { engine, chunks } = pacedEngine(() => ["p", "q", "r"]);
+
+      void engine.write("a1b2c");
+
+      expect(chunks.join("")).toBe("apqrb");
+    });
+
+    it("closes a synchronous iterable replacement paused between its pieces once cancel() is called", async () => {
+      let closed = false;
+      const { engine } = pacedEngine(() => recorded(["p", "q", "r"], [], () => (closed = true)));
+
+      const written = engine.write("a1b2c");
+      engine.cancel();
+      await written;
+
+      expect(closed).toBe(true);
+    });
+
+    it("finishes a synchronous iterable replacement paused between its pieces, then emits the rest verbatim, when stopReplacingSignal aborts", async () => {
+      const controller = new AbortController();
+      const { engine, chunks, readToEnd } = pacedEngine(() => recorded(["p", "q", "r"], []), {
+        stopReplacingSignal: controller.signal
+      });
+
+      const written = engine.write("a1b2c");
+      controller.abort();
+      readToEnd();
+      await written;
+
+      expect(chunks.join("")).toBe("apqrb2c");
+    });
+
+    it("rejects with what a synchronous iterable replacement throws once resumed after a pause between its pieces", async () => {
+      const { engine, readToEnd } = pacedEngine(function* () {
+        yield "p";
+        throw new Error("boom");
+      });
+
+      const written = engine.write("a1b2c");
+      readToEnd();
+
+      await expect(written).rejects.toThrow("boom");
+    });
+
+    it("emits the match it paused at verbatim, and the rest unsearched, when stopReplacingSignal aborts while ready() is pending", async () => {
+      const controller = new AbortController();
+      const { engine, chunks, replace, read } = pacedEngine((content) => `<${content}>`, {
+        stopReplacingSignal: controller.signal
+      });
+
+      const written = engine.write("a1b2c");
+      controller.abort();
+      read();
+      await written;
+
+      expect(replace).toHaveBeenCalledTimes(1);
+      expect(chunks.join("")).toBe("a<1>b2c");
+    });
+
+    it("calls no further replacement once enqueuing the output it holds cancels the engine", () => {
+      const { strategy } = mockSearchStrategy({ chunk: steps });
+      const replace = vi.fn((content: string) => `<${content}>`);
+      const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: replace });
+      engine.start({ ...collectEngineSink().sink, enqueue: () => engine.cancel(), ready: () => undefined, room: () => 5 });
+
+      engine.write("a1b2c");
+
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it("settles a call paused on ready() once cancel() is called, enqueuing nothing more", async () => {
+      const { engine, chunks, replace, read } = pacedEngine((content) => `<${content}>`);
+
+      const written = engine.write("a1b2c");
+      const enqueued = [...chunks];
+      engine.cancel();
+      await written;
+      read();
+      await setImmediate();
+
+      expect(replace).toHaveBeenCalledTimes(1);
+      expect(chunks).toEqual(enqueued);
     });
   });
 

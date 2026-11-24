@@ -69,6 +69,11 @@ type EncodedChunk = ReturnType<TextEncoder["encode"]>;
  * A string chunk errors the stream. For a stream of strings, or one in
  * another encoding (decoded upstream with a {@link TextDecoderStream} for it),
  * use {@link ReplaceContentTextTransformer}.
+ *
+ * @remarks **Backpressure**: a `TransformStream` waits for its output to be
+ * read only before passing the next chunk, so every match in a chunk is
+ * replaced whether or not the output is being read. To stop replacing while
+ * it isn't, use {@link ReplaceContentStream}.
  */
 export class ReplaceContentTransformer implements Transformer<
   Uint8Array,
@@ -80,13 +85,13 @@ export class ReplaceContentTransformer implements Transformer<
   readonly #byteOrderMark = new ByteOrderMarkBypass(() =>
     this.#enqueue(encoder.encode(BYTE_ORDER_MARK))
   );
-  #controller?: TransformStreamDefaultController<EncodedChunk>;
+  #controller?: Pick<TransformStreamDefaultController<EncodedChunk>, "enqueue">;
 
   constructor(engine: TransformEngine) {
     this.#engine = engine;
   }
 
-  start(controller: TransformStreamDefaultController<EncodedChunk>): void {
+  start(controller: Pick<TransformStreamDefaultController<EncodedChunk>, "enqueue" | "error">): void {
     this.#controller = controller;
     const sink: ByteEngineSink = {
       enqueue: (chunk) => {
@@ -117,8 +122,8 @@ export class ReplaceContentTransformer implements Transformer<
    * Called by the stream infrastructure when the readable side is cancelled
    * or the writable side is aborted. Forwards to the engine's cancel() if
    * present so in-flight async work can stop at the next yield boundary.
-   * Once the input has ended, the stream no longer calls this: a cancel waits
-   * for `flush()` instead.
+   * Once the input has ended, a `TransformStream` no longer calls this: a
+   * cancel waits for `flush()` instead. The stream pairs still call it.
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- an optional reason is part of the WHATWG callback signature; accepted for compatibility and unused in this implementation
   cancel(reason?: unknown): void {

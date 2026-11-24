@@ -12,6 +12,8 @@ import {
   collectWritable,
   guardedEngines,
   guardedSerial,
+  largeReplacementEngines,
+  largeReplacementFor,
   lookaheadFailure,
   lookaheadFailures,
   throwing,
@@ -54,6 +56,20 @@ describe("ReplaceContentTransform + SerialTransformEngine + StringAnchorSearchSt
       Readable.from([bytes.subarray(0, 2), bytes.subarray(2)]).pipe(transform)
     );
     expect(out).toBe("héllo X wörld");
+  });
+
+  it("pushes a chunk's output in one piece when readableObjectMode is set and the readable side has room", async () => {
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: "X"
+      }),
+      { readableObjectMode: true }
+    );
+
+    const chunks = await sourceOf("a{{x}}b{{x}}c").pipe(transform).toArray();
+
+    expect(chunks).toEqual(["aXbXc"]);
   });
 
   it.each(everyTwoWayByteSplit("\uFEFF{{name}}").map((chunks, splitAt) => ({ chunks, splitAt })))(
@@ -833,5 +849,132 @@ describe("ReplaceContentTransform, with ReadableStream replacements that never y
 
       expect(cancelled.toSorted()).toEqual(called);
     });
+  });
+});
+
+describe.each(largeReplacementEngines)("ReplaceContentTransform + $engine, with a reader that stops reading", ({ calledOnceFull, create }) => {
+  const matches = Array.from({ length: 9 }, (_, index) => `{{${index}}}`);
+
+  function stalledTransform() {
+    const called: string[] = [];
+    const transform = new ReplaceContentTransform(create((match) => called.push(match)));
+    transform.write(matches.join(""));
+    return { transform, called };
+  }
+
+  it("calls no further replacement once the output of those it has called fills the readable side", async () => {
+    const { called } = stalledTransform();
+    await setImmediate();
+
+    expect(called).toHaveLength(calledOnceFull);
+  });
+
+  it("buffers no more than one replacement past the readable side's highWaterMark", async () => {
+    const { transform } = stalledTransform();
+    await setImmediate();
+
+    expect(transform.readableLength).toBeLessThanOrEqual(
+      transform.readableHighWaterMark + largeReplacementFor("").length
+    );
+  });
+
+  it("emits every replacement, in order, once it is read again", async () => {
+    const { transform } = stalledTransform();
+    transform.end();
+    await setImmediate();
+
+    expect(await text(transform)).toBe(matches.map(largeReplacementFor).join(""));
+  });
+});
+
+describe("ReplaceContentTransform + SerialTransformEngine, with a readableHighWaterMark of 0", () => {
+  it("calls no replacement while any output waits to be read", async () => {
+    const replacement = vi.fn((match: string) => match.toUpperCase());
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      { readableHighWaterMark: 0 }
+    );
+
+    transform.write("a{{x}}b{{y}}");
+    await setImmediate();
+
+    expect(replacement).not.toHaveBeenCalled();
+  });
+});
+
+describe("ReplaceContentTransform + SerialTransformEngine, with readableObjectMode and a reader that stops reading", () => {
+  it("calls no further asynchronous replacement once the output of one fills the readable side", async () => {
+    const replacement = vi.fn(async () => "R");
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      { readableObjectMode: true, readableHighWaterMark: 1 }
+    );
+
+    transform.write("{{x}}".repeat(4));
+    await setImmediate();
+
+    expect(replacement).toHaveBeenCalledOnce();
+  });
+
+  it("reads no piece of an asynchronous iterable replacement while the output before its match fills the readable side", async () => {
+    const piecesRead: string[] = [];
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async () =>
+          (async function* () {
+            piecesRead.push("p");
+            yield "p";
+          })()
+      }),
+      { readableObjectMode: true, readableHighWaterMark: 1 }
+    );
+
+    transform.write("a{{x}}");
+    await setImmediate();
+
+    expect(piecesRead).toEqual([]);
+  });
+});
+
+describe("ReplaceContentTransform + LookaheadTransformEngine, with input that starts with a byte order mark filling the readable side, and no reader", () => {
+  it("reads no piece of the replacement", async () => {
+    const piecesRead: string[] = [];
+    const transform = new ReplaceContentTransform(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        replacement: async () =>
+          (async function* () {
+            piecesRead.push("p");
+            yield "p";
+          })()
+      }),
+      { readableHighWaterMark: 3 }
+    );
+
+    transform.write(utf8("\uFEFF{{a}}"));
+    await setImmediate();
+
+    expect(piecesRead).toEqual([]);
+  });
+});
+
+describe.each([
+  { encoding: "hex", highWaterMark: 12 },
+  { encoding: "base64", highWaterMark: 8 }
+] as const)("ReplaceContentTransform + SerialTransformEngine, with setEncoding($encoding) and a reader that stops reading", ({ encoding, highWaterMark }) => {
+  it("calls no further asynchronous replacement once the encoded output of those it has called fills the readable side", async () => {
+    const replacement = vi.fn(async () => "\u0800");
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      { readableHighWaterMark: highWaterMark }
+    );
+    transform.setEncoding(encoding);
+
+    transform.write("{{x}}".repeat(6));
+    await setImmediate();
+
+    expect(replacement).toHaveBeenCalledTimes(2);
   });
 });

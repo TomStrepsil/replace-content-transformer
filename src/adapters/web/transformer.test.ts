@@ -15,7 +15,7 @@ import {
   byteStreamOf,
   byteWebAdapter,
   textWebAdapter,
-  type WebAdapterFamily,
+  type WebTransformerFamily,
   type WebChunk
 } from "../../../test/web-adapters.js";
 import type { ByteEngineSink, EngineSink, TransformEngine } from "../../engines/types.js";
@@ -27,7 +27,7 @@ function inSharedArrayBuffer(text: string): SharedArrayBuffer {
   return shared;
 }
 
-function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
+function describeWebAdapter<C extends WebChunk>(family: WebTransformerFamily<C>) {
   describe(`${family.adapter} (web adapter)`, () => {
     it("wires start(controller) to engine.start with a sink that forwards enqueue", () => {
       const engine = mockSyncEngine();

@@ -11,7 +11,7 @@ function cancelled(engine: TransformEngine): boolean {
 }
 
 export function enqueueOrCancel<TChunk>(
-  controller: TransformStreamDefaultController<TChunk>,
+  controller: Pick<TransformStreamDefaultController<TChunk>, "enqueue">,
   engine: TransformEngine,
   chunk: TChunk
 ): boolean {

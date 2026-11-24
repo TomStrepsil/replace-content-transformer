@@ -103,7 +103,9 @@ export interface LookaheadTransformEngineOptions<TState, TMatch> {
    * scanning suspends, at the next match. The text before a match is
    * queued as one slot with it, so the queue holds at most two slots more.
    * Provides backpressure when the drain loop (downstream emission) lags
-   * behind the scanner.
+   * behind the scanner, as it does while a sink with `EngineSink.ready`
+   * is full: the drain loop then waits, before its next slot or the next
+   * piece of a replacement.
    *
    * @default 32
    */
@@ -274,6 +276,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     this.#cancelAbortController.abort();
     this.#queue.close();
     this.#wakeIfAborted();
+    this._ignoreReadiness();
   }
 
   #listen(): void {
@@ -395,7 +398,9 @@ export class LookaheadTransformEngine<TState, TMatch>
 
   /**
    * Signal end-of-input. Emits any trailing content held by the search
-   * strategy, closes the queue, and waits for the drain loop to finish.
+   * strategy, closes the queue, and waits for the drain loop to finish,
+   * which, with a sink that has `EngineSink.ready`, waits as well if its
+   * last output leaves that sink full.
    * Rejects with the first error raised by the search (cancelling the
    * engine), the drain loop or any scheduled replacement, so adapters can
    * forward failures.
@@ -472,7 +477,11 @@ export class LookaheadTransformEngine<TState, TMatch>
 
   async #drain(): Promise<void> {
     for await (const slot of this.#queue) {
+      const ready = this._untilReady();
+      if (ready) await ready;
       await this.#emitSlot(slot);
+      const resumed = this._untilReady();
+      if (resumed) await resumed;
     }
   }
 
@@ -526,12 +535,17 @@ export class LookaheadTransformEngine<TState, TMatch>
       for await (const piece of permit.reading.pieces) {
         if (this.#cancelled) return;
         this.#pieces.piece(piece);
+        const resumed = this._untilReady();
+        if (resumed) await resumed;
         if (this.#cancelled) return;
       }
+      if (this.#cancelled) return;
+      this.#pieces.end();
+      const ended = this._untilReady();
+      if (ended) await ended;
     } finally {
       permit.finish();
     }
-    if (!this.#cancelled) this.#pieces.end();
   }
 
   #stoppedBy(error: unknown): boolean {
@@ -547,6 +561,8 @@ export class LookaheadTransformEngine<TState, TMatch>
       if (this.#cancelled) return;
       if (typeof chunk === "string") this._enqueueTo(this._sink, chunk);
       else this._enqueueTo(this.#byteSink!, chunk);
+      const resumed = this._untilReady();
+      if (resumed) await resumed;
       if (this.#cancelled) return;
     }
   }
@@ -565,6 +581,7 @@ export class LookaheadTransformEngine<TState, TMatch>
     let failure: { error: unknown } | undefined;
     let childDone = false;
     let notify: (() => void) | null = null;
+    let drained: (() => void) | undefined;
     const wake = () => {
       const pendingNotify = notify;
       notify = null;
@@ -586,7 +603,8 @@ export class LookaheadTransformEngine<TState, TMatch>
         childDone = true;
         wake();
       },
-      acceptsBytes: this.#byteSink !== undefined
+      acceptsBytes: this.#byteSink !== undefined,
+      ready: this._sink.ready && (() => (buffer.length === 0 ? undefined : new Promise<void>((resolve) => (drained = resolve))))
     });
 
     let reading: CancellableRead<string | Utf8Bytes> | undefined;
@@ -638,6 +656,7 @@ export class LookaheadTransformEngine<TState, TMatch>
 
     while (true) {
       while (buffer.length > 0) yield buffer.shift()!;
+      drained?.();
       if (failure) throw failure.error;
       if (childDone) return;
       await new Promise<void>((resolve) => {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ReplaceContentStream` and `ReplaceContentTextStream`, readable/writable pairs for `pipeThrough()` that call no further replacement, nor read further pieces of one, while 64 KiB of their output (65,536 code units for the text pair, or what a readable queuing strategy given to them allows) is unread, within a chunk as well as between chunks. See [Backpressure within a chunk](./adapters.md#backpressure-within-a-chunk)
+- `EngineSink.ready()`, `EngineSink.room()` and `EngineSink.roomCountsChunks`, optional, for a sink whose downstream can tell when it is full. See [Engine contract](./CONTRIBUTING.md#engine-contract)
+
+### Changed
+
+- `ReplaceContentTransform` calls no further replacement while its readable side is full, within a chunk as well as between chunks.
+
 ## [4.0.0] - 2026-11-23
 
 ### Added
@@ -338,7 +347,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Used a GitHub app for `CHANGELOG.md` updates in release pipeline
 - Ensured squash merges are recognised when determining semver etc.
 
-### Added
+### Added
 
 - Issue templates
 - "CodeQL" badge for [`README.md`](../README.md)

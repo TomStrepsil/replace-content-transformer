@@ -419,6 +419,59 @@ const stalledStreamReplacementEngines = [
   }
 ];
 
+const LARGER_THAN_DEFAULT_HIGH_WATER_MARK = 70 * 1024;
+
+/** What {@link largeReplacementEngines} replace `match` with: `<match>`, padded with dots to more than 64 KiB. */
+function largeReplacementFor(match: string): string {
+  return `<${match}>`.padEnd(LARGER_THAN_DEFAULT_HIGH_WATER_MARK, ".");
+}
+
+/**
+ * Each engine, built to replace every `{{…}}` match with the UTF-8 bytes of
+ * {@link largeReplacementFor}, calling `onCall` with each match as it calls
+ * the replacement. `calledOnceFull` is how many replacements it has called
+ * for a chunk of several matches once the first fills a 64 KiB downstream.
+ */
+const largeReplacementEngines = [
+  {
+    engine: "SerialTransformEngine, with a synchronous replacement",
+    calledOnceFull: 1,
+    create: (onCall: (match: string) => void): TransformEngine =>
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: (match) => {
+          onCall(match);
+          return utf8(largeReplacementFor(match));
+        }
+      })
+  },
+  {
+    engine: "SerialTransformEngine, with an asynchronous replacement",
+    calledOnceFull: 1,
+    create: (onCall: (match: string) => void): TransformEngine =>
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async (match) => {
+          onCall(match);
+          return utf8(largeReplacementFor(match));
+        }
+      })
+  },
+  {
+    engine: "LookaheadTransformEngine, with SemaphoreStrategy(4)",
+    calledOnceFull: 4,
+    create: (onCall: (match: string) => void): TransformEngine =>
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(4),
+        replacement: async (match) => {
+          onCall(match);
+          return asyncIterable(utf8(largeReplacementFor(match)));
+        }
+      })
+  }
+];
+
 const GUARDED_MAX_BUFFER_LENGTH = 6;
 
 const guardedAnchors = (onGuardExceeded?: () => void) =>
@@ -506,6 +559,40 @@ function collectEngineSink({ acceptsBytes = false }: { acceptsBytes?: boolean } 
     chunks,
     errors
   };
+}
+
+/**
+ * A collecting sink with a downstream that holds `highWaterMark` code units
+ * (or bytes) unread: `ready()` stays pending while it is full, until `read()`
+ * takes everything, or `readToEnd()` takes everything from then on. `room()`
+ * is left out when `withRoom` is `false`.
+ */
+function collectPacedEngineSink({ highWaterMark, withRoom = true }: { highWaterMark: number; withRoom?: boolean }) {
+  const { sink, chunks, errors } = collectEngineSink({ acceptsBytes: true });
+  let unread = 0;
+  let limit = highWaterMark;
+  let resume: (() => void) | undefined;
+  const ready = vi.fn(() =>
+    unread < limit ? undefined : new Promise<void>((resolve) => (resume = resolve))
+  );
+  const paced: EngineSink = {
+    ...sink,
+    enqueue: (chunk: string | Utf8Bytes) => {
+      chunks.push(chunk);
+      unread += chunk.length;
+    },
+    ready,
+    room: withRoom ? vi.fn(() => limit - unread) : undefined
+  };
+  const read = () => {
+    unread = 0;
+    resume?.();
+  };
+  const readToEnd = () => {
+    limit = Infinity;
+    read();
+  };
+  return { sink: paced, chunks, errors, ready, room: paced.room, read, readToEnd };
 }
 
 const utf8Encoder = new TextEncoder();
@@ -688,11 +775,14 @@ export {
   abortingOnFirstCall,
   byteReplacementEngines,
   collectEngineSink,
+  collectPacedEngineSink,
   collectWritable,
   asyncIterable,
   asyncIteratorShapes,
   createIterableSlotNode,
   indexOfWork,
+  largeReplacementEngines,
+  largeReplacementFor,
   mockAsyncEngine,
   mockSearchStrategy,
   mockSearchStrategyFactory,

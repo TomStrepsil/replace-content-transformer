@@ -2,7 +2,7 @@ import type {
   MatchSink,
   SearchStrategy
 } from "../search-strategies/types.ts";
-import type { EngineSink } from "./types.ts";
+import type { EngineSink, Utf8Bytes } from "./types.ts";
 import settleOrFlush from "../search-strategies/settle-or-flush.ts";
 
 /**
@@ -25,6 +25,10 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _sink!: EngineSink;
   protected _matchIndex = 0;
   protected _sinkFailed = false;
+  #wakeFromReady: (() => void) | undefined;
+  #readinessIgnored = false;
+  #roomAtLeast = 0;
+  #roomCountsChunks = false;
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
@@ -37,9 +41,33 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
 
   start(sink: EngineSink): void {
     this._sink = sink;
+    this.#roomCountsChunks = sink.roomCountsChunks === true;
   }
 
-  protected _enqueueTo<TChunk>(sink: { enqueue(chunk: TChunk): void }, chunk: TChunk): void {
+  protected _untilReady(): Promise<void> | undefined {
+    if (this.#readinessIgnored) return;
+    const ready = this._sink.ready?.();
+    if (ready === undefined) return;
+    return new Promise((resolve) => {
+      this.#wakeFromReady = resolve;
+      void ready.then(resolve);
+    });
+  }
+
+  protected _ignoreReadiness(): void {
+    this.#readinessIgnored = true;
+    this.#wakeFromReady?.();
+  }
+
+  protected _fitsRoom(length: number): boolean {
+    if (length < this.#roomAtLeast) return true;
+    this.#roomAtLeast = this._sink.room?.() ?? 0;
+    return length < this.#roomAtLeast;
+  }
+
+  protected _enqueueTo<TChunk extends string | Utf8Bytes>(sink: { enqueue(chunk: TChunk): void }, chunk: TChunk): void {
+    if (this.#roomCountsChunks) this.#roomAtLeast = 0;
+    else this.#roomAtLeast -= chunk.length;
     try {
       sink.enqueue(chunk);
     } catch (error) {

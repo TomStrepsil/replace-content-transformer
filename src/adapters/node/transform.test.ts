@@ -176,6 +176,127 @@ describe("ReplaceContentTransform (Node adapter)", () => {
     expect(engine.cancel).toHaveBeenCalledOnce();
   });
 
+  describe("the sink's readiness", () => {
+    function startedTransform(options?: ConstructorParameters<typeof ReplaceContentTransform>[1]) {
+      const engine = mockAsyncEngine();
+      const transform = new ReplaceContentTransform(engine, options);
+      return { transform, sink: startedSinkOf(engine) as ByteEngineSink, engine };
+    }
+
+    it("has ready() return undefined while the readable side has room", () => {
+      const { sink } = startedTransform({ readableHighWaterMark: 3 });
+
+      sink.enqueue("ab");
+
+      expect(sink.ready!()).toBeUndefined();
+    });
+
+    it.each([
+      { output: "text", enqueue: (sink: ByteEngineSink) => sink.enqueue("abc") },
+      { output: "bytes", enqueue: (sink: ByteEngineSink) => sink.enqueue(utf8("abc")) }
+    ])("has ready() return a Promise once $output it pushes fill the readable side", ({ enqueue }) => {
+      const { sink } = startedTransform({ readableHighWaterMark: 3 });
+
+      enqueue(sink);
+
+      expect(sink.ready!()).toBeInstanceOf(Promise);
+    });
+
+    it("has ready() return a Promise once the byte order mark it keeps fills the readable side", () => {
+      const { transform, sink } = startedTransform({ readableHighWaterMark: 3 });
+
+      transform.write(utf8("\uFEFFabc"));
+
+      expect(sink.ready!()).toBeInstanceOf(Promise);
+    });
+
+    it("resolves the Promise from ready() once the readable side is read", async () => {
+      const { transform, sink } = startedTransform({ readableHighWaterMark: 3 });
+      sink.enqueue("abc");
+      const ready = sink.ready!();
+
+      transform.read();
+
+      await expect(ready).resolves.toBeUndefined();
+    });
+
+    it("has ready() return undefined once the readable side has been read", () => {
+      const { transform, sink } = startedTransform({ readableHighWaterMark: 3 });
+      sink.enqueue("abc");
+
+      transform.read();
+
+      expect(sink.ready!()).toBeUndefined();
+    });
+
+    it("passes the engine the next chunk once the readable side is read, after a chunk whose output filled it", () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine, { readableHighWaterMark: 3 });
+      engine.write.mockImplementation(() => startedSinkOf(engine).enqueue("abc"));
+      transform.write("1");
+      transform.write("2");
+      expect(textWrittenTo(engine)).toBe("1");
+
+      transform.read();
+
+      expect(textWrittenTo(engine)).toBe("12");
+    });
+
+    it("has room() give the code units, at up to three bytes each, that the readable side can still take", () => {
+      const { sink } = startedTransform({ readableHighWaterMark: 30 });
+
+      sink.enqueue("abc");
+
+      expect(sink.room!()).toBe(9);
+    });
+
+    it.each([
+      { encoding: "hex", perCodeUnit: 6 },
+      { encoding: "base64", perCodeUnit: 4 },
+      { encoding: "base64url", perCodeUnit: 4 },
+      { encoding: "latin1", perCodeUnit: 3 }
+    ] as const)(
+      "has room(), once setEncoding($encoding) is called, give the code units, at up to $perCodeUnit characters each, that the readable side can still take",
+      ({ encoding, perCodeUnit }) => {
+        const { transform, sink } = startedTransform({ readableHighWaterMark: 24 });
+
+        transform.setEncoding(encoding);
+
+        expect(sink.room!()).toBe(24 / perCodeUnit);
+      }
+    );
+
+    it("has room() with readableObjectMode, whose highWaterMark counts chunks, give the chunks the readable side can still take at the code units of the chunk being written", () => {
+      const engine = mockSyncEngine();
+      const transform = new ReplaceContentTransform(engine, {
+        readableObjectMode: true,
+        readableHighWaterMark: 3
+      });
+      const sink = startedSinkOf(engine);
+      let room: number | undefined;
+      engine.write.mockImplementation(() => {
+        sink.enqueue("x");
+        room = sink.room!();
+      });
+
+      transform.write("ébcd");
+
+      expect(room).toBe(8);
+    });
+
+    it("sets roomCountsChunks with readableObjectMode, whose highWaterMark counts chunks", () => {
+      const { sink } = startedTransform({ readableObjectMode: true });
+
+      expect(sink.roomCountsChunks).toBe(true);
+    });
+
+    it("sets roomCountsChunks to false without readableObjectMode", () => {
+      const { sink } = startedTransform();
+
+      expect(sink.roomCountsChunks).toBe(false);
+    });
+  });
+
   describe("with an engine that completes each call synchronously", () => {
     it("decodes incoming Buffer chunks as UTF-8 and passes to engine.write", () => {
       const engine = mockSyncEngine();
