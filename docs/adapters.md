@@ -52,29 +52,6 @@ const replaced = readableStream
 > [!NOTE]
 > With the regex search strategy, string chunks must not split a surrogate pair. A `TextDecoder` or `TextDecoderStream` never does. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
 
-### Backpressure within a chunk
-
-A `TransformStream` waits for its output to be read only before passing it the next chunk, so with `ReplaceContentTransformer` or `ReplaceContentTextTransformer`, every match in a chunk is replaced whether or not anything reads the output. Where replacements are expensive, such as sub-requests, or large, use `ReplaceContentStream` or `ReplaceContentTextStream` instead, a readable/writable pair that takes the same engine and is piped through the same way:
-
-```typescript
-import { ReplaceContentStream } from "replace-content-transformer/web";
-
-const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine));
-return new Response(replaced, response);
-```
-
-Once 64 KiB of its output (65,536 code units for `ReplaceContentTextStream`) is waiting to be read, the engine calls no further replacement until no more than half of that is left unread. `SerialTransformEngine` waits at the next match, so at most one chunk's text and one replacement are buffered past that. `LookaheadTransformEngine` stops emitting, so its queue fills and it calls replacements only for the matches already queued: up to its concurrency limit, or up to its `highWaterMark` for `nested()` replacements, which give up their concurrency slot when they return. Each also waits between the pieces of an iterable replacement, such as a generator or a `fetch` body, though not of an array, whose pieces exist already. Unlike a `TransformStream`, the pair still cancels the engine when its output is cancelled after its input has ended.
-
-Like a `TransformStream`, each pair takes a writable and a readable queuing strategy after the engine:
-
-```typescript
-const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine, undefined, { highWaterMark: 0 }));
-```
-
-With a readable strategy of its own, the engine waits once that strategy's `highWaterMark` is reached, until no more than half of it is left unread. With `{ highWaterMark: 0 }`, as above, no chunk is passed to the engine, and no replacement called, while no read is waiting, so a consumer that cancels on seeing some output prevents every replacement after it. That costs throughput: `SerialTransformEngine` then enqueues its output before every replacement, rather than once per chunk. It does the same with a strategy whose `size()` counts neither chunks (a `CountQueuingStrategy`, or no `size()`) nor, for `ReplaceContentStream`, bytes (a `ByteLengthQueuingStrategy`).
-
-Aborting the pair's writable side cancels the engine straight away, even while it waits for its output to be read, where the runtime has `WritableStreamDefaultController.signal` (see [Compatibility](./compatibility.md)). An abort that comes through `pipeTo()` or `pipeThrough()`, from their `signal` or from an error in the source, reaches the pair only once the chunk being written has finished, which it doesn't while nothing reads the output. To stop the engine then, cancel the pair's readable side too.
-
 #### Encoding the output on older Node
 
 On Node 22, Node 24 before 24.21.0 and Node 26 before 26.8.0, `TextEncoderStream` costs about 5–10 ms per MB, often more than the replacement itself ([nodejs/node#65414](https://github.com/nodejs/node/pull/65414)). Upgrade, or encode with a `TextEncoder` that, like `TextEncoderStream`, holds a trailing high surrogate back until the next chunk:
@@ -99,6 +76,39 @@ function utf8EncoderStream() {
 ```
 
 Encoding each chunk on its own is not enough: an output chunk can end part-way through a surrogate pair, e.g. a match for `/a./` (no `u` flag) in `"a😀"` is `"a"` plus the first half of the emoji, and each half alone encodes to U+FFFD.
+
+### Backpressure within a chunk
+
+A `TransformStream` waits for its output to be read only between chunks, so the `Transformer`s replace every match in a chunk, read or not. Where replacements are expensive, such as sub-requests, or large, use `ReplaceContentStream` or `ReplaceContentTextStream`, readable/writable pairs that take the same engine:
+
+```typescript
+import { ReplaceContentStream } from "replace-content-transformer/web";
+
+const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine));
+return new Response(replaced, response);
+```
+
+Once 64 KiB of output (65,536 code units for the text pair) is unread, the engine calls no further replacement until no more than half of that is left unread:
+
+- `SerialTransformEngine` waits at the next match, buffering at most one chunk's text and one replacement past the limit.
+- `LookaheadTransformEngine` stops emitting, so its queue fills and it replaces only the matches already queued: up to its concurrency limit, or its `highWaterMark` for `nested()` replacements, which free their concurrency slot on return.
+- Both wait between the pieces of an iterable replacement, such as a generator or a `fetch` body, but not an array, whose pieces already exist.
+
+Each pair takes a writable and a readable queuing strategy after the engine, as a `TransformStream` does:
+
+```typescript
+const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine, undefined, { highWaterMark: 0 }));
+```
+
+- The engine waits at the readable strategy's `highWaterMark`, again until half of it is free.
+- With `{ highWaterMark: 0 }`, nothing reaches the engine while no read is waiting, so a consumer that cancels on seeing some output prevents every later replacement.
+- That costs throughput: `SerialTransformEngine` then enqueues before every replacement, not once per chunk. So does a `size()` other than `CountQueuingStrategy`'s (or none) and, for `ReplaceContentStream`, `ByteLengthQueuingStrategy`'s.
+
+Cancelling and aborting:
+
+- Cancelling the output cancels the engine even after the input has ended, unlike with a `TransformStream`.
+- Aborting the writable side cancels the engine at once, even while it waits for its output to be read, where the runtime has `WritableStreamDefaultController.signal` (see [Compatibility](./compatibility.md)).
+- An abort through `pipeTo()` or `pipeThrough()`, from their `signal` or a source error, reaches the pair only once the chunk being written has finished, which it doesn't while the output goes unread. Cancel the readable side as well to stop the engine then.
 
 ## Node streams
 
