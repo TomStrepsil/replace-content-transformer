@@ -271,6 +271,8 @@ interface TransformEngine {
 
 The `EngineSink` receives the output as strings. A `ByteEngineSink`, which sets `acceptsBytes: true`, as `ReplaceContentTransformer` and `ReplaceContentTransform` do, also receives the UTF-8 bytes a replacement produces asynchronously, in order with the strings around them, without their being decoded. Each chunk of bytes is valid UTF-8 that ends at a character boundary, and may be a view of the replacement's own buffer, so a sink that keeps one past `enqueue` must copy it.
 
+A sink with `ready()` gives backpressure within a chunk: `ready()` returns `undefined` while downstream can take more output, and otherwise a `Promise` that resolves once it can. Engines call it once they have enqueued the output they hold, and call no further replacement until a `Promise` it returned resolves or they are cancelled. `room()`, optional beside it, gives how many more code units downstream can take, so `SerialTransformEngine` can hold that much synchronous output before enqueuing it, rather than enqueuing before every replacement. `ReplaceContentStream`, `ReplaceContentTextStream` and `ReplaceContentTransform` supply both.
+
 See the [search strategy contract](#search-strategy-contract) for how an engine drives its strategy, and [Engines](./engines.md#driving-an-engine) for why only an adapter should drive an engine.
 
 ## 🎨 Code Style

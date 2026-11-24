@@ -33,6 +33,11 @@ import { enqueueOrCancel } from "./enqueue-or-cancel.js";
  * ```
  * With the regex search strategy, string chunks must not split a surrogate
  * pair. A `TextDecoder` or `TextDecoderStream` never does.
+ *
+ * @remarks **Backpressure**: a `TransformStream` waits for its output to be
+ * read only before passing the next chunk, so every match in a chunk is
+ * replaced whether or not the output is being read. To stop replacing while
+ * it isn't, use {@link ReplaceContentTextStream}.
  */
 export class ReplaceContentTextTransformer implements Transformer<string, string> {
   readonly #engine: TransformEngine;
@@ -41,7 +46,7 @@ export class ReplaceContentTextTransformer implements Transformer<string, string
     this.#engine = engine;
   }
 
-  start(controller: TransformStreamDefaultController<string>): void {
+  start(controller: Pick<TransformStreamDefaultController<string>, "enqueue" | "error">): void {
     this.#engine.start({
       enqueue: (chunk) => enqueueOrCancel(controller, this.#engine, chunk),
       error: (err) => controller.error(err),
@@ -61,8 +66,8 @@ export class ReplaceContentTextTransformer implements Transformer<string, string
    * Called by the stream infrastructure when the readable side is cancelled
    * or the writable side is aborted. Forwards to the engine's cancel() if
    * present so in-flight async work can stop at the next yield boundary.
-   * Once the input has ended, the stream no longer calls this: a cancel waits
-   * for `flush()` instead.
+   * Once the input has ended, a `TransformStream` no longer calls this: a
+   * cancel waits for `flush()` instead. The stream pairs still call it.
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- an optional reason is part of the WHATWG callback signature; accepted for compatibility and unused in this implementation
   cancel(reason?: unknown): void {

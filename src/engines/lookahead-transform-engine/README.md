@@ -78,7 +78,7 @@ new LookaheadTransformEngine({
 });
 ```
 
-When the queue is full, the scanner stops at the next match and suspends until the drainer frees a slot; that pauses upstream pulls — so memory use is bounded even if downstream stalls. Until then, the scanner schedules each match it finds without waiting. The text before a match is queued as one slot with it, so the queue holds at most two slots beyond `highWaterMark`. Concurrency is bounded by the `ConcurrencyStrategy`; queued **output** is bounded by `highWaterMark` + 2 slots.
+When the queue is full, the scanner stops at the next match and suspends until the drainer frees a slot; that pauses upstream pulls — so memory use is bounded even if downstream stalls. With `ReplaceContentTransform`, `ReplaceContentStream` or `ReplaceContentTextStream`, the drainer itself waits while their output is full, before its next slot or the next piece of a replacement, so the queue fills and replacements are called only for the matches already queued: up to the concurrency limit, or all of them for `nested()` replacements, which release their slot when they return. Until then, the scanner schedules each match it finds without waiting. The text before a match is queued as one slot with it, so the queue holds at most two slots beyond `highWaterMark`. Concurrency is bounded by the `ConcurrencyStrategy`; queued **output** is bounded by `highWaterMark` + 2 slots.
 
 To opt into unfettered dispatch initiation, use `new SemaphoreStrategy(Infinity)` explicitly.
 
@@ -105,7 +105,7 @@ This makes the dial directly map to platform limits like ["max N parallel sub-re
 
 ### Caveats
 
-- **Total-call quotas** (e.g. Akamai's "50 subrequests per worker") are not enforced by the strategy — the slot count caps _parallelism_, not _lifetime totals_. Track your own count from the replacement function and abort via the standard `AbortController` path when the budget is exhausted.
+- **Total-call quotas** (e.g. [Akamai's "50 subrequests per worker"](https://techdocs.akamai.com/edgeworkers/docs/resource-tier-limitations#:~:text=Maximum%20number%20of%20HTTP%20sub%2Drequests%20allowed%20for%20responseProvider)) are not enforced by the strategy — the slot count caps _parallelism_, not _lifetime totals_. Track your own count from the replacement function and abort via the standard `AbortController` path when the budget is exhausted.
 - **Drain-loop serialisation is unchanged** — the in-order drainer still pulls one slot's iterable at a time, so a slow earlier body can hold the entire output stream behind it. This is a property of in-order delivery, independent of slot accounting.
 - **Avoid releasing early via `nested()` if you intended the parent's body to count** — `nested()` signals "my part is done; subsequent work is the child's problem." If your replacement is a single fetch whose body should count toward the limit, return the body directly rather than wrapping it in `nested()`.
 

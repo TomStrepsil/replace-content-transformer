@@ -92,11 +92,12 @@ The [recipes](./docs/recipes.md) go further: replacement functions, regular expr
 
 ### 3. Where it runs: an adapter
 
-| Adapter                                                                  | Import                             | For                                         |
-| ------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------------- |
-| [`ReplaceContentTransformer`](./docs/adapters.md#whatwg-streams)         | `replace-content-transformer/web`  | UTF-8 byte streams, such as a `fetch` body  |
-| [`ReplaceContentTextTransformer`](./docs/adapters.md#streams-of-strings) | `replace-content-transformer/web`  | Streams of strings, or other encodings      |
-| [`ReplaceContentTransform`](./docs/adapters.md#node-streams)             | `replace-content-transformer/node` | Node streams, without web-stream conversion |
+| Adapter                                                                                              | Type                                        | Import                             | For                                                        |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
+| [`ReplaceContentTransformer`](./docs/adapters.md#whatwg-streams)                                     | `Transformer`, for `new TransformStream()`  | `replace-content-transformer/web`  | UTF-8 byte streams, such as a `fetch` body                 |
+| [`ReplaceContentTextTransformer`](./docs/adapters.md#streams-of-strings)                             | `Transformer`, for `new TransformStream()`  | `replace-content-transformer/web`  | Streams of strings, or other encodings                     |
+| [`ReplaceContentStream`, `ReplaceContentTextStream`](./docs/adapters.md#backpressure-within-a-chunk) | `ReadableWritablePair`, for `pipeThrough()` | `replace-content-transformer/web`  | As above, pausing replacements while the output isn't read |
+| [`ReplaceContentTransform`](./docs/adapters.md#node-streams)                                         | `stream.Transform`                          | `replace-content-transformer/node` | Node streams, without web-stream conversion                |
 
 ## 📚 Documentation
 

@@ -14,6 +14,7 @@ import {
   asyncIterable,
   asyncIteratorShapes,
   collectEngineSink,
+  collectPacedEngineSink,
   guardedLookahead,
   throwing,
   mockSearchStrategy,
@@ -475,6 +476,136 @@ describe("LookaheadTransformEngine", () => {
       await engine.end();
 
       expect(chunks).toEqual(["R", "0123456789".repeat(10)]);
+    });
+
+    describe("a sink with ready()", () => {
+      function pacedEngine({
+        concurrency = 1,
+        replacement = async (match: string): Promise<AsyncIterable<string> | Nested<string>> =>
+          asyncIterable(match.toUpperCase()),
+        stopReplacingSignal = undefined as AbortSignal | undefined
+      } = {}) {
+        const replace = vi.fn(replacement);
+        const engine = new LookaheadTransformEngine({
+          searchStrategy: braceStrategy(),
+          replacement: replace,
+          concurrencyStrategy: new SemaphoreStrategy(concurrency),
+          stopReplacingSignal
+        });
+        const paced = collectPacedEngineSink({ highWaterMark: 1 });
+        engine.start(paced.sink);
+        return { engine, replace, ...paced };
+      }
+
+      const transform = async (engine: LookaheadTransformEngine<unknown, string>, input: string) => {
+        await engine.write(input);
+        await engine.end();
+      };
+
+      it.each([1, 2])(
+        "calls no replacement beyond those already called while ready() is pending (concurrency %i)",
+        async (concurrency) => {
+          const { engine, replace } = pacedEngine({ concurrency });
+
+          void transform(engine, "{{a}}{{b}}{{c}}");
+          await setImmediate();
+
+          expect(replace).toHaveBeenCalledTimes(concurrency);
+        }
+      );
+
+      it("enqueues the rest of the output once ready() resolves", async () => {
+        const { engine, chunks, readToEnd } = pacedEngine();
+
+        const transformed = transform(engine, "{{a}}{{b}}{{c}}");
+        await setImmediate();
+        readToEnd();
+        await transformed;
+
+        expect(chunks.join("")).toBe("ABC");
+      });
+
+      it("enqueues nothing after text that fills downstream while ready() is pending", async () => {
+        const { engine, chunks } = pacedEngine();
+
+        void transform(engine, "xx{{a}}");
+        await setImmediate();
+
+        expect(chunks).toEqual(["xx"]);
+      });
+
+      it("reads no further piece of a replacement while ready() is pending", async () => {
+        const piecesRead: string[] = [];
+        const { engine } = pacedEngine({
+          replacement: async () =>
+            (async function* () {
+              for (const piece of ["p", "q", "r"]) {
+                piecesRead.push(piece);
+                yield piece;
+              }
+            })()
+        });
+
+        void transform(engine, "{{a}}");
+        await setImmediate();
+
+        expect(piecesRead).toEqual(["p"]);
+      });
+
+      it("calls no replacement for the matches of a nested() replacement beyond those already called while ready() is pending", async () => {
+        const { engine, replace } = pacedEngine({
+          concurrency: 2,
+          replacement: async (match) =>
+            match === "a" ? nested(asyncIterable("{{x}}{{y}}{{z}}")) : asyncIterable(match.toUpperCase())
+        });
+
+        void transform(engine, "{{a}}");
+        await setImmediate();
+
+        expect(replace.mock.calls.map(([match]) => match)).toEqual(["a", "x", "y"]);
+      });
+
+      it("enqueues the rest of a nested() replacement once ready() resolves", async () => {
+        const { engine, chunks, readToEnd } = pacedEngine({
+          concurrency: 2,
+          replacement: async (match) =>
+            match === "a" ? nested(asyncIterable("{{x}}{{y}}{{z}}")) : asyncIterable(match.toUpperCase())
+        });
+
+        const transformed = transform(engine, "{{a}}");
+        await setImmediate();
+        readToEnd();
+        await transformed;
+
+        expect(chunks.join("")).toBe("XYZ");
+      });
+
+      it("emits the matches whose replacements it had not called verbatim, when stopReplacingSignal aborts while ready() is pending", async () => {
+        const controller = new AbortController();
+        const { engine, chunks, replace, readToEnd } = pacedEngine({ stopReplacingSignal: controller.signal });
+
+        const transformed = transform(engine, "{{a}}{{b}}{{c}}");
+        await setImmediate();
+        controller.abort();
+        readToEnd();
+        await transformed;
+
+        expect(replace).toHaveBeenCalledTimes(1);
+        expect(chunks.join("")).toBe("A{{b}}{{c}}");
+      });
+
+      it("settles end() once cancel() is called while ready() is pending, enqueuing nothing more", async () => {
+        const { engine, chunks, replace } = pacedEngine();
+
+        const transformed = transform(engine, "{{a}}{{b}}{{c}}");
+        await setImmediate();
+        const enqueued = [...chunks];
+        engine.cancel();
+        await transformed;
+
+        expect(replace).toHaveBeenCalledTimes(1);
+        expect(chunks).toEqual(enqueued);
+      });
     });
   });
 

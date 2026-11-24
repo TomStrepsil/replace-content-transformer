@@ -2,7 +2,7 @@ import type {
   MatchSink,
   SearchStrategy
 } from "../search-strategies/types.ts";
-import type { EngineSink } from "./types.ts";
+import type { EngineSink, Utf8Bytes } from "./types.ts";
 import settleOrFlush from "../search-strategies/settle-or-flush.ts";
 
 /**
@@ -25,6 +25,9 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _sink!: EngineSink;
   protected _matchIndex = 0;
   protected _sinkFailed = false;
+  #wakeFromReady: (() => void) | undefined;
+  #readinessIgnored = false;
+  #room = 0;
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
@@ -39,7 +42,29 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
     this._sink = sink;
   }
 
-  protected _enqueueTo<TChunk>(sink: { enqueue(chunk: TChunk): void }, chunk: TChunk): void {
+  protected _untilReady(): Promise<void> | undefined {
+    if (this.#readinessIgnored) return;
+    const ready = this._sink.ready?.();
+    if (ready === undefined) return;
+    return new Promise((resolve) => {
+      this.#wakeFromReady = resolve;
+      void ready.then(resolve);
+    });
+  }
+
+  protected _ignoreReadiness(): void {
+    this.#readinessIgnored = true;
+    this.#wakeFromReady?.();
+  }
+
+  protected _fitsRoom(length: number): boolean {
+    if (length < this.#room) return true;
+    this.#room = this._sink.room?.() ?? 0;
+    return length < this.#room;
+  }
+
+  protected _enqueueTo<TChunk extends string | Utf8Bytes>(sink: { enqueue(chunk: TChunk): void }, chunk: TChunk): void {
+    this.#room -= chunk.length;
     try {
       sink.enqueue(chunk);
     } catch (error) {

@@ -12,6 +12,8 @@ import {
   collectWritable,
   guardedEngines,
   guardedSerial,
+  largeReplacementEngines,
+  largeReplacementFor,
   lookaheadFailure,
   lookaheadFailures,
   throwing,
@@ -54,6 +56,20 @@ describe("ReplaceContentTransform + SerialTransformEngine + StringAnchorSearchSt
       Readable.from([bytes.subarray(0, 2), bytes.subarray(2)]).pipe(transform)
     );
     expect(out).toBe("héllo X wörld");
+  });
+
+  it("pushes a chunk's output in one piece when readableObjectMode is set and the readable side has room", async () => {
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: "X"
+      }),
+      { readableObjectMode: true }
+    );
+
+    const chunks = await sourceOf("a{{x}}b{{x}}c").pipe(transform).toArray();
+
+    expect(chunks).toEqual(["aXbXc"]);
   });
 
   it.each(everyTwoWayByteSplit("\uFEFF{{name}}").map((chunks, splitAt) => ({ chunks, splitAt })))(
@@ -833,5 +849,55 @@ describe("ReplaceContentTransform, with ReadableStream replacements that never y
 
       expect(cancelled.toSorted()).toEqual(called);
     });
+  });
+});
+
+describe.each(largeReplacementEngines)("ReplaceContentTransform + $engine, with a reader that stops reading", ({ calledOnceFull, create }) => {
+  const matches = Array.from({ length: 9 }, (_, index) => `{{${index}}}`);
+
+  function stalledTransform() {
+    const called: string[] = [];
+    const transform = new ReplaceContentTransform(create((match) => called.push(match)));
+    transform.write(matches.join(""));
+    return { transform, called };
+  }
+
+  it("calls no further replacement once the output of those it has called fills the readable side", async () => {
+    const { called } = stalledTransform();
+    await setImmediate();
+
+    expect(called).toHaveLength(calledOnceFull);
+  });
+
+  it("buffers no more than one replacement past the readable side's highWaterMark", async () => {
+    const { transform } = stalledTransform();
+    await setImmediate();
+
+    expect(transform.readableLength).toBeLessThanOrEqual(
+      transform.readableHighWaterMark + largeReplacementFor("").length
+    );
+  });
+
+  it("emits every replacement, in order, once it is read again", async () => {
+    const { transform } = stalledTransform();
+    transform.end();
+    await setImmediate();
+
+    expect(await text(transform)).toBe(matches.map(largeReplacementFor).join(""));
+  });
+});
+
+describe("ReplaceContentTransform + SerialTransformEngine, with a readableHighWaterMark of 0", () => {
+  it("calls no replacement while any output waits to be read", async () => {
+    const replacement = vi.fn((match: string) => match.toUpperCase());
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      { readableHighWaterMark: 0 }
+    );
+
+    transform.write("a{{x}}b{{y}}");
+    await setImmediate();
+
+    expect(replacement).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,8 @@ function toError(err: unknown): Error {
 
 const END_OF_STREAM = Symbol("end of stream");
 
+const MAX_UTF8_BYTES_PER_CODE_UNIT = 3;
+
 function cancelEngine(engine?: TransformEngine): Error | undefined {
   try {
     engine?.cancel?.();
@@ -83,21 +85,32 @@ function cancelEngine(engine?: TransformEngine): Error | undefined {
  * `readableObjectMode`, output is strings only: bytes a replacement produces
  * are decoded as UTF-8.
  *
+ * @remarks **Backpressure**: once the readable side holds
+ * `readableHighWaterMark` bytes unread, the engine calls no further
+ * replacement until it is read, within a chunk as well as between chunks.
+ * With `readableObjectMode`, whose `highWaterMark` counts chunks,
+ * `SerialTransformEngine` holds as much output before pushing it as the chunk
+ * being written is long, for each chunk the readable side can still take.
+ *
  * @remarks **Stopping on output**: destroying the stream cancels the engine.
  * A consumer that destroys it on receiving some output prevents any later
  * replacement only if it receives that output as it is produced, which needs
  * an engine that enqueues output as it is produced (`SerialTransformEngine`
  * with a `stopReplacingSignal`), and a stream that is flowing with nothing
  * buffered. While the consumer is behind or not yet reading, output is
- * buffered, and later replacements may be called before it is read.
+ * buffered, and replacements may be called before it is read until the
+ * readable side is full.
  */
 export class ReplaceContentTransform extends Transform {
   readonly #engine: TransformEngine;
   readonly #decoder = new StringDecoder("utf8");
   readonly #hold = new TrailingHighSurrogateHold();
   readonly #byteOrderMark = new ByteOrderMarkBypass(() =>
-    this.push(BYTE_ORDER_MARK, "utf8")
+    this.#push(BYTE_ORDER_MARK, "utf8")
   );
+  #full = false;
+  #writtenLength = 0;
+  #resume: (() => void) | undefined;
   private _engineRunning?: boolean;
 
   constructor(engine: TransformEngine, options?: TransformOptions) {
@@ -108,7 +121,11 @@ export class ReplaceContentTransform extends Transform {
       else this.#pushBytes(chunk);
     };
     const error = (err: unknown) => this.destroy(toError(err));
-    engine.start({ enqueue, error, acceptsBytes: !this.readableObjectMode });
+    const ready = () => (this.#full ? new Promise<void>((resolve) => (this.#resume = resolve)) : undefined);
+    const room = this.readableObjectMode
+      ? () => (this.readableHighWaterMark - this.readableLength) * this.#writtenLength
+      : () => (this.readableHighWaterMark - this.readableLength) / MAX_UTF8_BYTES_PER_CODE_UNIT;
+    engine.start({ enqueue, error, acceptsBytes: !this.readableObjectMode, ready, room });
     if (this.destroyed) {
       cancelEngine(engine);
       return;
@@ -121,7 +138,15 @@ export class ReplaceContentTransform extends Transform {
     _encoding: string,
     callback: TransformCallback
   ): void {
-    this.#call(this.#decode(chunk), callback, callback);
+    const decoded = this.#decode(chunk);
+    this.#writtenLength = decoded.length;
+    this.#call(decoded, callback, callback);
+  }
+
+  override _read(size: number): void {
+    this.#full = false;
+    this.#resume?.();
+    super._read(size);
   }
 
   override _flush(callback: TransformCallback): void {
@@ -162,7 +187,7 @@ export class ReplaceContentTransform extends Transform {
 
   #finish(callback: TransformCallback): void {
     this._engineRunning = false;
-    this.#pushIfAny(this.#hold.remainder());
+    this.#pushHeldHighSurrogate();
     callback();
   }
 
@@ -172,12 +197,20 @@ export class ReplaceContentTransform extends Transform {
       : this.#byteOrderMark.textForEngine(this.#decoder.write(chunk));
   }
 
-  #pushBytes(bytes: Utf8Bytes): void {
+  #pushHeldHighSurrogate(): void {
     this.#pushIfAny(this.#hold.remainder());
-    this.push(Buffer.from(bytes));
+  }
+
+  #pushBytes(bytes: Utf8Bytes): void {
+    this.#pushHeldHighSurrogate();
+    this.#push(Buffer.from(bytes));
   }
 
   #pushIfAny(text: string): void {
-    if (text) this.push(text, "utf8");
+    if (text) this.#push(text, "utf8");
+  }
+
+  #push(chunk: Buffer | string, encoding?: "utf8"): void {
+    this.#full = !this.push(chunk, encoding);
   }
 }

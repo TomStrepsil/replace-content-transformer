@@ -12,6 +12,8 @@ import {
   byteReplacementEngines,
   guardedEngines,
   guardedLookahead,
+  largeReplacementEngines,
+  largeReplacementFor,
   lookaheadFailure,
   lookaheadFailures,
   throwing,
@@ -27,13 +29,17 @@ import {
 } from "../../../test/utilities.js";
 import {
   byteStreamOf,
+  byteStreamWebAdapter,
   byteWebAdapter,
   everyTwoWayByteSplit,
   midCharacterSplits,
+  textStreamWebAdapter,
   textWebAdapter,
   unendedByteStreamOf,
+  type Bytes,
   type WebAdapterFamily,
-  type WebChunk
+  type WebChunk,
+  type WebTransformerFamily
 } from "../../../test/web-adapters.js";
 import { everySplitOf, everyTwoWaySplit } from "../../../test/splits.js";
 
@@ -42,11 +48,11 @@ const replacementKinds = [
   { kind: "asynchronous", replacement: async (match: string) => match.toUpperCase() }
 ];
 
-function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
+function describeWebAdapter<Chunk extends WebChunk>(family: WebAdapterFamily<Chunk>) {
   describe(`${family.adapter} + SerialTransformEngine + StringAnchorSearchStrategy`, () => {
     it.each(replacementKinds)("passes through new chunks after abort set between chunks when no buffered remainder exists ($kind replacement)", async ({ replacement }) => {
       const abortController = new AbortController();
-      const transformer = family.create(
+      const stream = family.stream(
         new SerialTransformEngine({
           searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
           replacement,
@@ -54,7 +60,6 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
         })
       );
 
-      const stream = new TransformStream<C, C>(transformer);
       const writer = stream.writable.getWriter();
       const outputPromise = text(stream.readable);
 
@@ -68,7 +73,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
 
     it.each(replacementKinds)("flushes buffered partial content before passthrough when abort is set between chunks ($kind replacement)", async ({ replacement }) => {
       const abortController = new AbortController();
-      const transformer = family.create(
+      const stream = family.stream(
         new SerialTransformEngine({
           searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
           replacement,
@@ -76,7 +81,6 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
         })
       );
 
-      const stream = new TransformStream<C, C>(transformer);
       const writer = stream.writable.getWriter();
       const outputPromise = text(stream.readable);
 
@@ -97,7 +101,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
           return match.toUpperCase();
         });
 
-      const transformer = family.create(
+      const pair = family.stream(
         new SerialTransformEngine({
           searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
           replacement,
@@ -109,7 +113,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
         .fromBytes(
           byteStreamOf([utf8("{{a}}{{b}}{{c}}"), utf8(" next")])
         )
-        .pipeThrough(new TransformStream<C, C>(transformer));
+        .pipeThrough(pair);
 
       await expect(text(transformed)).resolves.toBe("{{A}}{{b}}{{c}} next");
       expect(replacement).toHaveBeenCalledTimes(1);
@@ -118,18 +122,16 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
     it("emits one chunk per input chunk with a stopReplacingSignal, as no reader sees output before transform() returns", async () => {
       const abortController = new AbortController();
       const replacement = vi.fn((match: string) => match.toUpperCase());
-      const stream = new TransformStream<C, C>(
-        family.create(
-          new SerialTransformEngine({
-            searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
-            replacement,
-            stopReplacingSignal: abortController.signal
-          })
-        )
+      const stream = family.stream(
+        new SerialTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement,
+          stopReplacingSignal: abortController.signal
+        })
       );
       const chunks: string[] = [];
       const reading = stream.readable.pipeTo(
-        new WritableStream<C>({
+        new WritableStream<Chunk>({
           write(chunk) {
             chunks.push(family.textOf(chunk));
             abortController.abort();
@@ -166,19 +168,17 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
 
         const result = await text(
           family.fromBytes(parentResponse.body!).pipeThrough(
-            new TransformStream<C, C>(
-              family.create(
-                new SerialTransformEngine({
-                  searchStrategy: new StringAnchorSearchStrategy([
-                    "<esi:include",
-                    ">"
-                  ]),
-                  replacement: (match) => {
-                    const [, url] = /src="([^"]+)"/.exec(match)!;
-                    return fetchAndDecode(url);
-                  }
-                })
-              )
+            family.stream(
+              new SerialTransformEngine({
+                searchStrategy: new StringAnchorSearchStrategy([
+                  "<esi:include",
+                  ">"
+                ]),
+                replacement: (match) => {
+                  const [, url] = /src="([^"]+)"/.exec(match)!;
+                  return fetchAndDecode(url);
+                }
+              })
             )
           )
         );
@@ -218,7 +218,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
 
         const parentResponse = await fetch(`${httpServer.baseUrl}/parent-abort`);
 
-        const transformer = family.create(
+        const pair = family.stream(
           new SerialTransformEngine({
             searchStrategy: new StringAnchorSearchStrategy([
               "<esi:include",
@@ -243,7 +243,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
 
         const transformedStream = family
           .fromBytes(parentResponse.body!)
-          .pipeThrough(new TransformStream<C, C>(transformer));
+          .pipeThrough(pair);
 
         await expect(text(transformedStream)).resolves.toEqual(
           `<div>Operation Cancelled</div><div><esi:include src="${httpServer.baseUrl}/some-not-attempted-fragment" /></div>`
@@ -259,7 +259,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
       text(
         family
           .fromBytes(byteStreamOf(chunks.map(utf8)))
-          .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+          .pipeThrough(family.stream(engine))
       );
 
     it("passes the text it releases, and the rest of the stream from the same write() on, through verbatim once the callback aborts the stopReplacingSignal", async () => {
@@ -295,12 +295,38 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
   });
 
   describe(`${family.adapter} + LookaheadTransformEngine (web adapter)`, () => {
+    it("pipes end-to-end", async () => {
+      const strategy = mockSearchStrategyFactory(
+        { isMatch: false, content: "pre " },
+        { isMatch: true, content: "M", streamIndices: [4, 5] },
+        { isMatch: false, content: " post" }
+      );
+      const replacement = vi.fn(async () => asyncIterable("X"));
+      const pair = family.stream(
+        new LookaheadTransformEngine({
+          searchStrategy: strategy,
+          replacement,
+          concurrencyStrategy: new SemaphoreStrategy(1)
+        })
+      );
+
+      const source = family
+        .fromBytes(byteStreamOf([utf8("pre M post")]))
+        .pipeThrough(pair);
+
+      await expect(text(source)).resolves.toBe("pre X post");
+    });
+  });
+}
+
+function describeWebTransformer<Chunk extends WebChunk>(family: WebTransformerFamily<Chunk>) {
+  describe(`${family.adapter} + LookaheadTransformEngine (web adapter)`, () => {
     it("forwards engine emissions to controller.enqueue", async () => {
       const strategy = mockSearchStrategyFactory(
         { isMatch: false, content: "a" },
         { isMatch: false, content: "b" }
       );
-      const outputs: C[] = [];
+      const outputs: Chunk[] = [];
       const controller = mockTransformStreamDefaultControllerFactory(outputs);
 
       const transformer = family.create(
@@ -325,7 +351,7 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
         content: "M",
         streamIndices: [0, 1]
       });
-      const controller = mockTransformStreamDefaultControllerFactory<C>([]);
+      const controller = mockTransformStreamDefaultControllerFactory<Chunk>([]);
 
       const transformer = family.create(
         new LookaheadTransformEngine({
@@ -342,36 +368,14 @@ function describeWebAdapter<C extends WebChunk>(family: WebAdapterFamily<C>) {
       await expect(transformer.flush()).rejects.toThrow("boom");
       expect(controller.error).toHaveBeenCalledWith(expect.any(Error));
     });
-
-    it("pipes end-to-end through a real TransformStream", async () => {
-      const strategy = mockSearchStrategyFactory(
-        { isMatch: false, content: "pre " },
-        { isMatch: true, content: "M", streamIndices: [4, 5] },
-        { isMatch: false, content: " post" }
-      );
-      const replacement = vi.fn(async () => asyncIterable("X"));
-      const transformer = family.create(
-        new LookaheadTransformEngine({
-          searchStrategy: strategy,
-          replacement,
-          concurrencyStrategy: new SemaphoreStrategy(1)
-        })
-      );
-
-      const source = family
-        .fromBytes(byteStreamOf([utf8("pre M post")]))
-        .pipeThrough(new TransformStream<C, C>(transformer));
-
-      await expect(text(source)).resolves.toBe("pre X post");
-    });
   });
 }
 
-function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C>) {
+function describeByteReplacements<Chunk extends WebChunk>(family: WebAdapterFamily<Chunk>) {
   const outputOf = (input: string | ReadableStream<Uint8Array<ArrayBuffer>>, engine: TransformEngine) =>
     family
       .fromBytes(typeof input === "string" ? byteStreamOf([utf8(input)]) : input)
-      .pipeThrough(new TransformStream<C, C>(family.create(engine)));
+      .pipeThrough(family.stream(engine));
 
   describe.each(byteReplacementEngines)(`${family.adapter} + $engine, with replacements that return bytes`, ({ create }) => {
     const replaced = (input: string, replacement: ByteReplacement) => text(outputOf(input, create(replacement)));
@@ -520,7 +524,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
         streamError = await text(
           family
             .fromBytes(byteStreamOf([utf8("a{{b}}c"), utf8("{{123456789")]))
-            .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+            .pipeThrough(family.stream(engine))
         ).catch((error: unknown) => error);
         settle(gate);
         await setImmediate();
@@ -561,7 +565,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       );
       const reader = family
         .fromBytes(byteStreamOf([utf8("ax")]))
-        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .pipeThrough(family.stream(engine))
         .getReader();
       await reader.read();
       await setImmediate();
@@ -603,7 +607,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       const cancel = vi.spyOn(engine as Required<TransformEngine>, "cancel");
       const reader = family
         .fromBytes(byteStreamOf([utf8("ax")]))
-        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .pipeThrough(family.stream(engine))
         .getReader();
       await reader.read();
       await setImmediate();
@@ -633,11 +637,11 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       };
       const reader = family
         .fromBytes(byteStreamOf([utf8("a")]))
-        .pipeThrough(new TransformStream<C, C>(family.create(engine)))
+        .pipeThrough(family.stream(engine))
         .getReader();
       await reader.read();
       await setImmediate();
-      const cancelled = reader.cancel("stop");
+      const cancelled = reader.cancel("stop").catch(() => {});
       await setImmediate();
 
       expect(() => sink.enqueue("late")).toThrow(TypeError);
@@ -651,13 +655,25 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       let streamError: unknown;
       const unhandled = await unhandledRejectionsDuring(async () => {
         streamError = await text(
-          family.fromBytes(unendedByteStreamOf([utf8("a{{o}}b")])).pipeThrough(new TransformStream<C, C>(family.create(create())))
+          family.fromBytes(unendedByteStreamOf([utf8("a{{o}}b")])).pipeThrough(family.stream(create()))
         ).catch((error: unknown) => error);
         await setImmediate();
       });
 
       expect(streamError).toBe(lookaheadFailure);
       expect(unhandled).toEqual([]);
+    });
+
+    it("cancels the source", async () => {
+      const sourceCancelled = Promise.withResolvers<void>();
+      const source = new ReadableStream<Bytes>({
+        start: (controller) => controller.enqueue(utf8("a{{o}}b")),
+        cancel: () => sourceCancelled.resolve()
+      });
+
+      void text(family.fromBytes(source).pipeThrough(family.stream(create()))).catch(() => {});
+
+      await expect(sourceCancelled.promise).resolves.toBeUndefined();
     });
   });
 
@@ -701,7 +717,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
 
         const transformed = family
           .fromBytes(byteStreamOf(chunks.map(utf8)))
-          .pipeThrough(new TransformStream<C, C>(family.create(engine)));
+          .pipeThrough(family.stream(engine));
 
         await expect(text(transformed)).resolves.toBe("afirstb");
       }
@@ -713,7 +729,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       "enqueues nothing and leaves nothing unhandled when the stream is cancelled $hops microtasks after the abort",
       async ({ hops }) => {
         const abortController = new AbortController();
-        const transformer = family.create(
+        const pair = family.stream(
           new LookaheadTransformEngine({
             searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
             concurrencyStrategy: new SemaphoreStrategy(2),
@@ -728,7 +744,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
         );
         const reader = family
           .fromBytes(unendedByteStreamOf([utf8("a{{x}}b")]))
-          .pipeThrough(new TransformStream<C, C>(transformer))
+          .pipeThrough(pair)
           .getReader();
         await reader.read();
         await setImmediate();
@@ -760,7 +776,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
       });
 
       try {
-        const transformer = family.create(
+        const pair = family.stream(
           new SerialTransformEngine({
             searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
             replacement: async () => {
@@ -774,7 +790,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
         );
         const reader = family
           .fromBytes(byteStreamOf([utf8("a{{x}}b")]))
-          .pipeThrough(new TransformStream<C, C>(transformer))
+          .pipeThrough(pair)
           .getReader();
 
         let output = "";
@@ -801,7 +817,7 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
         const engine = create(cancelled, (match) => {
           if (match === called.at(-1)) lastCall.resolve();
         });
-        const stream = new TransformStream<C, C>(family.create(engine));
+        const stream = family.stream(engine);
         const writer = stream.writable.getWriter();
         const reader = stream.readable.getReader();
         void (async () => {
@@ -820,10 +836,128 @@ function describeByteReplacements<C extends WebChunk>(family: WebAdapterFamily<C
   });
 }
 
+function describeReaderThatStops<Chunk extends WebChunk>(family: WebAdapterFamily<Chunk>) {
+  describe.each(largeReplacementEngines)(`${family.adapter} + $engine, with a reader that stops reading`, ({ calledOnceFull, create }) => {
+    const matches = Array.from({ length: 9 }, (_, index) => `{{${index}}}`);
+    const input = [matches.slice(0, 5).join(""), matches.slice(5).join("")];
+
+    function replacedFrom(source: ReadableStream<Bytes>) {
+      const called: string[] = [];
+      const readable = family.fromBytes(source).pipeThrough(family.stream(create((match) => called.push(match))));
+      return { readable, called };
+    }
+
+    it("calls no further replacement once the output of those it has called fills the readable side", async () => {
+      const { called } = replacedFrom(byteStreamOf(input.map(utf8)));
+      await setImmediate();
+
+      expect(called).toHaveLength(calledOnceFull);
+    });
+
+    it("calls only the replacement whose output fills the readable side again, once one chunk of it is read", async () => {
+      const { readable, called } = replacedFrom(byteStreamOf(input.map(utf8)));
+      await setImmediate();
+
+      await readable.getReader().read();
+      await setImmediate();
+
+      expect(called).toHaveLength(calledOnceFull + 1);
+    });
+
+    it("emits every replacement, in order, once it is read again", async () => {
+      const { readable } = replacedFrom(byteStreamOf(input.map(utf8)));
+      await setImmediate();
+
+      await expect(text(readable)).resolves.toBe(matches.map(largeReplacementFor).join(""));
+    });
+
+    it("calls no further replacement once its writable side is aborted while its output waits to be read", async () => {
+      const called: string[] = [];
+      const pair = family.stream(create((match) => called.push(match)));
+      const writer = pair.writable.getWriter();
+      for (const chunk of input) void writer.write(family.chunkOf(chunk)).catch(() => {});
+      await setImmediate();
+
+      void writer.abort("stop").catch(() => {});
+      await setImmediate();
+      await pair.readable.getReader().read().catch(() => {});
+      await setImmediate();
+
+      expect(called).toHaveLength(calledOnceFull);
+    });
+
+    it("calls no further replacement, and cancels its source, once cancelled while waiting to be read", async () => {
+      const sourceCancelled = Promise.withResolvers<void>();
+      const { readable, called } = replacedFrom(
+        new ReadableStream({
+          start: (controller) => controller.enqueue(utf8(input[0])),
+          cancel: () => sourceCancelled.resolve()
+        })
+      );
+      await setImmediate();
+
+      await readable.cancel();
+      await sourceCancelled.promise;
+
+      expect(called).toHaveLength(calledOnceFull);
+    });
+  });
+}
+
+function describeReadableHighWaterMarkOfZero<Chunk extends WebChunk>(family: WebAdapterFamily<Chunk>) {
+  describe(`${family.adapter}, with a readable highWaterMark of 0`, () => {
+    function readerOf(input: string) {
+      const called: string[] = [];
+      const engine = new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: (match) => {
+          called.push(match);
+          return `<${match}>`;
+        }
+      });
+      const readable = family
+        .fromBytes(byteStreamOf([utf8(input)]))
+        .pipeThrough(family.stream(engine, undefined, { highWaterMark: 0 }));
+      return { called, reader: readable.getReader() };
+    }
+
+    it("calls no replacement until the output before it has been read", async () => {
+      const { called, reader } = readerOf("a{{1}}b{{2}}c");
+      const calledByEachRead: number[] = [];
+
+      for (let read = await reader.read(); !read.done; read = await reader.read()) {
+        await setImmediate();
+        calledByEachRead.push(called.length);
+      }
+
+      expect(calledByEachRead).toEqual([0, 1, 2]);
+    });
+
+    it("emits every replacement, in order, for input that starts with a match", async () => {
+      const { reader } = readerOf("{{1}}{{2}}");
+      let output = "";
+
+      for (let read = await reader.read(); !read.done; read = await reader.read()) output += family.textOf(read.value);
+
+      expect(output).toBe("<{{1}}><{{2}}>");
+    });
+  });
+}
+
 describeWebAdapter(byteWebAdapter);
 describeWebAdapter(textWebAdapter);
+describeWebAdapter(byteStreamWebAdapter);
+describeWebAdapter(textStreamWebAdapter);
 describeByteReplacements(byteWebAdapter);
 describeByteReplacements(textWebAdapter);
+describeByteReplacements(byteStreamWebAdapter);
+describeByteReplacements(textStreamWebAdapter);
+describeReaderThatStops(byteStreamWebAdapter);
+describeReaderThatStops(textStreamWebAdapter);
+describeReadableHighWaterMarkOfZero(byteStreamWebAdapter);
+describeReadableHighWaterMarkOfZero(textStreamWebAdapter);
+describeWebTransformer(byteWebAdapter);
+describeWebTransformer(textWebAdapter);
 
 describe("ReplaceContentTransformer + SerialTransformEngine + StringAnchorSearchStrategy (bytes)", () => {
   const splits = everyTwoWayByteSplit("a{{£€😀}}b").map((chunks, splitAt) => ({ chunks, splitAt }));

@@ -2,13 +2,15 @@
 
 An adapter runs an [engine](./engines.md) as a stream.
 
-| Adapter                         | Import                             | Takes                 | Emits                                        |
-| ------------------------------- | ---------------------------------- | --------------------- | -------------------------------------------- |
-| `ReplaceContentTransformer`     | `replace-content-transformer/web`  | UTF-8 `Uint8Array`    | UTF-8 `Uint8Array`                           |
-| `ReplaceContentTextTransformer` | `replace-content-transformer/web`  | strings               | strings                                      |
-| `ReplaceContentTransform`       | `replace-content-transformer/node` | `Buffer`s or strings  | UTF-8 `Buffer`s; strings in `readableObjectMode` |
+| Adapter                         | Type                                        | Import                             | Takes                | Emits                                            |
+| ------------------------------- | ------------------------------------------- | ---------------------------------- | -------------------- | ------------------------------------------------ |
+| `ReplaceContentTransformer`     | `Transformer`, for `new TransformStream()`  | `replace-content-transformer/web`  | UTF-8 `Uint8Array`   | UTF-8 `Uint8Array`                               |
+| `ReplaceContentTextTransformer` | `Transformer`, for `new TransformStream()`  | `replace-content-transformer/web`  | strings              | strings                                          |
+| `ReplaceContentStream`          | `ReadableWritablePair`, for `pipeThrough()` | `replace-content-transformer/web`  | UTF-8 `Uint8Array`   | UTF-8 `Uint8Array`                               |
+| `ReplaceContentTextStream`      | `ReadableWritablePair`, for `pipeThrough()` | `replace-content-transformer/web`  | strings              | strings                                          |
+| `ReplaceContentTransform`       | `stream.Transform`                          | `replace-content-transformer/node` | `Buffer`s or strings | UTF-8 `Buffer`s; strings in `readableObjectMode` |
 
-All three take the same engines and options, so concurrency, `nested()` re-scanning and the engine's `highWaterMark` behave the same in each.
+All of them take the same engines and options, so concurrency, `nested()` re-scanning and the engine's `highWaterMark` behave the same in each.
 
 ## WHATWG streams
 
@@ -50,6 +52,29 @@ const replaced = readableStream
 > [!NOTE]
 > With the regex search strategy, string chunks must not split a surrogate pair. A `TextDecoder` or `TextDecoderStream` never does. See [Surrogate pairs split across chunks](../src/search-strategies/regex/README.md#️-surrogate-pairs-split-across-chunks).
 
+### Backpressure within a chunk
+
+A `TransformStream` waits for its output to be read only before passing it the next chunk, so with `ReplaceContentTransformer` or `ReplaceContentTextTransformer`, every match in a chunk is replaced whether or not anything reads the output. Where replacements are expensive, such as sub-requests, or large, use `ReplaceContentStream` or `ReplaceContentTextStream` instead, a readable/writable pair that takes the same engine and is piped through the same way:
+
+```typescript
+import { ReplaceContentStream } from "replace-content-transformer/web";
+
+const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine));
+return new Response(replaced, response);
+```
+
+Once 64 KiB of its output (65,536 code units for `ReplaceContentTextStream`) is waiting to be read, the engine calls no further replacement until no more than half of that is left unread. `SerialTransformEngine` waits at the next match, so at most one chunk's text and one replacement are buffered past that. `LookaheadTransformEngine` stops emitting, so its queue fills and it calls replacements only for the matches already queued: up to its concurrency limit, or up to its `highWaterMark` for `nested()` replacements, which give up their concurrency slot when they return. Each also waits between the pieces of an iterable replacement, such as a generator or a `fetch` body, though not of an array, whose pieces exist already. Unlike a `TransformStream`, the pair still cancels the engine when its output is cancelled after its input has ended.
+
+Like a `TransformStream`, each pair takes a writable and a readable queuing strategy after the engine:
+
+```typescript
+const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine, undefined, { highWaterMark: 0 }));
+```
+
+With a readable strategy of its own, the engine waits once that strategy's `highWaterMark` is reached, until no more than half of it is left unread. With `{ highWaterMark: 0 }`, as above, no chunk is passed to the engine, and no replacement called, while no read is waiting, so a consumer that cancels on seeing some output prevents every replacement after it. That costs throughput: `SerialTransformEngine` then enqueues its output before every replacement, rather than once per chunk. It does the same with a strategy whose `size()` counts neither chunks (a `CountQueuingStrategy`, or no `size()`) nor, for `ReplaceContentStream`, bytes (a `ByteLengthQueuingStrategy`).
+
+Aborting the pair's writable side cancels the engine straight away, even while it waits for its output to be read. An abort that comes through `pipeTo()` or `pipeThrough()`, from their `signal` or from an error in the source, reaches the pair only once the chunk being written has finished, which it doesn't while nothing reads the output. To stop the engine then, cancel the pair's readable side too.
+
 #### Encoding the output on older Node
 
 On Node 22, Node 24 before 24.21.0 and Node 26 before 26.8.0, `TextEncoderStream` costs about 5–10 ms per MB, often more than the replacement itself ([nodejs/node#65414](https://github.com/nodejs/node/pull/65414)). Upgrade, or encode with a `TextEncoder` that, like `TextEncoderStream`, holds a trailing high surrogate back until the next chunk:
@@ -77,7 +102,7 @@ Encoding each chunk on its own is not enough: an output chunk can end part-way t
 
 ## Node streams
 
-`ReplaceContentTransform` is a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform), avoiding the cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion. Its `TransformOptions.highWaterMark` sets Node-stream backpressure independently of the engine's own `highWaterMark`.
+`ReplaceContentTransform` is a native [`stream.Transform`](https://nodejs.org/api/stream.html#class-streamtransform), avoiding the cost of [`toWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) / [`fromWeb`](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options) conversion. Its `TransformOptions.highWaterMark` sets Node-stream backpressure independently of the engine's own `highWaterMark`. Once the readable side holds its `readableHighWaterMark` unread, the engine calls no further replacement until it is read, as with [`ReplaceContentStream`](#backpressure-within-a-chunk).
 
 ```typescript
 // streaming esi:include middleware for express.js
