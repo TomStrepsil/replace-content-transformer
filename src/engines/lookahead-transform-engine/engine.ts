@@ -477,6 +477,8 @@ export class LookaheadTransformEngine<TState, TMatch>
 
   async #drain(): Promise<void> {
     for await (const slot of this.#queue) {
+      const ready = this._untilReady();
+      if (ready) await ready;
       await this.#emitSlot(slot);
       const resumed = this._untilReady();
       if (resumed) await resumed;

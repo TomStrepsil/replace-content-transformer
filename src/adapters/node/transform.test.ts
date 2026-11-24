@@ -267,6 +267,18 @@ describe("ReplaceContentTransform (Node adapter)", () => {
 
       expect(room).toBe(8);
     });
+
+    it("sets roomCountsChunks with readableObjectMode, whose highWaterMark counts chunks", () => {
+      const { sink } = startedTransform({ readableObjectMode: true });
+
+      expect(sink.roomCountsChunks).toBe(true);
+    });
+
+    it("sets roomCountsChunks to false without readableObjectMode", () => {
+      const { sink } = startedTransform();
+
+      expect(sink.roomCountsChunks).toBe(false);
+    });
   });
 
   describe("with an engine that completes each call synchronously", () => {

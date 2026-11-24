@@ -552,6 +552,23 @@ describe("LookaheadTransformEngine", () => {
         expect(piecesRead).toEqual(["p"]);
       });
 
+      it("reads no piece of the first replacement while ready() is pending for output the adapter enqueued before it, as a byte order mark", async () => {
+        const piecesRead: string[] = [];
+        const { engine, sink } = pacedEngine({
+          replacement: async () =>
+            (async function* () {
+              piecesRead.push("p");
+              yield "p";
+            })()
+        });
+        sink.enqueue("\uFEFF");
+
+        void transform(engine, "{{a}}");
+        await setImmediate();
+
+        expect(piecesRead).toEqual([]);
+      });
+
       it("calls no replacement for the matches of a nested() replacement beyond those already called while ready() is pending", async () => {
         const { engine, replace } = pacedEngine({
           concurrency: 2,

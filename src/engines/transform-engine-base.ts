@@ -27,7 +27,8 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   protected _sinkFailed = false;
   #wakeFromReady: (() => void) | undefined;
   #readinessIgnored = false;
-  #room = 0;
+  #roomAtLeast = 0;
+  #roomCountsChunks = false;
 
   constructor(
     searchStrategy: SearchStrategy<TState, TMatch>,
@@ -40,6 +41,7 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
 
   start(sink: EngineSink): void {
     this._sink = sink;
+    this.#roomCountsChunks = sink.roomCountsChunks === true;
   }
 
   protected _untilReady(): Promise<void> | undefined {
@@ -58,13 +60,14 @@ export abstract class TransformEngineBase<TState, TMatch = string> {
   }
 
   protected _fitsRoom(length: number): boolean {
-    if (length < this.#room) return true;
-    this.#room = this._sink.room?.() ?? 0;
-    return length < this.#room;
+    if (length < this.#roomAtLeast) return true;
+    this.#roomAtLeast = this._sink.room?.() ?? 0;
+    return length < this.#roomAtLeast;
   }
 
   protected _enqueueTo<TChunk extends string | Utf8Bytes>(sink: { enqueue(chunk: TChunk): void }, chunk: TChunk): void {
-    this.#room -= chunk.length;
+    if (this.#roomCountsChunks) this.#roomAtLeast = 0;
+    else this.#roomAtLeast -= chunk.length;
     try {
       sink.enqueue(chunk);
     } catch (error) {

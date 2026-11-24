@@ -52,10 +52,22 @@ export interface EngineSink {
    * downstream can take now, zero or less once it is full.
    * `SerialTransformEngine` holds the synchronous output of a call until it
    * reaches this, before enqueuing it and checking {@link ready}, so it
-   * enqueues fewer, larger chunks while downstream has room. Without it, the
-   * engine enqueues before every replacement.
+   * enqueues fewer, larger chunks while downstream has room. Between reads,
+   * it takes each chunk it enqueues to use its length of this, unless
+   * {@link roomCountsChunks} is set. Without it, the engine enqueues before
+   * every replacement.
    */
   room?(): number;
+  /**
+   * With {@link room}: `true` when downstream counts chunks, so that
+   * `room()` can only be an estimate, such as the chunks downstream can take
+   * times a chunk's length, and a chunk shorter than that may use up the
+   * rest. `SerialTransformEngine` then reads `room()` again after each chunk
+   * it enqueues. Leave it unset when `room()` counts code units or bytes;
+   * set it when it counts chunks, or the engine may call further
+   * replacements while downstream is full.
+   */
+  readonly roomCountsChunks?: boolean;
 }
 
 /**

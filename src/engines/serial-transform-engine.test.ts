@@ -958,6 +958,41 @@ describe("SerialTransformEngine", () => {
       expect(room).toHaveBeenCalledOnce();
     });
 
+    describe("with roomCountsChunks", () => {
+      function chunkCountingEngine(highWaterMark: number) {
+        const { strategy } = mockSearchStrategy({ chunk: [match("1", 0), match("2", 1)] });
+        const replace = vi.fn(async (content: string) => `<${content}>`);
+        const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: replace });
+        let chunksUnread = 0;
+        const room = vi.fn(() => (highWaterMark - chunksUnread) * 100);
+        engine.start({
+          ...collectEngineSink().sink,
+          enqueue: () => chunksUnread++,
+          ready: () => (chunksUnread < highWaterMark ? undefined : new Promise<void>(() => {})),
+          room,
+          roomCountsChunks: true
+        });
+        return { engine, replace, room };
+      }
+
+      it("reads room() again at the next match once it has enqueued output", async () => {
+        const { engine, room } = chunkCountingEngine(100);
+
+        await engine.write("12");
+
+        expect(room).toHaveBeenCalledTimes(2);
+      });
+
+      it("calls no further replacement once room() gives none after it enqueues less than room() last gave", async () => {
+        const { engine, replace } = chunkCountingEngine(1);
+
+        void engine.write("12");
+        await setImmediate();
+
+        expect(replace).toHaveBeenCalledOnce();
+      });
+    });
+
     it("calls no replacement in the next write() while the output of the last one fills downstream", () => {
       const { engine, replace } = pacedEngine((content) => `<${content}>`, { highWaterMark: 10 });
 

@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `ReplaceContentStream` and `ReplaceContentTextStream`, readable/writable pairs for `pipeThrough()` that call no further replacement, nor read further pieces of one, while 64 KiB of their output (65,536 code units for the text pair, or what a readable queuing strategy given to them allows) is unread, within a chunk as well as between chunks. See [Backpressure within a chunk](./adapters.md#backpressure-within-a-chunk)
-- `EngineSink.ready()` and `EngineSink.room()`, optional, for a sink whose downstream can tell when it is full. See [Engine contract](./CONTRIBUTING.md#engine-contract)
+- `EngineSink.ready()`, `EngineSink.room()` and `EngineSink.roomCountsChunks`, optional, for a sink whose downstream can tell when it is full. See [Engine contract](./CONTRIBUTING.md#engine-contract)
 
 ### Changed
 

@@ -42,7 +42,7 @@ export function transformerPair<TInput, TOutput>(
       : (resumed ??= new Promise((resolve) => (resume = resolve)));
   const room = roomFor && (() => roomFor(readableController.desiredSize!, writtenLength));
   const transformer = transformerFor({
-    start: (sink) => engine.start({ ...sink, ready, room }),
+    start: (sink) => engine.start({ ...sink, ready, room, roomCountsChunks: roomFor === roomInChunks }),
     write: (chunk) => {
       writtenLength = chunk.length;
       return engine.write(chunk);
@@ -67,13 +67,21 @@ export function transformerPair<TInput, TOutput>(
     if (cancelled) throw cancelled.reason;
     return erroringReadableOnThrow(() => transformer.transform(chunk));
   };
-  const stop = (reason: unknown) => {
-    if (cancelled) return;
+  const release = (reason: unknown) => {
     cancelled = { reason };
     readableController.error(reason);
     pulled();
+  };
+  const stop = (reason: unknown) => {
+    if (cancelled) return;
+    release(reason);
     transformer.cancel(reason);
   };
+  const errored = (reason: unknown) => {
+    writableController.error(reason);
+    release(reason);
+  };
+  let cancelFailure: { error: unknown } | undefined;
   const readable = new ReadableStream<TOutput>(
     {
       start: (controller) => {
@@ -95,7 +103,17 @@ export function transformerPair<TInput, TOutput>(
   const writable = new WritableStream<TInput>({
     start: (controller) => {
       writableController = controller;
-      controller.signal?.addEventListener("abort", () => stop(controller.signal.reason), { once: true });
+      controller.signal?.addEventListener(
+        "abort",
+        () => {
+          try {
+            stop(controller.signal.reason);
+          } catch (error) {
+            cancelFailure = { error };
+          }
+        },
+        { once: true }
+      );
     },
     write: (chunk) => {
       const waiting = ready();
@@ -105,17 +123,22 @@ export function transformerPair<TInput, TOutput>(
       await erroringReadableOnThrow(() => transformer.flush());
       if (!cancelled) readableController.close();
     },
-    abort: stop
+    abort: (reason) => {
+      if (cancelFailure) throw cancelFailure.error;
+      stop(reason);
+    }
   }, writableStrategy);
   transformer.start({
     enqueue: (chunk) => {
       readWaiting = false;
-      readableController.enqueue(chunk);
+      try {
+        readableController.enqueue(chunk);
+      } catch (refusal) {
+        errored(refusal);
+        throw refusal;
+      }
     },
-    error: (reason) => {
-      readableController.error(reason);
-      writableController.error(reason);
-    }
+    error: errored
   });
   return { readable, writable };
 }

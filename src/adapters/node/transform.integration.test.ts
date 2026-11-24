@@ -901,3 +901,41 @@ describe("ReplaceContentTransform + SerialTransformEngine, with a readableHighWa
     expect(replacement).not.toHaveBeenCalled();
   });
 });
+
+describe("ReplaceContentTransform + SerialTransformEngine, with readableObjectMode and a reader that stops reading", () => {
+  it("calls no further asynchronous replacement once the output of one fills the readable side", async () => {
+    const replacement = vi.fn(async () => "R");
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      { readableObjectMode: true, readableHighWaterMark: 1 }
+    );
+
+    transform.write("{{x}}".repeat(4));
+    await setImmediate();
+
+    expect(replacement).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ReplaceContentTransform + LookaheadTransformEngine, with input that starts with a byte order mark filling the readable side, and no reader", () => {
+  it("reads no piece of the replacement", async () => {
+    const piecesRead: string[] = [];
+    const transform = new ReplaceContentTransform(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        replacement: async () =>
+          (async function* () {
+            piecesRead.push("p");
+            yield "p";
+          })()
+      }),
+      { readableHighWaterMark: 3 }
+    );
+
+    transform.write(utf8("\uFEFF{{a}}"));
+    await setImmediate();
+
+    expect(piecesRead).toEqual([]);
+  });
+});

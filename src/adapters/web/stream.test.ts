@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { setImmediate } from "node:timers/promises";
-import { mockAsyncEngine, startedSinkOf } from "../../../test/utilities.js";
+import { mockAsyncEngine, startedSinkOf, throwing } from "../../../test/utilities.js";
 import {
   byteStreamWebAdapter,
   textStreamWebAdapter,
@@ -93,6 +93,21 @@ function describeStreamPair<C extends WebChunk>(family: WebAdapterFamily<C>, byt
       expect(sink.room!()).toBe(9);
     });
 
+    it.each([
+      { strategy: "a CountQueuingStrategy", readableStrategy: new CountQueuingStrategy({ highWaterMark: 4 }) },
+      { strategy: "one with no size()", readableStrategy: { highWaterMark: 4 } }
+    ])("sets roomCountsChunks with $strategy as its readableStrategy", ({ readableStrategy }) => {
+      const { sink } = startedPair(undefined, readableStrategy);
+
+      expect(sink.roomCountsChunks).toBe(true);
+    });
+
+    it("sets roomCountsChunks to false with its default readableStrategy", () => {
+      const { sink } = startedPair();
+
+      expect(sink.roomCountsChunks).toBe(false);
+    });
+
     it("gives the engine no room() with a readableStrategy whose size() counts neither its code units nor chunks", () => {
       const { sink } = startedPair(undefined, { highWaterMark: 10, size: () => 2 });
 
@@ -157,6 +172,75 @@ function describeStreamPair<C extends WebChunk>(family: WebAdapterFamily<C>, byt
       void pair.writable.getWriter().close().catch(() => {});
 
       await expect(pair.readable.getReader().read()).rejects.toThrow("boom");
+    });
+
+    it("rejects the next write with what the readableStrategy's size() throws for the engine's output", async () => {
+      const { pair, sink } = startedPair(undefined, { highWaterMark: 1, size: throwing(new Error("boom")) });
+      const writer = pair.writable.getWriter();
+      sink.enqueue("a");
+
+      await expect(writer.write(family.chunkOf("b"))).rejects.toThrow("boom");
+    });
+
+    it("cancels the engine once the readableStrategy's size() throws for its output", () => {
+      const { engine, sink } = startedPair(undefined, { highWaterMark: 1, size: throwing(new Error("boom")) });
+
+      sink.enqueue("a");
+
+      expect(engine.cancel).toHaveBeenCalledOnce();
+    });
+
+    it("rejects a write waiting for room with what the engine errors the stream with", async () => {
+      const { pair, sink } = startedPair();
+      sink.enqueue("a".repeat(HIGH_WATER_MARK));
+      const written = pair.writable.getWriter().write(family.chunkOf("b"));
+      await setImmediate();
+
+      sink.error(new Error("boom"));
+
+      await expect(written).rejects.toThrow("boom");
+    });
+
+    it("passes the engine no chunk from a write waiting for room once the engine errors the stream", async () => {
+      const { engine, pair, sink } = startedPair();
+      sink.enqueue("a".repeat(HIGH_WATER_MARK));
+      void pair.writable.getWriter().write(family.chunkOf("b")).catch(() => {});
+      await setImmediate();
+
+      sink.error(new Error("boom"));
+      await setImmediate();
+
+      expect(engine.write).not.toHaveBeenCalled();
+    });
+
+    it("resolves a Promise from ready() once the engine errors the stream", async () => {
+      const { sink } = startedPair();
+      sink.enqueue("a".repeat(HIGH_WATER_MARK));
+      const ready = sink.ready!();
+
+      sink.error(new Error("boom"));
+
+      await expect(ready).resolves.toBeUndefined();
+    });
+
+    it.each([
+      { when: "", writing: false },
+      { when: " while the engine's write() is under way", writing: true }
+    ])("rejects abort() with what the engine's cancel() throws$when", async ({ writing }) => {
+      const { engine, pair } = startedPair();
+      engine.cancel.mockImplementation(throwing(new Error("cancel failed")));
+      const writeUnderWay = Promise.withResolvers<void>();
+      engine.write.mockReturnValue(writeUnderWay.promise);
+      const writer = pair.writable.getWriter();
+      if (writing) {
+        void writer.write(family.chunkOf("a")).catch(() => {});
+        await setImmediate();
+      }
+
+      const aborted = writer.abort("stop");
+      writeUnderWay.resolve();
+
+      await expect(aborted).rejects.toThrow("cancel failed");
     });
 
     it("cancels the engine when the writable side is aborted", async () => {
@@ -292,5 +376,12 @@ describe("ReplaceContentStream (web adapter), with a ByteLengthQueuingStrategy o
     sink.enqueue("abc");
 
     expect(sink.room!()).toBe(9);
+  });
+
+  it("sets roomCountsChunks to false", () => {
+    const engine = mockAsyncEngine();
+    byteStreamWebAdapter.stream(engine, undefined, new ByteLengthQueuingStrategy({ highWaterMark: 30 }));
+
+    expect(startedSinkOf(engine).roomCountsChunks).toBe(false);
   });
 });

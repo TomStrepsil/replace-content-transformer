@@ -125,7 +125,7 @@ export class ReplaceContentTransform extends Transform {
     const room = this.readableObjectMode
       ? () => (this.readableHighWaterMark - this.readableLength) * this.#writtenLength
       : () => (this.readableHighWaterMark - this.readableLength) / MAX_UTF8_BYTES_PER_CODE_UNIT;
-    engine.start({ enqueue, error, acceptsBytes: !this.readableObjectMode, ready, room });
+    engine.start({ enqueue, error, acceptsBytes: !this.readableObjectMode, ready, room, roomCountsChunks: this.readableObjectMode });
     if (this.destroyed) {
       cancelEngine(engine);
       return;

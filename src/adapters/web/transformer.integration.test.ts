@@ -902,6 +902,22 @@ function describeReaderThatStops<Chunk extends WebChunk>(family: WebAdapterFamil
       expect(called).toHaveLength(calledOnceFull);
     });
   });
+
+  describe(`${family.adapter} + SerialTransformEngine, with a readableStrategy that counts chunks and a reader that stops reading`, () => {
+    it("calls no further asynchronous replacement once the output of one fills the readable side", async () => {
+      const replacement = vi.fn(async () => "R");
+      const pair = family.stream(
+        new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+        undefined,
+        new CountQueuingStrategy({ highWaterMark: 1 })
+      );
+
+      void pair.writable.getWriter().write(family.chunkOf("{{x}}".repeat(4))).catch(() => {});
+      await setImmediate();
+
+      expect(replacement).toHaveBeenCalledOnce();
+    });
+  });
 }
 
 function describeReadableHighWaterMarkOfZero<Chunk extends WebChunk>(family: WebAdapterFamily<Chunk>) {
@@ -958,6 +974,30 @@ describeReadableHighWaterMarkOfZero(byteStreamWebAdapter);
 describeReadableHighWaterMarkOfZero(textStreamWebAdapter);
 describeWebTransformer(byteWebAdapter);
 describeWebTransformer(textWebAdapter);
+
+describe("ReplaceContentStream + LookaheadTransformEngine, with input that starts with a byte order mark filling the readable side, and no reader", () => {
+  it("reads no piece of the replacement", async () => {
+    const piecesRead: string[] = [];
+    const pair = byteStreamWebAdapter.stream(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        replacement: async () =>
+          (async function* () {
+            piecesRead.push("p");
+            yield "p";
+          })()
+      }),
+      undefined,
+      new ByteLengthQueuingStrategy({ highWaterMark: 3 })
+    );
+
+    void pair.writable.getWriter().write(utf8("\uFEFF{{a}}")).catch(() => {});
+    await setImmediate();
+
+    expect(piecesRead).toEqual([]);
+  });
+});
 
 describe("ReplaceContentTransformer + SerialTransformEngine + StringAnchorSearchStrategy (bytes)", () => {
   const splits = everyTwoWayByteSplit("a{{£€😀}}b").map((chunks, splitAt) => ({ chunks, splitAt }));
