@@ -108,6 +108,15 @@ function describeStreamPair<C extends WebChunk>(family: WebAdapterFamily<C>, byt
       expect(sink.roomCountsChunks).toBe(false);
     });
 
+    it("gives the engine no room() with a CountQueuingStrategy whose size() is its own", () => {
+      class SizedByTwos extends CountQueuingStrategy {
+        override size = () => 2;
+      }
+      const { sink } = startedPair(undefined, new SizedByTwos({ highWaterMark: 10 }));
+
+      expect(sink.room).toBeUndefined();
+    });
+
     it("gives the engine no room() with a readableStrategy whose size() counts neither its code units nor chunks", () => {
       const { sink } = startedPair(undefined, { highWaterMark: 10, size: () => 2 });
 
@@ -376,6 +385,16 @@ describe("ReplaceContentStream (web adapter), with a ByteLengthQueuingStrategy o
     sink.enqueue("abc");
 
     expect(sink.room!()).toBe(9);
+  });
+
+  it("gives the engine no room() when its size() is its own", () => {
+    class SizedByHundreds extends ByteLengthQueuingStrategy {
+      override size = () => 100;
+    }
+    const engine = mockAsyncEngine();
+    byteStreamWebAdapter.stream(engine, undefined, new SizedByHundreds({ highWaterMark: 100 }));
+
+    expect(startedSinkOf(engine).room).toBeUndefined();
   });
 
   it("sets roomCountsChunks to false", () => {

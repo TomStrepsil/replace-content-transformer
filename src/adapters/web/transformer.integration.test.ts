@@ -917,6 +917,27 @@ function describeReaderThatStops<Chunk extends WebChunk>(family: WebAdapterFamil
 
       expect(replacement).toHaveBeenCalledOnce();
     });
+
+    it("reads no piece of an asynchronous iterable replacement while the output before its match fills the readable side", async () => {
+      const piecesRead: string[] = [];
+      const pair = family.stream(
+        new SerialTransformEngine({
+          searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+          replacement: async () =>
+            (async function* () {
+              piecesRead.push("p");
+              yield "p";
+            })()
+        }),
+        undefined,
+        new CountQueuingStrategy({ highWaterMark: 1 })
+      );
+
+      void pair.writable.getWriter().write(family.chunkOf("a{{x}}")).catch(() => {});
+      await setImmediate();
+
+      expect(piecesRead).toEqual([]);
+    });
   });
 }
 
@@ -974,6 +995,48 @@ describeReadableHighWaterMarkOfZero(byteStreamWebAdapter);
 describeReadableHighWaterMarkOfZero(textStreamWebAdapter);
 describeWebTransformer(byteWebAdapter);
 describeWebTransformer(textWebAdapter);
+
+describe("ReplaceContentStream + LookaheadTransformEngine, with a replacement ending part-way through a character, and no reader", () => {
+  it("calls the next replacement only once the output the first ends with has been read", async () => {
+    const called: string[] = [];
+    const pair = byteStreamWebAdapter.stream(
+      new LookaheadTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        concurrencyStrategy: new SemaphoreStrategy(1),
+        replacement: async (match) => {
+          called.push(match);
+          return asyncIterable(Uint8Array.of(0xc2));
+        }
+      }),
+      undefined,
+      new ByteLengthQueuingStrategy({ highWaterMark: 3 })
+    );
+
+    void pair.writable.getWriter().write(utf8("{{a}}{{b}}")).catch(() => {});
+    await setImmediate();
+
+    expect(called).toEqual(["{{a}}"]);
+  });
+});
+
+describe("ReplaceContentStream + SerialTransformEngine, with a ByteLengthQueuingStrategy whose size() is its own, and no reader", () => {
+  it("calls no further asynchronous replacement once the output of one fills the readable side", async () => {
+    class SizedByHundreds extends ByteLengthQueuingStrategy {
+      override size = () => 100;
+    }
+    const replacement = vi.fn(async () => "R");
+    const pair = byteStreamWebAdapter.stream(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      undefined,
+      new SizedByHundreds({ highWaterMark: 100 })
+    );
+
+    void pair.writable.getWriter().write(utf8("{{x}}".repeat(4))).catch(() => {});
+    await setImmediate();
+
+    expect(replacement).toHaveBeenCalledOnce();
+  });
+});
 
 describe("ReplaceContentStream + LookaheadTransformEngine, with input that starts with a byte order mark filling the readable side, and no reader", () => {
   it("reads no piece of the replacement", async () => {

@@ -73,6 +73,27 @@ const nonMatch = (content: string): MatchResult => ({
   content
 });
 
+/**
+ * An iterable whose iterator's `next` is a getter giving a fresh method each
+ * time it is read, of which only the first yields `pieces`; the rest report
+ * the iterator done.
+ */
+function nextReadOnce(pieces: string[]): Iterable<string> {
+  return {
+    [Symbol.iterator]: () => {
+      let reads = 0;
+      let at = 0;
+      return {
+        get next() {
+          const first = ++reads === 1;
+          return () =>
+            first && at < pieces.length ? { done: false, value: pieces[at++] } : { done: true, value: undefined };
+        }
+      } as Iterator<string>;
+    }
+  };
+}
+
 describe("SerialTransformEngine", () => {
   describe("non-match passthrough", () => {
     it("passes non-match content to the sink", () => {
@@ -179,6 +200,19 @@ describe("SerialTransformEngine", () => {
           yield "P";
           yield "Q";
         }
+      });
+      expect(outputOf(engine, ["X"])).toBe("PQ");
+    });
+
+    it("reads its iterator's next() method once, as for...of does", () => {
+      const strategy = mockSearchStrategyFactory({
+        isMatch: true,
+        content: "X",
+        streamIndices: [0, 1]
+      });
+      const engine = new SerialTransformEngine({
+        searchStrategy: strategy,
+        replacement: () => nextReadOnce(["P", "Q"])
       });
       expect(outputOf(engine, ["X"])).toBe("PQ");
     });
@@ -959,9 +993,15 @@ describe("SerialTransformEngine", () => {
     });
 
     describe("with roomCountsChunks", () => {
-      function chunkCountingEngine(highWaterMark: number) {
-        const { strategy } = mockSearchStrategy({ chunk: [match("1", 0), match("2", 1)] });
-        const replace = vi.fn(async (content: string) => `<${content}>`);
+      function chunkCountingEngine(
+        highWaterMark: number,
+        {
+          replacement = async (content: string) => `<${content}>`,
+          chunk = [match("1", 0), match("2", 1)]
+        }: { replacement?: (content: string) => SerialReplacement; chunk?: MatchResult[] } = {}
+      ) {
+        const { strategy } = mockSearchStrategy({ chunk });
+        const replace = vi.fn(replacement);
         const engine = new SerialTransformEngine({ searchStrategy: strategy, replacement: replace });
         let chunksUnread = 0;
         const room = vi.fn(() => (highWaterMark - chunksUnread) * 100);
@@ -990,6 +1030,55 @@ describe("SerialTransformEngine", () => {
         await setImmediate();
 
         expect(replace).toHaveBeenCalledOnce();
+      });
+
+      it.each([
+        {
+          kind: "an asynchronous iterable",
+          returning: (pieces: () => Generator<string>) =>
+            (async function* () {
+              yield* pieces();
+            })()
+        },
+        { kind: "an asynchronous replacement's synchronous iterable", returning: (pieces: () => Generator<string>) => Promise.resolve(pieces()) }
+      ])("reads no piece of $kind while the output before its match, enqueued before it, fills downstream", async ({ returning }) => {
+        const piecesRead: string[] = [];
+        const { engine } = chunkCountingEngine(1, {
+          chunk: [nonMatch("a"), match("1", 1)],
+          replacement: async () =>
+            returning(function* () {
+              piecesRead.push("p");
+              yield "p";
+            })
+        });
+
+        void engine.write("a1");
+        await setImmediate();
+
+        expect(piecesRead).toEqual([]);
+      });
+
+      it("closes an asynchronous iterable replacement it has not read once cancel() is called while the output before its match fills downstream", async () => {
+        let closed = false;
+        const { engine } = chunkCountingEngine(1, {
+          chunk: [nonMatch("a"), match("1", 1)],
+          replacement: async () =>
+            (async function* () {
+              try {
+                yield "p";
+              } finally {
+                closed = true;
+              }
+            })()
+        });
+
+        const written = engine.write("a1");
+        await setImmediate();
+        engine.cancel();
+        await written;
+        await setImmediate();
+
+        expect(closed).toBe(true);
       });
     });
 
@@ -1096,6 +1185,17 @@ describe("SerialTransformEngine", () => {
 
     it.each(syncIterableKinds)("enqueues the rest of $kind, and the output after it, once ready() resolves", async ({ returning }) => {
       const { engine, chunks, readToEnd } = pacedEngine(() => returning(recorded(["p", "q", "r"], [])));
+
+      const written = engine.write("a1b2c");
+      await setImmediate();
+      readToEnd();
+      await written;
+
+      expect(chunks.join("")).toBe("apqrbpqrc");
+    });
+
+    it("calls the next() method it read from a synchronous iterable replacement's iterator once resumed from ready()", async () => {
+      const { engine, chunks, readToEnd } = pacedEngine(() => nextReadOnce(["p", "q", "r"]));
 
       const written = engine.write("a1b2c");
       await setImmediate();

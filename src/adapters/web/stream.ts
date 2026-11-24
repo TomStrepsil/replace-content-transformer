@@ -1,6 +1,6 @@
 import type { TransformEngine } from "../../engines/types.js";
 import { ReplaceContentTransformer } from "./transformer.js";
-import { countsChunks, HIGH_WATER_MARK, roomInChunks, transformerPair, type RoomFor } from "./transformer-pair.js";
+import { countsChunks, HIGH_WATER_MARK, roomInChunks, sizesAs, transformerPair, type RoomFor } from "./transformer-pair.js";
 
 const MAX_UTF8_BYTES_PER_CODE_UNIT = 3;
 
@@ -9,7 +9,7 @@ type EncodedChunk = ReturnType<TextEncoder["encode"]>;
 const roomInBytes: RoomFor = (desiredSize) => desiredSize / MAX_UTF8_BYTES_PER_CODE_UNIT;
 
 function roomFor(strategy: QueuingStrategy<EncodedChunk>): RoomFor | undefined {
-  if (strategy instanceof ByteLengthQueuingStrategy) return roomInBytes;
+  if (sizesAs(strategy, ByteLengthQueuingStrategy)) return roomInBytes;
   return countsChunks(strategy) ? roomInChunks : undefined;
 }
 

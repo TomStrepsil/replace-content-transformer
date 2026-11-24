@@ -250,6 +250,22 @@ describe("ReplaceContentTransform (Node adapter)", () => {
       expect(sink.room!()).toBe(9);
     });
 
+    it.each([
+      { encoding: "hex", perCodeUnit: 6 },
+      { encoding: "base64", perCodeUnit: 4 },
+      { encoding: "base64url", perCodeUnit: 4 },
+      { encoding: "latin1", perCodeUnit: 3 }
+    ] as const)(
+      "has room(), once setEncoding($encoding) is called, give the code units, at up to $perCodeUnit characters each, that the readable side can still take",
+      ({ encoding, perCodeUnit }) => {
+        const { transform, sink } = startedTransform({ readableHighWaterMark: 24 });
+
+        transform.setEncoding(encoding);
+
+        expect(sink.room!()).toBe(24 / perCodeUnit);
+      }
+    );
+
     it("has room() with readableObjectMode, whose highWaterMark counts chunks, give the chunks the readable side can still take at the code units of the chunk being written", () => {
       const engine = mockSyncEngine();
       const transform = new ReplaceContentTransform(engine, {

@@ -915,6 +915,26 @@ describe("ReplaceContentTransform + SerialTransformEngine, with readableObjectMo
 
     expect(replacement).toHaveBeenCalledOnce();
   });
+
+  it("reads no piece of an asynchronous iterable replacement while the output before its match fills the readable side", async () => {
+    const piecesRead: string[] = [];
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({
+        searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]),
+        replacement: async () =>
+          (async function* () {
+            piecesRead.push("p");
+            yield "p";
+          })()
+      }),
+      { readableObjectMode: true, readableHighWaterMark: 1 }
+    );
+
+    transform.write("a{{x}}");
+    await setImmediate();
+
+    expect(piecesRead).toEqual([]);
+  });
 });
 
 describe("ReplaceContentTransform + LookaheadTransformEngine, with input that starts with a byte order mark filling the readable side, and no reader", () => {
@@ -937,5 +957,24 @@ describe("ReplaceContentTransform + LookaheadTransformEngine, with input that st
     await setImmediate();
 
     expect(piecesRead).toEqual([]);
+  });
+});
+
+describe.each([
+  { encoding: "hex", highWaterMark: 12 },
+  { encoding: "base64", highWaterMark: 8 }
+] as const)("ReplaceContentTransform + SerialTransformEngine, with setEncoding($encoding) and a reader that stops reading", ({ encoding, highWaterMark }) => {
+  it("calls no further asynchronous replacement once the encoded output of those it has called fills the readable side", async () => {
+    const replacement = vi.fn(async () => "\u0800");
+    const transform = new ReplaceContentTransform(
+      new SerialTransformEngine({ searchStrategy: new StringAnchorSearchStrategy(["{{", "}}"]), replacement }),
+      { readableHighWaterMark: highWaterMark }
+    );
+    transform.setEncoding(encoding);
+
+    transform.write("{{x}}".repeat(6));
+    await setImmediate();
+
+    expect(replacement).toHaveBeenCalledTimes(2);
   });
 });

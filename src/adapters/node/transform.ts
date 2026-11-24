@@ -16,6 +16,11 @@ function toError(err: unknown): Error {
 const END_OF_STREAM = Symbol("end of stream");
 
 const MAX_UTF8_BYTES_PER_CODE_UNIT = 3;
+const MAX_ENCODED_CHARACTERS_PER_CODE_UNIT: Partial<Record<NonNullable<Transform["readableEncoding"]>, number>> = {
+  hex: 2 * MAX_UTF8_BYTES_PER_CODE_UNIT,
+  base64: 4,
+  base64url: 4
+};
 
 function cancelEngine(engine?: TransformEngine): Error | undefined {
   try {
@@ -124,7 +129,9 @@ export class ReplaceContentTransform extends Transform {
     const ready = () => (this.#full ? new Promise<void>((resolve) => (this.#resume = resolve)) : undefined);
     const room = this.readableObjectMode
       ? () => (this.readableHighWaterMark - this.readableLength) * this.#writtenLength
-      : () => (this.readableHighWaterMark - this.readableLength) / MAX_UTF8_BYTES_PER_CODE_UNIT;
+      : () =>
+          (this.readableHighWaterMark - this.readableLength) /
+          (MAX_ENCODED_CHARACTERS_PER_CODE_UNIT[this.readableEncoding ?? "utf8"] ?? MAX_UTF8_BYTES_PER_CODE_UNIT);
     engine.start({ enqueue, error, acceptsBytes: !this.readableObjectMode, ready, room, roomCountsChunks: this.readableObjectMode });
     if (this.destroyed) {
       cancelEngine(engine);

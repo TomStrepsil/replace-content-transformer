@@ -481,7 +481,7 @@ describe("LookaheadTransformEngine", () => {
     describe("a sink with ready()", () => {
       function pacedEngine({
         concurrency = 1,
-        replacement = async (match: string): Promise<AsyncIterable<string> | Nested<string>> =>
+        replacement = async (match: string): Promise<AsyncIterable<string | Utf8Bytes> | Nested<string>> =>
           asyncIterable(match.toUpperCase()),
         stopReplacingSignal = undefined as AbortSignal | undefined
       } = {}) {
@@ -567,6 +567,15 @@ describe("LookaheadTransformEngine", () => {
         await setImmediate();
 
         expect(piecesRead).toEqual([]);
+      });
+
+      it("calls the next replacement only once ready() resolves after what the last ends with, as a character its bytes leave unfinished", async () => {
+        const { engine, replace } = pacedEngine({ replacement: async () => asyncIterable(Uint8Array.of(0xc2)) });
+
+        void transform(engine, "{{a}}{{b}}");
+        await setImmediate();
+
+        expect(replace).toHaveBeenCalledOnce();
       });
 
       it("calls no replacement for the matches of a nested() replacement beyond those already called while ready() is pending", async () => {
@@ -2308,6 +2317,27 @@ describe("LookaheadTransformEngine", () => {
       await engine.write("M");
       await engine.end();
       expect(fn).not.toHaveBeenCalled();
+      expect(chunks).toEqual([]);
+    });
+
+    it("enqueues nothing once cancel() ends the read of a ReadableStream replacement whose bytes so far end part-way through a character", async () => {
+      const { sink, chunks } = collectEngineSink({ acceptsBytes: true });
+      const engine = new LookaheadTransformEngine({
+        searchStrategy: braceStrategy(),
+        replacement: async () =>
+          new ReadableStream<Utf8Bytes>({ start: (controller) => controller.enqueue(Uint8Array.of(0xc2)) }),
+        concurrencyStrategy: new SemaphoreStrategy(1)
+      });
+      engine.start(sink);
+      const transformed = (async () => {
+        await engine.write("{{a}}");
+        await engine.end();
+      })();
+      await setImmediate();
+
+      engine.cancel();
+      await transformed;
+
       expect(chunks).toEqual([]);
     });
 

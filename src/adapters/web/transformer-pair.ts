@@ -6,8 +6,15 @@ export type RoomFor = (desiredSize: number, writtenLength: number) => number;
 
 export const roomInChunks: RoomFor = (desiredSize, writtenLength) => desiredSize * writtenLength;
 
+export function sizesAs(
+  strategy: QueuingStrategy<never>,
+  BuiltIn: typeof ByteLengthQueuingStrategy | typeof CountQueuingStrategy
+): boolean {
+  return strategy.size === new BuiltIn({ highWaterMark: 0 }).size;
+}
+
 export function countsChunks(strategy: QueuingStrategy<never>): boolean {
-  return strategy.size === undefined || strategy instanceof CountQueuingStrategy;
+  return strategy.size === undefined || sizesAs(strategy, CountQueuingStrategy);
 }
 
 interface PairedTransformer<TInput, TOutput> {

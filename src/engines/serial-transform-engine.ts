@@ -199,7 +199,9 @@ export class SerialTransformEngine<
   #paced = false;
   #paused: Promise<void> | undefined;
   #pausedAt: StreamIndices | undefined;
-  #pausedPieces: { iterator: Iterator<ReplacementPiece>; pieces: ReplacementPieceForwarder } | undefined;
+  #pausedPieces:
+    | { iterator: Iterator<ReplacementPiece>; next: Iterator<ReplacementPiece>["next"]; pieces: ReplacementPieceForwarder }
+    | undefined;
   #reading: CancellableRead<string | Utf8Bytes> | undefined;
   #cancelled = false;
   readonly #cancelController = new AbortController();
@@ -348,6 +350,8 @@ export class SerialTransformEngine<
               ? this.#matchSink.reportMatch(this.#pendingMatch!, this.#pausedAt!)
               : this.#resumePieces();
         } else {
+          const ready = this.#paced && !this._fitsRoom(0) ? this._untilReady() : undefined;
+          if (ready) await ready;
           const pending = this.#pending!;
           let replacement: ReplacementValue;
           try {
@@ -432,7 +436,8 @@ export class SerialTransformEngine<
   #forwardIterable(replacement: Utf8Bytes | Iterable<ReplacementPiece>, pieces: ReplacementPieceForwarder): boolean {
     if (this.#cancelled) throw scanCancelled;
     if (!isUtf8Bytes(replacement) && !Array.isArray(replacement)) {
-      return this.#forwardPieces(replacement[Symbol.iterator](), pieces);
+      const iterator = replacement[Symbol.iterator]();
+      return this.#forwardPieces(iterator, iterator.next, pieces);
     }
     for (const piece of isUtf8Bytes(replacement) ? [replacement] : replacement) {
       pieces.piece(piece);
@@ -442,13 +447,17 @@ export class SerialTransformEngine<
     return true;
   }
 
-  #forwardPieces(iterator: Iterator<ReplacementPiece>, pieces: ReplacementPieceForwarder): boolean {
-    for (let next = iterator.next(); !next.done; next = iterator.next()) {
+  #forwardPieces(
+    iterator: Iterator<ReplacementPiece>,
+    next: Iterator<ReplacementPiece>["next"],
+    pieces: ReplacementPieceForwarder
+  ): boolean {
+    for (let step = next.call(iterator); !step.done; step = next.call(iterator)) {
       try {
-        pieces.piece(next.value);
+        pieces.piece(step.value);
         if (this.#cancelled) throw scanCancelled;
         if (this.#paced && this.#pausesIfFull()) {
-          this.#pausedPieces = { iterator, pieces };
+          this.#pausedPieces = { iterator, next, pieces };
           return false;
         }
       } catch (error) {
@@ -461,10 +470,10 @@ export class SerialTransformEngine<
   }
 
   #resumePieces(): boolean {
-    const { iterator, pieces } = this.#pausedPieces!;
+    const { iterator, next, pieces } = this.#pausedPieces!;
     this.#pausedPieces = undefined;
     try {
-      return this.#forwardPieces(iterator, pieces);
+      return this.#forwardPieces(iterator, next, pieces);
     } catch (error) {
       this.#endStoppedReplacement(error, pieces, this.#pendingMatch!);
       return true;

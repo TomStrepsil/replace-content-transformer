@@ -539,10 +539,13 @@ export class LookaheadTransformEngine<TState, TMatch>
         if (resumed) await resumed;
         if (this.#cancelled) return;
       }
+      if (this.#cancelled) return;
+      this.#pieces.end();
+      const ended = this._untilReady();
+      if (ended) await ended;
     } finally {
       permit.finish();
     }
-    if (!this.#cancelled) this.#pieces.end();
   }
 
   #stoppedBy(error: unknown): boolean {

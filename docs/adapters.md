@@ -73,7 +73,7 @@ const replaced = response.body!.pipeThrough(new ReplaceContentStream(engine, und
 
 With a readable strategy of its own, the engine waits once that strategy's `highWaterMark` is reached, until no more than half of it is left unread. With `{ highWaterMark: 0 }`, as above, no chunk is passed to the engine, and no replacement called, while no read is waiting, so a consumer that cancels on seeing some output prevents every replacement after it. That costs throughput: `SerialTransformEngine` then enqueues its output before every replacement, rather than once per chunk. It does the same with a strategy whose `size()` counts neither chunks (a `CountQueuingStrategy`, or no `size()`) nor, for `ReplaceContentStream`, bytes (a `ByteLengthQueuingStrategy`).
 
-Aborting the pair's writable side cancels the engine straight away, even while it waits for its output to be read. An abort that comes through `pipeTo()` or `pipeThrough()`, from their `signal` or from an error in the source, reaches the pair only once the chunk being written has finished, which it doesn't while nothing reads the output. To stop the engine then, cancel the pair's readable side too.
+Aborting the pair's writable side cancels the engine straight away, even while it waits for its output to be read, where the runtime has `WritableStreamDefaultController.signal` (see [Compatibility](./compatibility.md)). An abort that comes through `pipeTo()` or `pipeThrough()`, from their `signal` or from an error in the source, reaches the pair only once the chunk being written has finished, which it doesn't while nothing reads the output. To stop the engine then, cancel the pair's readable side too.
 
 #### Encoding the output on older Node
 
