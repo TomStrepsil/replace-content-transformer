@@ -101,6 +101,8 @@ type BalancedPairSearchState = LoopedIndexOfAnchoredSearchState & {
 };
 ```
 
+These fields are internal to the strategy, and hidden from its published types.
+
 **State transitions:**
 
 | Condition                        | `nestingLevel`        | Action                                     |

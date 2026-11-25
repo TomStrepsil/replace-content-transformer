@@ -5,11 +5,11 @@ import type HeldText from "../held-text.js";
 /** A stream-relative regex match. The strategy sets `input` to `undefined`, since a native `input` identifies only one scan buffer. */
 export type StreamRegexMatch = Omit<RegExpExecArray, "input"> & { input: undefined };
 
-/** Per-stream state for `RegexSearchStrategy`. */
+/** Per-stream state for `RegexSearchStrategy`, internal to it. */
 export type RegexSearchState = {
-  /** Content received but not yet reported, and its position in the stream. */
+  /** Content received but not yet reported, and its position in the stream. @internal */
   held: Readonly<HeldText<StreamRegexMatch>>;
-  /** Buffer length, in code units, at the last scan of the held-back content. */
+  /** Buffer length, in code units, at the last scan of the held-back content. @internal */
   evaluatedBufferLength: number;
 };
 

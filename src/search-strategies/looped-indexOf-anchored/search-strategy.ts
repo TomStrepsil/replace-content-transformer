@@ -4,13 +4,13 @@ import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
 import partialMatchLength from "./partial-match-length.js";
 import validateNeedles from "./validate-needles.js";
 
-/** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}. */
+/** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}, internal to it. */
 export type LoopedIndexOfAnchoredSearchState = {
-  /** Content received but not yet reported, and its position in the stream */
+  /** Content received but not yet reported, and its position in the stream @internal */
   held: Readonly<HeldText>;
-  /** Index of the current needle being matched in a multi-needle sequence */
+  /** Index of the current needle being matched in a multi-needle sequence @internal */
   currentNeedleIndex: number;
-  /** Length of the held partial match already consumed by earlier anchors */
+  /** Length of the held partial match already consumed by earlier anchors @internal */
   matchConsumedLength: number;
 };
 

@@ -293,7 +293,7 @@ type RegexSearchState = {
 };
 ```
 
-`held` is shared with the anchor strategies. It joins each chunk to what it holds, reports text and matches to the engine's sink in order, and after each scan keeps exactly what is unreported, with its stream offset, even if the scan or a sink call throws. `evaluatedBufferLength` decides when a long candidate is next re-scanned (see [Unbounded Quantifiers](#️-unbounded-quantifiers)).
+These fields are internal to the strategy, and hidden from its published types. `held` is shared with the anchor strategies. It joins each chunk to what it holds, reports text and matches to the engine's sink in order, and after each scan keeps exactly what is unreported, with its stream offset, even if the scan or a sink call throws. `evaluatedBufferLength` decides when a long candidate is next re-scanned (see [Unbounded Quantifiers](#️-unbounded-quantifiers)).
 
 **State transitions:**
 
