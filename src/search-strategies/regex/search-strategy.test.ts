@@ -1491,6 +1491,25 @@ describe("RegexSearchStrategy", () => {
       ]);
       expect(strategy.flush(state)).toBe(" and {{ something more }}");
     });
+
+    it("holds what was held plus the chunk exactly once when the scan throws", () => {
+      const strategy = new RegexSearchStrategy(/\{\{[^{}]*\}\}/);
+      const state = strategy.createState();
+      const results: MatchResult<StreamRegexMatch>[] = [];
+      strategy.processChunk("x {{ab", state, sinkInto(results));
+      vi.spyOn(PartialMatchRegExp.prototype, "exec").mockImplementation(() => {
+        throw new RangeError("Maximum call stack size exceeded");
+      });
+      try {
+        expect(() => strategy.processChunk("cd", state, sinkInto(results))).toThrow(
+          RangeError
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(strategy.flush(state)).toBe("{{abcd");
+    });
   });
 
   describe("stopping early", () => {

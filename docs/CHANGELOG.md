@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `RegexSearchStrategy` and `LeanRegexSearchStrategy` returning held-back content twice from `flush` after a chunk's scan throws, such as on a stack overflow from a very long candidate
+
 ## [4.1.0] - 2026-11-24
 
 ### Added

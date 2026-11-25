@@ -139,6 +139,7 @@ export class LeanRegexSearchStrategy
     }
     const baseOffset = state.streamOffset - bufferLength;
     haystack = joinText(state.buffer, haystack);
+    state.buffer = "";
     const length = haystack.length;
     const cursor: ScanCursor = { reportedUpTo: 0 };
     const windowLength = this.guard.maxBufferLength + 1;
@@ -148,7 +149,6 @@ export class LeanRegexSearchStrategy
         const window = haystack.substring(cursor.reportedUpTo, windowEnd);
         const candidate = this.partialMatchRegex.exec(window);
         const settledMatch = this.settledMatch(candidate, window);
-        state.buffer = "";
         state.evaluatedBufferLength = 0;
 
         if (settledMatch === null) {
@@ -169,7 +169,7 @@ export class LeanRegexSearchStrategy
       }
     } finally {
       if (cursor.reportedUpTo < length) {
-        state.buffer = joinText(state.buffer, haystack.slice(cursor.reportedUpTo));
+        state.buffer = haystack.slice(cursor.reportedUpTo);
       }
       state.streamOffset += haystack.length - bufferLength;
     }
