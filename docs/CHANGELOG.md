@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The string search strategies share one module for the content they hold back, so `RegexSearchState` holds it in a `held` field, in place of `buffer` and `streamOffset`
+- The built-in search strategies share one module for the content they hold back, so `RegexSearchState` holds it in a `held` field, in place of `buffer` and `streamOffset`
 
 ### Fixed
 
