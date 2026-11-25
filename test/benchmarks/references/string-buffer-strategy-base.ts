@@ -1,4 +1,7 @@
-import type { StringBufferState } from "./types.js";
+export type StringBufferState = {
+  buffer: string;
+  streamOffset: number;
+};
 
 abstract class StringBufferStrategyBase<TMatch = string> {
   createState(): StringBufferState {

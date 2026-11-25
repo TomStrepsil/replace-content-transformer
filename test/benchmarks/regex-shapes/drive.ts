@@ -84,7 +84,7 @@ export function drive(
 
   for (const chunk of chunks) {
     strategy.processChunk(chunk, state, sink);
-    if (state.buffer.length > peakBuffer) peakBuffer = state.buffer.length;
+    if (state.held.text.length > peakBuffer) peakBuffer = state.held.text.length;
   }
   into = settledMatches;
   strategy.settle(state, sink);

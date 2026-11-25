@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The state a built-in search strategy creates is internal to it, so `RegexSearchState` no longer shows `buffer` or `streamOffset`: an engine gets it from `createState()` and passes it back
+
 ### Fixed
 
 - Fixed `RegexSearchStrategy` and `LeanRegexSearchStrategy` returning held-back content twice from `flush` after a chunk's scan throws, such as on a stack overflow from a very long candidate

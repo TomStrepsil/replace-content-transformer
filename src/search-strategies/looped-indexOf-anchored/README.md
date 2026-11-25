@@ -150,22 +150,32 @@ The strategy maintains state to track partial matches and needle sequence progre
 
 ```typescript
 type LoopedIndexOfAnchoredSearchState = {
-  /** Buffer holding partial content that may span chunks */
-  buffer: string;
-  /** Index of the current needle being matched (0 to needles.length - 1) */
+  /** Content received but not yet reported, and its position in the stream */
+  held: Readonly<HeldText>;
+  /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
+  /** Length of the held partial match already consumed by earlier anchors */
+  matchConsumedLength: number;
 };
 ```
 
+These fields are internal to the strategy, and hidden from its published types. `held` is shared with the regex strategies. It joins each chunk to what it holds, reports text and matches to the engine's sink in order, and after each scan keeps exactly what is unreported, with its stream offset, even if the scan or a sink call throws.
+
 **State behavior:**
 
-- **Initial:** `buffer = ""`, `currentNeedleIndex = 0`
-- **First needle not found + no partial:** Output all content, no buffering
-- **First needle not found + partial match:** Buffer only the partial match suffix
-- **Mid-sequence:** Buffer from first needle onwards until all needles found
-- **Complete match:** Reset `currentNeedleIndex` to 0, clear buffer
-- **Stop:** when `sink.reportMatch()` returns `false`, the remainder of the current chunk is left in the buffer, for `flush` to return or for `processChunk("")` to carry on from. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit this buffer as one chunk
-- **Flush:** Returns and clears any buffered content
+- **Initial:** `held` is empty, `currentNeedleIndex = 0`, `matchConsumedLength = 0`
+- **First needle not found + no partial:** Report all content, hold nothing
+- **First needle not found + partial match:** Hold only the partial match suffix
+- **Mid-sequence:** Hold from the first needle onwards until all needles are found, with `matchConsumedLength` marking where the next chunk resumes the search
+- **Complete match:** Reset `currentNeedleIndex` to 0, and report the match
+- **Stop:** when `sink.reportMatch()` returns `false`, the remainder of the current chunk stays in `held`, for `flush` to return or for `processChunk("")` to carry on from. Engines stop searching a chunk part-way once `stopReplacingSignal` aborts, and emit what is held as one chunk
+- **Flush:** Returns and clears everything held
+
+### Accepting a match
+
+`BalancedPairSearchStrategy` passes an internal `acceptMatch` option, keyed by a symbol the package doesn't export. Once the last needle is found, the strategy calls it with the state, the stream index of the match's first needle, and the text searched to find the last needle. When it returns `false`, the strategy searches on for the next occurrence of the last needle, from the same first needle, and offers the longer match again.
+
+So it needs at least two needles: with one, the last needle is also the first, so a rejected match is reported as text and the search moves past it.
 
 ## Buffer limit
 

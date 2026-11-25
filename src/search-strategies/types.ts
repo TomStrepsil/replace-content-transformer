@@ -33,9 +33,11 @@ export interface MatchSink<TMatch = string> {
 /**
  * Search strategy for finding patterns in streaming content.
  *
- * Strategies are stateless and reusable across multiple streams, hence state is owned by the engine.
+ * Strategies are stateless and reusable across multiple streams, hence state is held by the engine.
  *
- * @template TState - The type of state this strategy requires (use void for stateless strategies)
+ * @template TState - The type of state this strategy requires (use void for stateless strategies). It is
+ * internal to the strategy: an engine gets it from {@link createState} and passes it back, never reading
+ * or changing it.
  * @template TMatch - The type of match reported by the strategy (default: string)
  */
 export interface SearchStrategy<TState, TMatch = string> {
@@ -118,9 +120,4 @@ export type BufferGuardOptions = {
    * [What `onGuardExceeded` can do](../../docs/search-strategies.md#what-onguardexceeded-can-do).
    */
   onGuardExceeded?: () => void;
-};
-
-export type StringBufferState = {
-  buffer: string;
-  streamOffset: number;
 };

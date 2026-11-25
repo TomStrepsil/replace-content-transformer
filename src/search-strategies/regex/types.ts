@@ -1,16 +1,20 @@
 import type { DEFAULT_OPTIONS } from "./default-options.js";
-import type { BufferGuardOptions, StringBufferState } from "../types.js";
+import type { BufferGuardOptions } from "../types.js";
+import type HeldText from "../held-text.js";
 
 /** A stream-relative regex match. The strategy sets `input` to `undefined`, since a native `input` identifies only one scan buffer. */
 export type StreamRegexMatch = Omit<RegExpExecArray, "input"> & { input: undefined };
 
-/** Per-stream state for `RegexSearchStrategy`. */
-export type RegexSearchState = StringBufferState & {
-  /** Buffer length, in code units, at the last scan of the held-back content. */
+declare const regexSearchStateBrand: unique symbol;
+
+/** Per-stream state for `RegexSearchStrategy`, internal to it. */
+export type RegexSearchState = {
+  readonly [regexSearchStateBrand]?: never;
+  /** Content received but not yet reported, and its position in the stream. @internal */
+  held: Readonly<HeldText<StreamRegexMatch>>;
+  /** Buffer length, in code units, at the last scan of the held-back content. @internal */
   evaluatedBufferLength: number;
 };
-
-export type ScanCursor = { reportedUpTo: number };
 
 /**
  * A candidate still unresolved `maxBufferLength` code units after its start passes

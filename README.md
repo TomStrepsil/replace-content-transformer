@@ -25,6 +25,7 @@ Replace patterns in streaming text as it flows, without buffering the whole stre
 - 🚀 **Streaming-first** - emits output as early as possible, holding back only what could still be part of a match
 - 🎨 **Dynamic content** - replace with strings, functions, iterables or streams, sync or async
 - 🔮 **Concurrent lookahead** - start later replacements while earlier ones are in flight, with output kept in order
+- 🚦 **Backpressure-aware** - with the Node adapter or the web stream pairs, calls no further replacement once unread output fills the readable side's buffer
 - ⏹️ **Stoppable** - stop replacing at any match, and cancel replacements in flight
 - 🔌 **Composable** - pluggable search strategies and engines; strategies are stateless and reusable
 - 🌐 **Runs anywhere** - WHATWG Streams (browsers, Deno, Bun, edge workers, Node) and Node streams, with TypeScript types

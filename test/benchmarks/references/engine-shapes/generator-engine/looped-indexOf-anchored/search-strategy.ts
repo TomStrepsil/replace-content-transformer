@@ -1,11 +1,15 @@
 import type { BufferGuardOptions } from "../../../../../../src/search-strategies/types.ts";
 import type { MatchResult } from "../../../../../search-strategy-results.ts";
-import StringBufferStrategyBase from "../../../../../../src/search-strategies/string-buffer-strategy-base.ts";
+import StringBufferStrategyBase, { type StringBufferState } from "../../../string-buffer-strategy-base.ts";
 import bufferGuard, { type BufferGuard } from "../../../../../../src/search-strategies/buffer-guard.ts";
 import partialMatchLength from "../../../../../../src/search-strategies/looped-indexOf-anchored/partial-match-length.ts";
 import validateNeedles from "../../../../../../src/search-strategies/looped-indexOf-anchored/validate-needles.ts";
-import type { LoopedIndexOfAnchoredSearchState } from "../../../../../../src/search-strategies/looped-indexOf-anchored/search-strategy.ts";
 import type { GeneratorSearchStrategy } from "../types.ts";
+
+type LoopedIndexOfAnchoredSearchState = StringBufferState & {
+  currentNeedleIndex: number;
+  matchConsumedLength: number;
+};
 
 export class LoopedIndexOfAnchoredGeneratorSearchStrategy
   extends StringBufferStrategyBase

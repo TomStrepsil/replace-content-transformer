@@ -41,10 +41,10 @@ import {
 import PartialMatchRegExp from "regex-partial-match/core";
 
 new StringAnchorSearchStrategy(["<!--replace me -->"]); // single token
-new StringAnchorSearchStrategy(["{{", "}}"]); // 2+ anchors
+new StringAnchorSearchStrategy(["[[", "|", "]]"]); // 2+ anchors
 new BalancedPairSearchStrategy("{{", "}}"); // delimiter pair, nesting aware
-new RegexSearchStrategy(/<div>.+?<\/div>/s);
-new LeanRegexSearchStrategy(new PartialMatchRegExp(/<div>.+?<\/div>/s));
+new RegexSearchStrategy(/<([^>]+?)>.+?<\/\1>/s); // full regex support (with caveats)
+new LeanRegexSearchStrategy(new PartialMatchRegExp(/<div>.+?<\/div>/s)); // lean bundle: add regex-partial-match modules for the features a pattern needs
 ```
 
 Anchors and delimiters must be non-empty: an empty string is rejected at construction, since `indexOf("")` would never advance the scan.
