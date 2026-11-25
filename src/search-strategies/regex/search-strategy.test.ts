@@ -28,8 +28,8 @@ import {
   splitsOnCodePoints
 } from "../../../test/splits.js";
 
-vi.mock("./input-validation.js");
-vi.mock("./options-validation.js");
+vi.mock("./input-validation.js", { spy: true });
+vi.mock("./options-validation.js", { spy: true });
 
 const WithLongerPartials = withModules(
   backreferencesWith({ longestPartial: 256 })
@@ -96,13 +96,17 @@ function expectNativeCapturesAtEverySplit(
   const expected = nativeMatchCapturesOf(pattern, haystack);
 
   for (const chunks of everySplitOf(haystack)) {
-    expect({ chunks, captures: streamedMatchCapturesOf(pattern, chunks) }).toEqual(
-      { chunks, captures: expected }
-    );
+    expect({
+      chunks,
+      captures: streamedMatchCapturesOf(pattern, chunks)
+    }).toEqual({ chunks, captures: expected });
   }
 }
 
-function expectSettledMatchesAreNative(pattern: RegExp, haystack: string): void {
+function expectSettledMatchesAreNative(
+  pattern: RegExp,
+  haystack: string
+): void {
   const original = new RegExp(pattern.source, `${pattern.flags}y`);
 
   for (const chunks of everySplitOf(haystack)) {
@@ -129,9 +133,9 @@ function bufferingAtEveryTwoWaySplit(pattern: RegExp, haystack: string) {
     const state = strategy.createState();
     chunks.forEach((chunk, index) => {
       processChunkResults(strategy, chunk, state);
-      peakBuffer = Math.max(peakBuffer, state.buffer.length);
+      peakBuffer = Math.max(peakBuffer, state.held.text.length);
       const isBoundary = index < chunks.length - 1;
-      if (isBoundary && state.buffer.length > 0) deferrals++;
+      if (isBoundary && state.held.text.length > 0) deferrals++;
     });
   }
 
@@ -173,36 +177,74 @@ function describeChunkInvariantCases(
 }
 
 describe("RegexSearchStrategy", () => {
-  it("should validate input regex", () => {
-    const someRegex = /test-regex/;
-    new RegexSearchStrategy(someRegex);
-    expect(validateInput).toHaveBeenCalledWith(expect.any(PartialMatchRegExp));
-    expect(validateInput).toHaveBeenCalledWith(
-      expect.objectContaining({ source: someRegex.source })
-    );
-  });
+  describe("validation", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
 
-  it("should use a PartialMatchRegExp it is given as it is", () => {
-    const partial = new WithLongerPartials(/(\w+)-\1/);
-    new RegexSearchStrategy(partial);
-    expect(vi.mocked(validateInput).mock.lastCall?.[0]).toBe(partial);
-  });
+    it("should validate the regex it is given as a PartialMatchRegExp", () => {
+      new RegexSearchStrategy(/test-regex/);
+      expect(validateInput).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ source: "test-regex" })
+      );
+      expect(vi.mocked(validateInput).mock.lastCall?.[0]).toBeInstanceOf(
+        PartialMatchRegExp
+      );
+    });
 
-  describe("option validation", () => {
-    it("should validate the backoff options, with defaults filled in", () => {
-      new RegexSearchStrategy(/test-regex/, { minCandidateLengthToBackOff: 100 });
-      expect(optionsValidation).toHaveBeenCalledWith({
-        minCandidateLengthToBackOff: 100,
+    it("should throw what input validation throws", () => {
+      const rejection = new Error("rejected input");
+      vi.mocked(validateInput).mockImplementationOnce(() => {
+        throw rejection;
+      });
+      expect(() => new RegexSearchStrategy(/test-regex/)).toThrow(rejection);
+    });
+
+    it("should validate and search with a PartialMatchRegExp it is given, as it is", () => {
+      const partial = new WithLongerPartials(/(\w+)-\1/);
+      const exec = vi.spyOn(partial, "exec");
+      const strategy = new RegexSearchStrategy(partial);
+      processChunkResults(strategy, "ab-ab", strategy.createState());
+      expect(validateInput).toHaveBeenCalledExactlyOnceWith(partial);
+      expect(exec).toHaveBeenCalled();
+    });
+
+    it("should validate the backoff options", () => {
+      new RegexSearchStrategy(/test-regex/, {
+        minCandidateLengthToBackOff: 123,
+        bufferGrowthFactorBetweenEvaluations: 456
+      });
+      expect(optionsValidation).toHaveBeenCalledExactlyOnceWith({
+        minCandidateLengthToBackOff: 123,
+        bufferGrowthFactorBetweenEvaluations: 456
+      });
+    });
+
+    it("should validate the defaults when an option is not supplied", () => {
+      new RegexSearchStrategy(/test-regex/, {});
+      expect(optionsValidation).toHaveBeenCalledExactlyOnceWith({
+        minCandidateLengthToBackOff: 1024,
         bufferGrowthFactorBetweenEvaluations: 2
       });
     });
 
     it("should validate the defaults when an option is explicitly undefined", () => {
-      new RegexSearchStrategy(/test-regex/, { minCandidateLengthToBackOff: undefined });
-      expect(optionsValidation).toHaveBeenLastCalledWith({
+      new RegexSearchStrategy(/test-regex/, {
+        minCandidateLengthToBackOff: undefined,
+        bufferGrowthFactorBetweenEvaluations: undefined
+      });
+      expect(optionsValidation).toHaveBeenCalledExactlyOnceWith({
         minCandidateLengthToBackOff: 1024,
         bufferGrowthFactorBetweenEvaluations: 2
       });
+    });
+
+    it("should throw what options validation throws", () => {
+      const rejection = new RangeError("rejected options");
+      vi.mocked(optionsValidation).mockImplementationOnce(() => {
+        throw rejection;
+      });
+      expect(() => new RegexSearchStrategy(/test-regex/)).toThrow(rejection);
     });
 
     it("should validate maxBufferLength with the guard shared by every strategy", () => {
@@ -753,28 +795,23 @@ describe("RegexSearchStrategy", () => {
       }
     ];
 
-    testCases.forEach(
-      ({ name, pattern, chunks, expected }) => {
-        describe(name, () => {
-          test("matches", () => {
-            const { results, settledResults } = collectSearchStrategyResults(
-              new RegexSearchStrategy(pattern),
-              chunks
-            );
-            results.push(...settledResults);
-
-            expect(results).toMatchObject(expected);
-          });
-
-          test(
-            "matches the same at every two-way, three-way and per-character split",
-            () => {
-              expectSameMatchesAtEverySplit(pattern, chunks.join(""));
-            }
+    testCases.forEach(({ name, pattern, chunks, expected }) => {
+      describe(name, () => {
+        test("matches", () => {
+          const { results, settledResults } = collectSearchStrategyResults(
+            new RegexSearchStrategy(pattern),
+            chunks
           );
+          results.push(...settledResults);
+
+          expect(results).toMatchObject(expected);
         });
-      }
-    );
+
+        test("matches the same at every two-way, three-way and per-character split", () => {
+          expectSameMatchesAtEverySplit(pattern, chunks.join(""));
+        });
+      });
+    });
   });
 
   describe("no match found", () => {
@@ -1346,7 +1383,9 @@ describe("RegexSearchStrategy", () => {
         ["{{first}} and ", "then {{value}}"]
       );
 
-      const matches = [...results, ...settledResults].filter((result) => result.isMatch);
+      const matches = [...results, ...settledResults].filter(
+        (result) => result.isMatch
+      );
       expect(matches).toHaveLength(2);
       for (const match of matches) {
         expect(match.content.index).toBe(match.content.indices?.[0]?.[0]);
@@ -1446,7 +1485,7 @@ describe("RegexSearchStrategy", () => {
       try {
         const results = processChunkResults(strategy, "anything", state);
         expect(results).toEqual([{ isMatch: false, content: "anything" }]);
-        expect(state.buffer).toBe("");
+        expect(state.held.text).toBe("");
       } finally {
         vi.restoreAllMocks();
       }
@@ -1501,9 +1540,9 @@ describe("RegexSearchStrategy", () => {
         throw new RangeError("Maximum call stack size exceeded");
       });
       try {
-        expect(() => strategy.processChunk("cd", state, sinkInto(results))).toThrow(
-          RangeError
-        );
+        expect(() =>
+          strategy.processChunk("cd", state, sinkInto(results))
+        ).toThrow(RangeError);
       } finally {
         vi.restoreAllMocks();
       }
@@ -1514,9 +1553,21 @@ describe("RegexSearchStrategy", () => {
 
   describe("stopping early", () => {
     it.each([
-      ["with matches settled at chunk boundaries", new RegexSearchStrategy(/\d+/), "a1b22c333"],
-      ["with a stray quote holding back the rest", new RegexSearchStrategy(/"[^"]*"|\w+/), 'x "y z'],
-      ["with alternatives that could still grow", new RegexSearchStrategy(/a+b|a/), "aaab aa"],
+      [
+        "with matches settled at chunk boundaries",
+        new RegexSearchStrategy(/\d+/),
+        "a1b22c333"
+      ],
+      [
+        "with a stray quote holding back the rest",
+        new RegexSearchStrategy(/"[^"]*"|\w+/),
+        'x "y z'
+      ],
+      [
+        "with alternatives that could still grow",
+        new RegexSearchStrategy(/a+b|a/),
+        "aaab aa"
+      ],
       ["with a lookahead", new RegexSearchStrategy(/\w(?=!)/), "a! b!c"]
     ])(
       "leaves whatever it has not reported for flush, at whichever match it stops, and carries on from there, %s",
@@ -1551,7 +1602,10 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
       const reported = processChunkResults(strategy, 'x "y z', state);
 
-      strategy.settle(state, sinkInto(reported, () => false));
+      strategy.settle(
+        state,
+        sinkInto(reported, () => false)
+      );
 
       expect(reported.map((result) => getValue(result)).join("")).toBe('x "y');
       expect(strategy.flush(state)).toBe(" z");
@@ -1561,11 +1615,18 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/"[^"]*"|\w+/);
       const state = strategy.createState();
       processChunkResults(strategy, 'x "y z', state);
-      strategy.settle(state, sinkInto([], () => false));
+      strategy.settle(
+        state,
+        sinkInto([], () => false)
+      );
 
       expect(settleResults(strategy, state)).toEqual([
         { isMatch: false, content: " " },
-        { isMatch: true, content: expect.arrayContaining(["z"]), streamIndices: [5, 6] }
+        {
+          isMatch: true,
+          content: expect.arrayContaining(["z"]),
+          streamIndices: [5, 6]
+        }
       ]);
       expect(strategy.flush(state)).toBe("");
     });
@@ -1627,7 +1688,11 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/OLD/);
       const state = strategy.createState();
 
-      const results1 = processChunkResults(strategy, "chunk1 no matches ", state);
+      const results1 = processChunkResults(
+        strategy,
+        "chunk1 no matches ",
+        state
+      );
       const results2 = processChunkResults(strategy, "chunk2 OLD end", state);
       const results = [...results1, ...results2];
 
@@ -1890,7 +1955,11 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/(?<word>\w+)|(?<num>\d+)/d);
       const state = strategy.createState();
 
-      const results = processChunkResults(strategy, "prefix hello suffix", state);
+      const results = processChunkResults(
+        strategy,
+        "prefix hello suffix",
+        state
+      );
       const match = results.find((r) => r.isMatch);
       const indices = match!.content.indices!;
       // "word" group matched, "num" group undefined
@@ -1903,13 +1972,21 @@ describe("RegexSearchStrategy", () => {
       const state = strategy.createState();
 
       // Stream 1: match at position 7
-      const results1 = processChunkResults(strategy, "prefix hello suffix", state);
+      const results1 = processChunkResults(
+        strategy,
+        "prefix hello suffix",
+        state
+      );
       strategy.flush(state);
       const match1 = results1.find((r) => r.isMatch);
       expect(match1).toMatchObject({ streamIndices: [7, 12] });
 
       // Stream 2: reuse state after flush — indices should start from 0 again
-      const results2 = processChunkResults(strategy, "prefix hello suffix", state);
+      const results2 = processChunkResults(
+        strategy,
+        "prefix hello suffix",
+        state
+      );
       strategy.flush(state);
       const match2 = results2.find((r) => r.isMatch);
       expect(match2).toMatchObject({ streamIndices: [7, 12] });
@@ -2151,14 +2228,20 @@ describe("RegexSearchStrategy", () => {
 
       it("matches as unsplit when the chunk ends 64 characters into the backreference", () => {
         expect(
-          segmentsOf(new RegexSearchStrategy(pattern), splitIntoBackreference(64))
+          segmentsOf(
+            new RegexSearchStrategy(pattern),
+            splitIntoBackreference(64)
+          )
         ).toEqual([{ isMatch: true, text: haystack }]);
       });
 
       it("matches differently when the chunk ends 65 characters into it", () => {
         const run = "a".repeat(65);
         expect(
-          segmentsOf(new RegexSearchStrategy(pattern), splitIntoBackreference(65))
+          segmentsOf(
+            new RegexSearchStrategy(pattern),
+            splitIntoBackreference(65)
+          )
         ).toEqual([
           { isMatch: false, text: "a".repeat(35) },
           { isMatch: true, text: `${run}-${run}` },
@@ -2297,10 +2380,11 @@ describe("RegexSearchStrategy", () => {
 
     describe("chunk boundaries", () => {
       it("buffers a nullable pattern split mid-token, rather than advancing past the zero-length match and destroying a match more input would have completed", () => {
-        const { results, settled, settledResults } = collectSearchStrategyResults(
-          new RegexSearchStrategy(/(ab)?/),
-          ["a", "b"]
-        );
+        const { results, settled, settledResults } =
+          collectSearchStrategyResults(new RegexSearchStrategy(/(ab)?/), [
+            "a",
+            "b"
+          ]);
         expect(matchesOf([...results, ...settledResults])).toEqual(["ab"]);
         expect(reassemble(results, settled)).toBe("ab");
       });
@@ -2337,7 +2421,9 @@ describe("RegexSearchStrategy", () => {
 
         for (let i = 1; i < input.length; i++) {
           const chunks = [input.slice(0, i), input.slice(i)];
-          expect(allMatchesOf(/\d*/, chunks)).toEqual(allMatchesOf(/\d+/, chunks));
+          expect(allMatchesOf(/\d*/, chunks)).toEqual(
+            allMatchesOf(/\d+/, chunks)
+          );
         }
       });
 
@@ -2395,10 +2481,15 @@ describe("RegexSearchStrategy", () => {
         (pattern) => {
           for (const chunks of [[input], [...input]]) {
             const { results, settled, settledResults } =
-              collectSearchStrategyResults(new RegexSearchStrategy(pattern), chunks);
+              collectSearchStrategyResults(
+                new RegexSearchStrategy(pattern),
+                chunks
+              );
 
             expect(
-              segmentsOf([...results, ...settledResults]).filter(splitsSurrogatePair)
+              segmentsOf([...results, ...settledResults]).filter(
+                splitsSurrogatePair
+              )
             ).toEqual([]);
             expect(reassemble(results, settled)).toBe(input);
           }
@@ -2485,25 +2576,25 @@ describe("RegexSearchStrategy", () => {
       }
     });
 
-    it.each(["minCandidateLengthToBackOff", "bufferGrowthFactorBetweenEvaluations"])(
-      "keeps the default when %s is passed as undefined",
-      (option) => {
-        const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
-        const scansWith = (options: RegexSearchStrategyOptions) => {
-          exec.mockClear();
-          collectSearchStrategyResults(
-            new RegexSearchStrategy(/\S+/, options),
-            inChunks(unbrokenRun)
-          );
-          return exec.mock.calls.length;
-        };
-        try {
-          expect(scansWith({ [option]: undefined })).toBe(scansWith({}));
-        } finally {
-          exec.mockRestore();
-        }
+    it.each([
+      "minCandidateLengthToBackOff",
+      "bufferGrowthFactorBetweenEvaluations"
+    ])("keeps the default when %s is passed as undefined", (option) => {
+      const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
+      const scansWith = (options: RegexSearchStrategyOptions) => {
+        exec.mockClear();
+        collectSearchStrategyResults(
+          new RegexSearchStrategy(/\S+/, options),
+          inChunks(unbrokenRun)
+        );
+        return exec.mock.calls.length;
+      };
+      try {
+        expect(scansWith({ [option]: undefined })).toBe(scansWith({}));
+      } finally {
+        exec.mockRestore();
       }
-    );
+    });
 
     it("scans less often when given a larger growth factor", () => {
       const exec = vi.spyOn(PartialMatchRegExp.prototype, "exec");
@@ -2548,7 +2639,7 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/\S+/, { onGuardExceeded });
       const state = strategy.createState();
       for (const chunk of chunks) processChunkResults(strategy, chunk, state);
-      expect(state.buffer).toBe(unbrokenRun);
+      expect(state.held.text).toBe(unbrokenRun);
       expect(onGuardExceeded).not.toHaveBeenCalled();
     });
 
@@ -2574,7 +2665,10 @@ describe("RegexSearchStrategy", () => {
 
     it("searches an 8 MiB candidate arriving as one chunk under the default, rather than overflowing the stack", () => {
       const input = "a-".repeat(4 * 1024 * 1024);
-      const { output } = collectSearchStrategyResults(new RegexSearchStrategy(/(?:\w|-)+/), [input]);
+      const { output } = collectSearchStrategyResults(
+        new RegexSearchStrategy(/(?:\w|-)+/),
+        [input]
+      );
 
       expect(output).toBe(input);
     });
@@ -2589,11 +2683,13 @@ describe("RegexSearchStrategy", () => {
       let peakBuffer = 0;
       for (const chunk of chunks) {
         processChunkResults(strategy, chunk, state);
-        peakBuffer = Math.max(peakBuffer, state.buffer.length);
+        peakBuffer = Math.max(peakBuffer, state.held.text.length);
       }
       expect(peakBuffer).toBeLessThanOrEqual(MAX_BUFFER_LENGTH);
       expect(onGuardExceeded).toHaveBeenCalledTimes(2);
-      expect(matchesOf(settleResults(strategy, state))).toEqual(["a".repeat(50)]);
+      expect(matchesOf(settleResults(strategy, state))).toEqual([
+        "a".repeat(50)
+      ]);
     });
 
     it.each([
@@ -2625,8 +2721,10 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/\S+/, {
         maxBufferLength: MAX_BUFFER_LENGTH
       });
-      const { results, settledResults, output } =
-        collectSearchStrategyResults(strategy, chunks);
+      const { results, settledResults, output } = collectSearchStrategyResults(
+        strategy,
+        chunks
+      );
       expect(output).toBe(unbrokenRun);
       for (const result of [...results, ...settledResults]) {
         if (!result.isMatch) continue;
@@ -2653,7 +2751,11 @@ describe("RegexSearchStrategy", () => {
       const strategy = new RegexSearchStrategy(/a.*?b/, { maxBufferLength: 3 });
       const state = strategy.createState();
       const results: MatchResult<StreamRegexMatch>[] = [];
-      strategy.processChunk(input, state, sinkInto(results, () => false));
+      strategy.processChunk(
+        input,
+        state,
+        sinkInto(results, () => false)
+      );
       const reported = results.map(getValue).join("");
       expect(reported).toBe("aXXb aXb");
       expect(reported + strategy.flush(state)).toBe(input);
@@ -2666,7 +2768,8 @@ describe("RegexSearchStrategy", () => {
         bufferGrowthFactorBetweenEvaluations: 100
       });
       const state = strategy.createState();
-      for (const chunk of ["xx", "x😀"]) processChunkResults(strategy, chunk, state);
+      for (const chunk of ["xx", "x😀"])
+        processChunkResults(strategy, chunk, state);
       const reported = processChunkResults(strategy, "a ", state).map(getValue);
       expect(reported).toEqual(["a", " "]);
     });
@@ -2685,51 +2788,232 @@ describe("RegexSearchStrategy", () => {
       new RegexSearchStrategy(pattern, options);
 
     it.each([
-      ["a match at the limit", /\{\{[^{}]*\}\}/, 8, "a{{1234}}b", [asText("a"), asMatch("{{1234}}"), asText("b")], 0],
-      ["a match one over the limit, whose rest cannot match", /\{\{[^{}]*\}\}/, 8, "a{{12345}}b", [asText("a{{12345}}b")], 1],
-      ["a candidate that fails past the limit, then a match after it", /\{\{[^{}]*\}\}/, 4, "{{xxx{{}}", [asText("{{xxx"), asMatch("{{}}")], 1],
-      ["a run released the limit at a time", /\S+/, 5, "abcdefghij klm", [asText("abcde"), asMatch("fghij"), asText(" "), asMatch("klm")], 1],
-      ["runs released more than once", /\S+/, 5, "x abcdefghijklm nopqrstu v", [asMatch("x"), asText(" abcdefghij"), asMatch("klm"), asText(" nopqr"), asMatch("stu"), asText(" "), asMatch("v")], 3],
-      ["a run longer than the limit, whose rest matches", /\S+/, 4, "abcdefg hij", [asText("abcd"), asMatch("efg"), asText(" "), asMatch("hij")], 1],
-      ["a run longer than the limit at the end of the stream", /\S+/, 4, "ab abcdefg", [asMatch("ab"), asText(" abcd"), asMatch("efg")], 1],
-      ["an alternative's run longer than the limit", /a+|b+/, 3, "aaaab bb", [asText("aaa"), asMatch("a"), asMatch("b"), asText(" "), asMatch("bb")], 1],
-      ["a greedy body longer than the limit", /a.*b/, 3, "axxb ab", [asText("axxb "), asMatch("ab")], 1],
-      ["a lazy body longer than the limit", /a.*?b/, 3, "axxb ab", [asText("axxb "), asMatch("ab")], 1],
-      ["a match starting inside a released candidate", /<[^>]*>/, 4, "<abcd<g>", [asText("<abcd"), asMatch("<g>")], 1],
-      ["a quoted string over the limit, whose closing quote then pairs with the next", /"[^"]*"/, 3, '"ab" "abcd" "x"', [asText('"ab'), asMatch('" "'), asText("abcd"), asMatch('" "'), asText('x"')], 1],
-      ["a quoted backreference over the limit, whose closing quote then opens a candidate", /(["'])(.*?)\1/, 4, `"ab" 'abcd' "x"`, [asMatch('"ab"'), asText(` 'abcd' "x"`)], 2],
-      ["a lookahead read past the limit", /\d+(?=px)/, 3, "1234px 12px", [asText("123"), asMatch("4"), asText("px "), asMatch("12"), asText("px")], 1],
-      ["a pending alternative read past the limit", /a(?:xxxy|)/, 3, "axxxz", [asText("axxxz")], 1],
-      ["a pending alternative read past the limit, in a pattern with a backreference", /a(?:bc|)|(x)\1/, 1, "abz", [asText("abz")], 1],
-      ["a repeated backreference over the limit", /(a)\1+/, 3, "aaaab aaa", [asText("aaaab "), asMatch("aaa")], 1],
-      ["a match ending inside a surrogate pair, over the limit", /a./, 1, "a😀b", [asText("a😀b")], 1],
-      ["a zero-length match after a release", /a*/, 2, "aaabaa ", [asText("aa"), asMatch("a"), asText("b"), asMatch("aa"), asText(" ")], 1],
-      ["a limit of zero, under which nothing matches", /\S+/, 0, "ab c", [asText("ab c")], 3]
+      [
+        "a match at the limit",
+        /\{\{[^{}]*\}\}/,
+        8,
+        "a{{1234}}b",
+        [asText("a"), asMatch("{{1234}}"), asText("b")],
+        0
+      ],
+      [
+        "a match one over the limit, whose rest cannot match",
+        /\{\{[^{}]*\}\}/,
+        8,
+        "a{{12345}}b",
+        [asText("a{{12345}}b")],
+        1
+      ],
+      [
+        "a candidate that fails past the limit, then a match after it",
+        /\{\{[^{}]*\}\}/,
+        4,
+        "{{xxx{{}}",
+        [asText("{{xxx"), asMatch("{{}}")],
+        1
+      ],
+      [
+        "a run released the limit at a time",
+        /\S+/,
+        5,
+        "abcdefghij klm",
+        [asText("abcde"), asMatch("fghij"), asText(" "), asMatch("klm")],
+        1
+      ],
+      [
+        "runs released more than once",
+        /\S+/,
+        5,
+        "x abcdefghijklm nopqrstu v",
+        [
+          asMatch("x"),
+          asText(" abcdefghij"),
+          asMatch("klm"),
+          asText(" nopqr"),
+          asMatch("stu"),
+          asText(" "),
+          asMatch("v")
+        ],
+        3
+      ],
+      [
+        "a run longer than the limit, whose rest matches",
+        /\S+/,
+        4,
+        "abcdefg hij",
+        [asText("abcd"), asMatch("efg"), asText(" "), asMatch("hij")],
+        1
+      ],
+      [
+        "a run longer than the limit at the end of the stream",
+        /\S+/,
+        4,
+        "ab abcdefg",
+        [asMatch("ab"), asText(" abcd"), asMatch("efg")],
+        1
+      ],
+      [
+        "an alternative's run longer than the limit",
+        /a+|b+/,
+        3,
+        "aaaab bb",
+        [asText("aaa"), asMatch("a"), asMatch("b"), asText(" "), asMatch("bb")],
+        1
+      ],
+      [
+        "a greedy body longer than the limit",
+        /a.*b/,
+        3,
+        "axxb ab",
+        [asText("axxb "), asMatch("ab")],
+        1
+      ],
+      [
+        "a lazy body longer than the limit",
+        /a.*?b/,
+        3,
+        "axxb ab",
+        [asText("axxb "), asMatch("ab")],
+        1
+      ],
+      [
+        "a match starting inside a released candidate",
+        /<[^>]*>/,
+        4,
+        "<abcd<g>",
+        [asText("<abcd"), asMatch("<g>")],
+        1
+      ],
+      [
+        "a quoted string over the limit, whose closing quote then pairs with the next",
+        /"[^"]*"/,
+        3,
+        '"ab" "abcd" "x"',
+        [
+          asText('"ab'),
+          asMatch('" "'),
+          asText("abcd"),
+          asMatch('" "'),
+          asText('x"')
+        ],
+        1
+      ],
+      [
+        "a quoted backreference over the limit, whose closing quote then opens a candidate",
+        /(["'])(.*?)\1/,
+        4,
+        `"ab" 'abcd' "x"`,
+        [asMatch('"ab"'), asText(` 'abcd' "x"`)],
+        2
+      ],
+      [
+        "a lookahead read past the limit",
+        /\d+(?=px)/,
+        3,
+        "1234px 12px",
+        [
+          asText("123"),
+          asMatch("4"),
+          asText("px "),
+          asMatch("12"),
+          asText("px")
+        ],
+        1
+      ],
+      [
+        "a pending alternative read past the limit",
+        /a(?:xxxy|)/,
+        3,
+        "axxxz",
+        [asText("axxxz")],
+        1
+      ],
+      [
+        "a pending alternative read past the limit, in a pattern with a backreference",
+        /a(?:bc|)|(x)\1/,
+        1,
+        "abz",
+        [asText("abz")],
+        1
+      ],
+      [
+        "a repeated backreference over the limit",
+        /(a)\1+/,
+        3,
+        "aaaab aaa",
+        [asText("aaaab "), asMatch("aaa")],
+        1
+      ],
+      [
+        "a match ending inside a surrogate pair, over the limit",
+        /a./,
+        1,
+        "a😀b",
+        [asText("a😀b")],
+        1
+      ],
+      [
+        "a zero-length match after a release",
+        /a*/,
+        2,
+        "aaabaa ",
+        [asText("aa"), asMatch("a"), asText("b"), asMatch("aa"), asText(" ")],
+        1
+      ],
+      [
+        "a limit of zero, under which nothing matches",
+        /\S+/,
+        0,
+        "ab c",
+        [asText("ab c")],
+        3
+      ]
     ])(
       "decides %s the same however the input is split",
       (_label, pattern, maxBufferLength, input, segments, calls) => {
         for (const chunks of everySplitOf(input)) {
           const onGuardExceeded = vi.fn();
-          const strategy = create(pattern)({ maxBufferLength, onGuardExceeded });
+          const strategy = create(pattern)({
+            maxBufferLength,
+            onGuardExceeded
+          });
           expect(
-            { ...collectCanonicalSearchStrategyResults(strategy, chunks), calls: onGuardExceeded.mock.calls },
+            {
+              ...collectCanonicalSearchStrategyResults(strategy, chunks),
+              calls: onGuardExceeded.mock.calls
+            },
             chunks.join("|")
-          ).toEqual({ segments, output: input, calls: Array.from({ length: calls }, () => []) });
+          ).toEqual({
+            segments,
+            output: input,
+            calls: Array.from({ length: calls }, () => [])
+          });
         }
       }
     );
 
     it.each([
       ["releasing a candidate", "😀😀😀", 3, [asText("😀😀"), asMatch("😀")]],
-      ["ending the window it searches", "a😀😀", 2, [asText("a😀"), asMatch("😀")]]
-    ])("never cuts a surrogate pair when %s", (_label, input, maxBufferLength, expected) => {
-      for (const chunks of splitsOnCodePoints(input)) {
-        expect(
-          collectCanonicalSearchStrategyResults(create(/😀+/u)({ maxBufferLength }), chunks).segments,
-          chunks.join("|")
-        ).toEqual(expected);
+      [
+        "ending the window it searches",
+        "a😀😀",
+        2,
+        [asText("a😀"), asMatch("😀")]
+      ]
+    ])(
+      "never cuts a surrogate pair when %s",
+      (_label, input, maxBufferLength, expected) => {
+        for (const chunks of splitsOnCodePoints(input)) {
+          expect(
+            collectCanonicalSearchStrategyResults(
+              create(/😀+/u)({ maxBufferLength }),
+              chunks
+            ).segments,
+            chunks.join("|")
+          ).toEqual(expected);
+        }
       }
-    });
+    );
 
     describe("with a backreference", () => {
       const lead = ".".repeat(36);
@@ -2740,27 +3024,50 @@ describe("RegexSearchStrategy", () => {
 
       it("settles a shorter match unsplit where a search window ends more than 64 code units into what it repeats, as a chunk ending there would", () => {
         expect(
-          collectCanonicalSearchStrategyResults(create(/(\w+)-\1/)({ maxBufferLength: 201 }), [input]).segments
-        ).toEqual([asText(lead + "a".repeat(35)), asMatch("a".repeat(65) + "-" + "a".repeat(65)), asText("a".repeat(35) + tail)]);
+          collectCanonicalSearchStrategyResults(
+            create(/(\w+)-\1/)({ maxBufferLength: 201 }),
+            [input]
+          ).segments
+        ).toEqual([
+          asText(lead + "a".repeat(35)),
+          asMatch("a".repeat(65) + "-" + "a".repeat(65)),
+          asText("a".repeat(35) + tail)
+        ]);
       });
 
       it.each([
-        ["a quote character", /(["'])[^"']*\1/, `'${"lorem ipsum ".repeat(100)}'`],
-        ["a tag name", /<(\w+)>[^<]*<\/\1>/, `<section>${"lorem ipsum ".repeat(100)}</section>`]
-      ])("finds a match repeating %s around a long body however the input is split", (_label, pattern, match) => {
-        const text = `${lead}${match}${tail}`;
-        for (const chunks of [[text], ...everyTwoWaySplit(text)]) {
-          expect(
-            collectCanonicalSearchStrategyResults(create(pattern)({ maxBufferLength: 1250 }), chunks).segments,
-            `split after ${chunks[0].length}`
-          ).toEqual([asText(lead), asMatch(match), asText(tail)]);
+        [
+          "a quote character",
+          /(["'])[^"']*\1/,
+          `'${"lorem ipsum ".repeat(100)}'`
+        ],
+        [
+          "a tag name",
+          /<(\w+)>[^<]*<\/\1>/,
+          `<section>${"lorem ipsum ".repeat(100)}</section>`
+        ]
+      ])(
+        "finds a match repeating %s around a long body however the input is split",
+        (_label, pattern, match) => {
+          const text = `${lead}${match}${tail}`;
+          for (const chunks of [[text], ...everyTwoWaySplit(text)]) {
+            expect(
+              collectCanonicalSearchStrategyResults(
+                create(pattern)({ maxBufferLength: 1250 }),
+                chunks
+              ).segments,
+              `split after ${chunks[0].length}`
+            ).toEqual([asText(lead), asMatch(match), asText(tail)]);
+          }
         }
-      });
+      );
     });
 
     it("defaults to a limit of 64 Ki code units, releasing a longer run and matching the rest", () => {
       const matchesIn = (length: number) =>
-        collectSearchStrategyResults(new RegexSearchStrategy(/\S+/), [`${"x".repeat(length)} `])
+        collectSearchStrategyResults(new RegexSearchStrategy(/\S+/), [
+          `${"x".repeat(length)} `
+        ])
           .results.filter((result) => result.isMatch)
           .map((result) => getValue(result).length);
 

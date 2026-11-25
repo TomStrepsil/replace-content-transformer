@@ -404,7 +404,7 @@ describe("BalancedPairSearchStrategy", () => {
 
       [...processChunkResults(strategy, "((inner)", state)];
 
-      expect(state.buffer).toBe("((inner)");
+      expect(state.held.text).toBe("((inner)");
       expect(state.matchConsumedLength).toBe(8);
     });
 
@@ -474,7 +474,8 @@ describe("BalancedPairSearchStrategy", () => {
       ["delimiters that overlap one another", "ab", "ba", 4, "abba abxba", [asMatch("abba"), asText(" abxba")], 1],
       ["multi-character delimiters past the limit", "<a", "b>", 5, "<a<ab>b> <ab>", [asText("<a<ab>b> "), asMatch("<ab>")], 1],
       ["a partial opening held at the end of the stream", "<!--", "-->", 7, "x<!-", [asText("x<!-")], 0],
-      ["a pair opened right after a release, counted afresh", "(", ")", 3, "(()(()", [asText("(()(()")], 2]
+      ["a pair opened right after a release, counted afresh", "(", ")", 3, "(()(()", [asText("(()(()")], 2],
+      ["a pair after a release that left two openings unclosed, counted afresh", "(", ")", 5, "(((a)b(x)", [asText("(((a)b"), asMatch("(x)")], 1]
     ])(
       "decides %s the same however the input is split",
       (_label, opening, closing, maxBufferLength, input, segments, calls) => {

@@ -286,18 +286,23 @@ See [Quantified atoms](https://github.com/TomStrepsil/regex-partial-match/blob/m
 
 ```typescript
 type RegexSearchState = {
-  buffer: string; // Buffered content for a partial match
+  /** Content received but not yet reported, and its position in the stream */
+  held: Readonly<HeldText<StreamRegexMatch>>;
+  /** Buffer length, in code units, at the last scan of the held-back content */
+  evaluatedBufferLength: number;
 };
 ```
 
+`held` is shared with the anchor strategies. It joins each chunk to what it holds, reports text and matches to the engine's sink in order, and after each scan keeps exactly what is unreported, with its stream offset, even if the scan or a sink call throws. `evaluatedBufferLength` decides when a long candidate is next re-scanned (see [Unbounded Quantifiers](#️-unbounded-quantifiers)).
+
 **State transitions:**
 
-- **Initial:** `buffer = ""`
-- **Complete match found:** Clear buffer, emit match
-- **Partial match detected:** Buffer matched portion
-- **No match (complete or partial):** Emit content as non-match
-- **Settle:** Settle the buffer — emit any matches it still holds, then any trailing content
-- **Flush:** Return the buffer as it is, and clear it
+- **Initial:** `held` is empty, `evaluatedBufferLength = 0`
+- **Complete match found:** Report the match, hold nothing before it
+- **Partial match detected:** Hold the matched portion
+- **No match (complete or partial):** Report content as non-match
+- **Settle:** Settle what is held — report any matches it still holds, then any trailing content
+- **Flush:** Return everything held, and clear it
 
 ## Limitations
 

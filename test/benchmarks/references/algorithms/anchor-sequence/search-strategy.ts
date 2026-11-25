@@ -1,5 +1,5 @@
-import type { MatchSink, SearchStrategy, StringBufferState } from "../../../../../src/search-strategies/types.ts";
-import StringBufferStrategyBase from "../../../../../src/search-strategies/string-buffer-strategy-base.ts";
+import type { MatchSink, SearchStrategy } from "../../../../../src/search-strategies/types.ts";
+import StringBufferStrategyBase, { type StringBufferState } from "../../string-buffer-strategy-base.ts";
 import settleOrFlush from "../../../../../src/search-strategies/settle-or-flush.ts";
 
 export interface AnchorSequenceSearchState<TState> extends StringBufferState {

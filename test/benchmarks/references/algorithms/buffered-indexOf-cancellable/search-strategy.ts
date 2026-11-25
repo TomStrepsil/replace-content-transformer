@@ -1,5 +1,5 @@
 import type { MatchSink, SearchStrategy } from "../../../../../src/search-strategies/types.ts";
-import StringBufferStrategyBase from "../../../../../src/search-strategies/string-buffer-strategy-base.ts";
+import StringBufferStrategyBase from "../../string-buffer-strategy-base.ts";
 
 export type BufferedIndexOfCancellableSearchState = {
   buffer: string;

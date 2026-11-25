@@ -1,22 +1,30 @@
-import type {
-  BufferGuardOptions,
-  MatchSink,
-  SearchStrategy,
-  StringBufferState
-} from "../types.js";
-import StringBufferStrategyBase from "../string-buffer-strategy-base.js";
+import type { BufferGuardOptions, MatchSink, SearchStrategy } from "../types.js";
+import HeldText from "../held-text.js";
 import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
 import partialMatchLength from "./partial-match-length.js";
 import validateNeedles from "./validate-needles.js";
-import joinText from "../join-text.js";
 
 /** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}. */
-export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
+export type LoopedIndexOfAnchoredSearchState = {
+  /** Content received but not yet reported, and its position in the stream */
+  held: Readonly<HeldText>;
   /** Index of the current needle being matched in a multi-needle sequence */
   currentNeedleIndex: number;
-  /** Length of the buffered partial match already consumed by earlier anchors */
+  /** Length of the held partial match already consumed by earlier anchors */
   matchConsumedLength: number;
 };
+
+export const acceptMatch = Symbol("acceptMatch");
+
+export type AcceptMatch<TState extends LoopedIndexOfAnchoredSearchState> = (
+  state: TState,
+  matchStart: number,
+  searched: string
+) => boolean;
+
+export type AnchorOptions<
+  TState extends LoopedIndexOfAnchoredSearchState = LoopedIndexOfAnchoredSearchState
+> = BufferGuardOptions & { [acceptMatch]?: AcceptMatch<TState> };
 
 /**
  * A search strategy for finding sequences of strings (anchors) that must appear
@@ -39,21 +47,21 @@ export type LoopedIndexOfAnchoredSearchState = StringBufferState & {
  * `undefined` selects the default.
  */
 export class LoopedIndexOfAnchoredSearchStrategy
-  extends StringBufferStrategyBase
   implements SearchStrategy<LoopedIndexOfAnchoredSearchState>
 {
   private readonly needles: string[];
   private readonly guard: BufferGuard;
+  private readonly acceptMatch: AcceptMatch<LoopedIndexOfAnchoredSearchState> | undefined;
 
   constructor(needles: string[], options?: BufferGuardOptions) {
-    super();
     validateNeedles(needles);
     this.needles = [...needles];
     this.guard = bufferGuard(options, needles.join("").length);
+    this.acceptMatch = (options as AnchorOptions | undefined)?.[acceptMatch];
   }
 
   createState(): LoopedIndexOfAnchoredSearchState {
-    return { ...super.createState(), currentNeedleIndex: 0, matchConsumedLength: 0 };
+    return { held: new HeldText(), currentNeedleIndex: 0, matchConsumedLength: 0 };
   }
 
   processChunk(
@@ -61,68 +69,70 @@ export class LoopedIndexOfAnchoredSearchStrategy
     state: LoopedIndexOfAnchoredSearchState,
     sink: MatchSink
   ): undefined {
-    const bufferLength = state.buffer.length;
-    const baseOffset = state.streamOffset - bufferLength;
-    haystack = joinText(state.buffer, haystack);
-    const length = haystack.length;
-    let position = state.matchConsumedLength;
-    let matchStartPosition = 0;
-    try {
-      for (;;) {
-        const currentNeedle = this.needles[state.currentNeedleIndex];
-        let index: number;
-        if (state.currentNeedleIndex === 0) {
-          index = haystack.indexOf(currentNeedle, position);
-          if (index === -1) {
-            const resumeAt =
-              length - partialMatchLength(haystack, currentNeedle, length - position);
-            const nonMatch = haystack.slice(position, resumeAt);
-            position = resumeAt;
-            if (nonMatch) sink.reportText(nonMatch);
-            return;
-          }
-          if (index > position) {
-            const nonMatch = haystack.slice(position, index);
-            position = index;
-            sink.reportText(nonMatch);
-          }
-          matchStartPosition = index;
-        } else {
-          const limit = matchStartPosition + this.guard.maxBufferLength;
-          const window = limit < length ? haystack.slice(0, limit) : haystack;
-          index = window.indexOf(currentNeedle, position);
-          if (index === -1) {
-            if (length < limit) return;
-            const releasedTo = this.guard.release(haystack, matchStartPosition);
-            const nonMatch = haystack.slice(matchStartPosition, releasedTo);
-            state.currentNeedleIndex = 0;
-            position = releasedTo;
-            sink.reportText(nonMatch);
-            continue;
-          }
-        }
-
-        position = index + currentNeedle.length;
-        state.currentNeedleIndex =
-          (state.currentNeedleIndex + 1) % this.needles.length;
-        if (state.currentNeedleIndex === 0) {
-          const match = haystack.slice(matchStartPosition, position);
-          if (!sink.reportMatch(match, [baseOffset + matchStartPosition, baseOffset + position])) {
-            return;
-          }
-        }
-      }
-    } finally {
-      const isMidMatch = state.currentNeedleIndex > 0;
-      state.matchConsumedLength = isMidMatch ? position - matchStartPosition : 0;
-      state.buffer = haystack.slice(isMidMatch ? matchStartPosition : position);
-      state.streamOffset += haystack.length - bufferLength;
-    }
+    state.held.scan(haystack, sink, () => this.scan(state));
   }
 
   flush(state: LoopedIndexOfAnchoredSearchState): string {
     state.currentNeedleIndex = 0;
     state.matchConsumedLength = 0;
-    return super.flush(state);
+    return state.held.flush();
+  }
+
+  matchToString(match: string): string {
+    return match;
+  }
+
+  private rejects(
+    accept: AcceptMatch<LoopedIndexOfAnchoredSearchState>,
+    state: LoopedIndexOfAnchoredSearchState,
+    searchedFrom: number,
+    to: number
+  ): boolean {
+    const { held } = state;
+    return !accept(state, held.streamIndex(held.reportedTo), held.text.slice(searchedFrom, to));
+  }
+
+  private scan(state: LoopedIndexOfAnchoredSearchState): void {
+    const { held } = state;
+    const { text } = held;
+    const length = text.length;
+    let position = state.matchConsumedLength;
+    state.matchConsumedLength = 0;
+    for (;;) {
+      const currentNeedle = this.needles[state.currentNeedleIndex];
+      let index: number;
+      if (state.currentNeedleIndex === 0) {
+        index = text.indexOf(currentNeedle, position);
+        if (index === -1) {
+          held.reportText(length - partialMatchLength(text, currentNeedle, length - position));
+          return;
+        }
+        held.reportText(index);
+      } else {
+        const limit = held.reportedTo + this.guard.maxBufferLength;
+        const window = limit < length ? text.slice(0, limit) : text;
+        index = window.indexOf(currentNeedle, position);
+        if (index === -1) {
+          if (length < limit) {
+            state.matchConsumedLength = position - held.reportedTo;
+            return;
+          }
+          state.currentNeedleIndex = 0;
+          position = this.guard.release(text, held.reportedTo);
+          held.reportText(position);
+          continue;
+        }
+      }
+
+      const searchedFrom = position;
+      position = index + currentNeedle.length;
+      state.currentNeedleIndex = (state.currentNeedleIndex + 1) % this.needles.length;
+      if (state.currentNeedleIndex !== 0) continue;
+      if (this.acceptMatch !== undefined && this.rejects(this.acceptMatch, state, searchedFrom, position)) {
+        state.currentNeedleIndex = this.needles.length - 1;
+        continue;
+      }
+      if (!held.reportMatch(text.slice(held.reportedTo, position), position)) return;
+    }
   }
 }

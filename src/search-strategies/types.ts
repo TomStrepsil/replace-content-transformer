@@ -119,8 +119,3 @@ export type BufferGuardOptions = {
    */
   onGuardExceeded?: () => void;
 };
-
-export type StringBufferState = {
-  buffer: string;
-  streamOffset: number;
-};

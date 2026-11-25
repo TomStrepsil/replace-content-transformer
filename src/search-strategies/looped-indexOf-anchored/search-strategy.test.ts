@@ -113,7 +113,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     // Process first chunk - ends with 'a', not '{', so no buffering
     const results1 = processChunkResults(strategy, "chunk ends with a", state);
-    expect(state.buffer).toBe("");
+    expect(state.held.text).toBe("");
     expect(results1).toEqual([{ isMatch: false, content: "chunk ends with a" }]);
 
     // Process second chunk - no buffered content to prepend
@@ -127,7 +127,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
 
     // Process chunk ending with partial match
     const results1 = processChunkResults(strategy, "text ends with {", state);
-    expect(state.buffer).toBe("{");
+    expect(state.held.text).toBe("{");
     expect(results1).toEqual([{ isMatch: false, content: "text ends with " }]);
 
     // Complete the match
@@ -235,8 +235,7 @@ describe("LoopedIndexOfAnchoredSearchStrategy", () => {
     it("holds a match continued from an earlier chunk", () => {
       const strategy = new LoopedIndexOfAnchoredSearchStrategy(["{{", "}}"]);
       const state = strategy.createState();
-      state.buffer = "{{";
-      state.currentNeedleIndex = 1;
+      processChunkResults(strategy, "{{", state);
 
       expect(processChunkResults(strategy, "middle", state)).toEqual([]);
 

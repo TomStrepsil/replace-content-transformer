@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The string search strategies share one module for the content they hold back, so `RegexSearchState` holds it in a `held` field, in place of `buffer` and `streamOffset`
+
 ### Fixed
 
 - Fixed `RegexSearchStrategy` and `LeanRegexSearchStrategy` returning held-back content twice from `flush` after a chunk's scan throws, such as on a stack overflow from a very long candidate

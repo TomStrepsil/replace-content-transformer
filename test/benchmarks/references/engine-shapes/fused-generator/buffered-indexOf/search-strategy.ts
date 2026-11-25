@@ -1,5 +1,4 @@
-import type { StringBufferState } from "../../../../../../src/search-strategies/types.ts";
-import StringBufferStrategyBase from "../../../../../../src/search-strategies/string-buffer-strategy-base.ts";
+import StringBufferStrategyBase, { type StringBufferState } from "../../../string-buffer-strategy-base.ts";
 import type { ReplacementContext } from "../../../../../../src/engines/types.ts";
 import { neverAborted } from "../../never-aborted.ts";
 
