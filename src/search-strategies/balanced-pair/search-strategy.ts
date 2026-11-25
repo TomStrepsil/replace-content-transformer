@@ -6,8 +6,11 @@ import {
 } from "../looped-indexOf-anchored/search-strategy.js";
 import type { BufferGuardOptions, MatchSink, SearchStrategy } from "../types.js";
 
+declare const balancedPairSearchStateBrand: unique symbol;
+
 /** Per-stream state for {@link BalancedPairSearchStrategy}, internal to it. */
 export type BalancedPairSearchState = LoopedIndexOfAnchoredSearchState & {
+  readonly [balancedPairSearchStateBrand]?: never;
   /** Stream index of the opening delimiter whose pair is being balanced, or -1 @internal */
   pairStart: number;
   /** Number of opening delimiters currently awaiting a closing delimiter @internal */

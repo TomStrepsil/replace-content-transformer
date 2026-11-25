@@ -4,8 +4,11 @@ import bufferGuard, { type BufferGuard } from "../buffer-guard.js";
 import partialMatchLength from "./partial-match-length.js";
 import validateNeedles from "./validate-needles.js";
 
+declare const anchorSearchStateBrand: unique symbol;
+
 /** Per-stream state for {@link LoopedIndexOfAnchoredSearchStrategy}, internal to it. */
 export type LoopedIndexOfAnchoredSearchState = {
+  readonly [anchorSearchStateBrand]?: never;
   /** Content received but not yet reported, and its position in the stream @internal */
   held: Readonly<HeldText>;
   /** Index of the current needle being matched in a multi-needle sequence @internal */
