@@ -58,7 +58,7 @@ export class BalancedPairSearchStrategy implements SearchStrategy<BalancedPairSe
     this.opening = opening;
     const anchorOptions: AnchorOptions<BalancedPairSearchState> = {
       ...options,
-      [acceptMatch]: (state, pairStart, searched) => this.isBalanced(state, pairStart, searched)
+      [acceptMatch]: (state, pairStart, searched) => this.updateNestingLevel(state, pairStart, searched) === 0
     };
     this.anchorStrategy = new LoopedIndexOfAnchoredSearchStrategy([opening, closing], anchorOptions);
   }
@@ -92,12 +92,11 @@ export class BalancedPairSearchStrategy implements SearchStrategy<BalancedPairSe
     return count;
   }
 
-  private isBalanced(state: BalancedPairSearchState, pairStart: number, searched: string): boolean {
+  private updateNestingLevel(state: BalancedPairSearchState, pairStart: number, searched: string): number {
     if (state.pairStart !== pairStart) {
       state.pairStart = pairStart;
       state.nestingLevel = 1;
     }
-    state.nestingLevel += this.countOpenings(searched) - 1;
-    return state.nestingLevel === 0;
+    return (state.nestingLevel += this.countOpenings(searched) - 1);
   }
 }

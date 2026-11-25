@@ -50,7 +50,7 @@ Anchor strategy alone:
 ```typescript
 const anchorOptions: AnchorOptions<BalancedPairSearchState> = {
   ...options,
-  [acceptMatch]: (state, pairStart, searched) => this.isBalanced(state, pairStart, searched)
+  [acceptMatch]: (state, pairStart, searched) => this.updateNestingLevel(state, pairStart, searched) === 0
 };
 this.anchorStrategy = new LoopedIndexOfAnchoredSearchStrategy([opening, closing], anchorOptions);
 ```
@@ -66,8 +66,7 @@ if (state.pairStart !== pairStart) {
   state.pairStart = pairStart;
   state.nestingLevel = 1;
 }
-state.nestingLevel += this.countOpenings(searched) - 1;
-return state.nestingLevel === 0;
+return (state.nestingLevel += this.countOpenings(searched) - 1);
 ```
 
 `countOpenings` is a `while`/`indexOf` loop over that stretch.
